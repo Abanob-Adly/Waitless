@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waitless Ticket</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="output.css">
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-[#F6F5F2] min-h-screen flex flex-col font-body">
+    <nav class="bg-navy w-full px-6 py-4 flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div
+          class="bg-gold text-navy w-8 h-8 rounded flex items-center justify-center"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2.5"
+              d="M3 12h4l3-8 4 16 3-8h4"
+            ></path>
+          </svg>
+        </div>
+        <span class="text-white font-display font-bold text-xl tracking-wide"
+          >Waitless</span
+        >
+      </div>
+      <div class="text-gray-300 text-sm font-medium">Ahmed Mohamed</div>
+    </nav>
+
+    <main class="flex-grow flex flex-col items-center justify-center p-4">
+      <div class="flex items-center gap-2 mb-6">
+        <span
+          class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"
+        ></span>
+        <span class="text-gray-400 text-sm font-medium"
+          >Live queue · syncing in real-time</span
+        >
+      </div>
+
+      <div
+        class="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 w-full max-w-sm"
+      >
+        <div class="flex justify-between items-start mb-8">
+          <div>
+            <h2 class="font-display font-bold text-xl text-navy">
+              Dr. Layla Hassan
+            </h2>
+            <p class="text-xs text-gray-500 mt-1">Cardiology · Maadi Clinic</p>
+          </div>
+          <div
+            class="bg-green-50 text-green-600 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5"
+          >
+            <span
+              class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"
+            ></span>
+            Live
+          </div>
+        </div>
+
+        <div class="flex flex-col items-center mb-8">
+          <div
+            class="w-32 h-32 rounded-full border-2 border-dashed border-gold-light flex items-center justify-center p-1"
+          >
+            <div
+              class="bg-gold-tint w-full h-full rounded-full flex items-center justify-center"
+            >
+              <span
+                id="current-number"
+                class="font-display font-bold text-5xl text-navy"
+                >3</span
+              >
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-4">Your position in queue</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mb-6">
+          <div class="bg-[#F9F9F8] rounded-2xl p-4 text-center">
+            <p class="text-gold font-bold text-xl mb-1" id="wait-time">~36m</p>
+            <p class="text-[10px] text-gray-400 uppercase tracking-wide">
+              Estimated wait
+            </p>
+          </div>
+          <div class="bg-[#F9F9F8] rounded-2xl p-4 text-center">
+            <p class="text-navy font-bold text-xl mb-1">350 EGP</p>
+            <p class="text-[10px] text-gray-400 uppercase tracking-wide">
+              Consult fee
+            </p>
+          </div>
+        </div>
+
+        <div class="w-full bg-gray-100 rounded-full h-1.5 mb-6">
+          <div class="bg-gold h-1.5 rounded-full w-[60%]"></div>
+        </div>
+
+        <button
+          class="w-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors py-3.5 rounded-xl text-sm font-semibold border border-red-100"
+        >
+          Cancel My Booking
+        </button>
+      </div>
+    </main>
+
+    <script src="./queueLogic.js"></script>
+  </body>
+</html>
