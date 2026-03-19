@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waitless UI Kit - Standard Edition</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy:    { DEFAULT: '#0A1628', hover: '#122040' },
+            gold:    { DEFAULT: '#C9922A', light: '#E8B84B', tint: '#FDF3DC' },
+            success: { DEFAULT: '#10B981', bg: '#D1FAE5' },
+            danger:  { DEFAULT: '#EF4444', bg: '#FEE2E2' },
+            warning: { DEFAULT: '#F59E0B', bg: '#FEF3C7' },
+            grayborder: '#E5E7EB',
+            offwhite:   '#F9F5E9',
+          },
+          fontFamily: {
+            display: ['"Playfair Display"', 'serif'],
+            body:    ['"DM Sans"', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /*  FOCUS TOKENS  */
+    .focus-ring:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #C9922A;
+      border-color: #C9922A;
+    }
+    .focus-ring-error:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #EF4444;
+      border-color: #EF4444;
+    }
+
+    /*  DISABLED TOKEN  */
+    .disabled-state {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /*  CARD HOVER  */
+    .card-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+
+    /*  AVATAR COLOR UTILITY  */
+    .avatar[data-color="0"] { background-color: #EEF2FF; color: #4F46E5; }
+    .avatar[data-color="1"] { background-color: #F5F3FF; color: #7C3AED; }
+    .avatar[data-color="2"] { background-color: #FDF2F8; color: #BE185D; }
+    .avatar[data-color="3"] { background-color: #ECFDF5; color: #059669; }
+    .avatar[data-color="4"] { background-color: #FFF7ED; color: #C2410C; }
+    .avatar[data-color="5"] { background-color: #EFF6FF; color: #1D4ED8; }
+
+    /*  LIVE DOT PULSE  */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1;   transform: scale(1);   }
+      50%       { opacity: 0.5; transform: scale(1.5); }
+    }
+    .live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+    /*  PAGE LOAD STAGGER */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0);    }
+    }
+    .fade-up { opacity: 0; animation: fadeUp 0.5s ease forwards; }
+    .fade-up:nth-child(1) { animation-delay: 0.05s; }
+    .fade-up:nth-child(2) { animation-delay: 0.15s; }
+    .fade-up:nth-child(3) { animation-delay: 0.25s; }
+    .fade-up:nth-child(4) { animation-delay: 0.35s; }
+    .fade-up:nth-child(5) { animation-delay: 0.45s; }
+    .fade-up:nth-child(6) { animation-delay: 0.55s; }
+  </style>
+</head>
+
+<body class="bg-gold-tint p-6 md:p-12 font-body text-navy min-h-screen">
+  <div class="max-w-6xl mx-auto space-y-16">
+
+    <!-- HEADER -->
+    <header class="border-b border-gray-200 pb-6 fade-up">
+      <h1 class="text-4xl font-display font-bold">Waitless UI Components Library</h1>
+      <p class="text-gray-500 mt-2 text-sm uppercase tracking-widest font-bold">Internal Design System v1.1</p>
+      <div class="mt-6 flex flex-wrap gap-6 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+        <span class="flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-gold"></span> Focus ring: Gold #C9922A
+        </span>
+        <span class="flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-danger"></span> Error ring: Danger #EF4444
+        </span>
+        <span class="flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-gray-300"></span> Disabled opacity: 50%
+        </span>
+      </div>
+    </header>
+
+
+    <!-- ── 1. BUTTONS  -->
+    <section class="fade-up">
+      <div class="mb-6">
+        <h2 class="text-2xl font-display font-bold">1. Buttons</h2>
+        <p class="text-gray-500 text-sm">Unified focus ring token • Consistent disabled opacity</p>
+      </div>
+
+      <div class="bg-white/30 p-8 rounded-2xl border border-gray-100 space-y-8">
+
+        <div>
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-4">Core Variants</p>
+          <div class="flex flex-wrap gap-4 items-center">
+            <button class="bg-navy text-white px-8 py-3 rounded-lg font-bold hover:bg-navy-hover transition-all duration-200 focus-ring">
+              Primary
+            </button>
+            <button class="bg-transparent text-gold px-8 py-3 rounded-lg font-bold border-2 border-gold hover:bg-gold hover:text-white transition-all duration-200 focus-ring">
+              Secondary
+            </button>
+            <button class="bg-transparent text-navy px-8 py-3 rounded-lg font-bold border-2 border-navy/20 hover:border-navy hover:bg-navy/5 transition-all duration-200 focus-ring">
+              Ghost
+            </button>
+            <button class="bg-danger text-white px-8 py-3 rounded-lg font-bold hover:bg-red-600 transition-all duration-200 focus-ring">
+              Danger
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-4">States</p>
+          <div class="flex flex-wrap gap-4 items-center">
+            <button disabled class="disabled-state bg-gold text-white px-8 py-3 rounded-lg font-bold flex items-center gap-3">
+              <svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+              </svg>
+              Loading…
+            </button>
+            <button disabled class="disabled-state bg-navy text-white px-8 py-3 rounded-lg font-bold">Disabled Primary</button>
+            <button disabled class="disabled-state bg-transparent text-gold px-8 py-3 rounded-lg font-bold border-2 border-gold">Disabled Secondary</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!--  2. BADGES & STATUS INDICATORS  -->
+    <section class="fade-up">
+      <div class="mb-6">
+        <h2 class="font-display italic text-[22px] font-bold text-gray-800 leading-tight">
+          Badges &amp; Status Indicators
+        </h2>
+        <p class="text-gray-400 text-[13px] mt-1">
+          Used across Doctor Cards, Queue Table, Booking History
+        </p>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-4">
+
+        <!-- LEFT CARD — DOCTOR / SPECIALTY BADGES -->
+        <div class="bg-white rounded-xl border border-gray-200 p-4 flex-1">
+          <p class="text-[9px] font-bold text-gray-400 uppercase tracking-[0.18em] mb-3">
+            Doctor / Specialty Badges
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-[#EEF2FF] text-[#4F46E5] text-[11px] font-bold leading-none">Cardiology</span>
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-[#F0FDFA] text-[#0D9488] text-[11px] font-bold leading-none">Dermatology</span>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFFBEB] text-[#B45309] text-[11px] font-bold leading-none">
+              <span class=" w-1.5 h-1.5 rounded-full bg-[#B45309] shrink-0"></span>
+              Available Today
+            </span>
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#D1FAE5] text-[#1A7A4A] text-[11px] font-bold leading-none">
+              <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
+              Verified
+            </span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-[11px] font-bold leading-none">14 yrs exp</span>
+          </div>
+        </div>
+
+        <!-- RIGHT CARD — APPOINTMENT STATUS -->
+        <div class="bg-white rounded-xl border border-gray-200 p-4 flex-1">
+          <p class="text-[9px] font-bold text-gray-400 uppercase tracking-[0.18em] mb-3">
+            Appointment Status
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFFBEB] text-[#B45309] text-[11px] font-bold leading-none">
+              <span class="live-dot w-1.5 h-1.5 rounded-full bg-[#B45309] shrink-0"></span>
+              Waiting
+            </span>
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-[#FDF3DC] text-[#C9922A] text-[11px] font-bold leading-none">In Session</span>
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#D1FAE5] text-[#1A7A4A] text-[11px] font-bold leading-none">
+              <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
+              Confirmed
+            </span>
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#FEE2E2] text-[#C0392B] text-[11px] font-bold leading-none">
+              <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+              No Show
+            </span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-400 text-[11px] font-bold leading-none">Completed</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="border-b border-gray-200 mt-8"></div>
+    </section>
+
+<!--  2. STATUS BADGES -->
+    <section class="fade-up">
+      <h2 class="text-2xl font-display font-bold mb-6">2.  My New Status Badges</h2>
+      <div class="flex flex-wrap gap-4 bg-white/30 p-8 rounded-2xl border border-gray-100">
+        <span class="bg-success-bg text-success px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider">
+          Completed
+        </span>
+        <span class="bg-warning-bg text-warning px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider">
+          Waiting
+        </span>
+        <span class="bg-danger-bg text-danger px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider">
+          Cancelled
+        </span>
+      </div>
+    </section>
+
+    <!-- 3. FORM INPUTS  -->
+    <section class="fade-up">
+      <div class="mb-6">
+        <h2 class="text-2xl font-display font-bold">3. Form Inputs</h2>
+        <p class="text-gray-500 text-sm">Unified focus-ring + focus-ring-error tokens • Consistent disabled opacity</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+        <div class="bg-white p-8 rounded-[24px] border border-gray-100 shadow-sm space-y-6">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em]">Default & Focus States</p>
+          <div>
+            <label class="block text-sm font-bold text-navy mb-1.5">Full Name <span class="text-gold">*</span></label>
+            <input type="text" placeholder="Dr. Ahmed Yousef"
+                   class="w-full bg-[#FBFBFB] border border-grayborder rounded-lg px-4 py-3 focus-ring transition-all duration-200">
+          </div>
+          <div class="relative">
+            <label class="block text-sm font-bold text-navy mb-1.5">Specialty</label>
+            <select class="w-full bg-[#FBFBFB] border border-grayborder rounded-lg px-4 py-3 focus-ring transition-all duration-200 appearance-none">
+              <option>Cardiology</option>
+              <option>Dermatology</option>
+            </select>
+            <div class="absolute right-4 bottom-4 pointer-events-none text-gray-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-8 rounded-[24px] border border-gray-100 shadow-sm space-y-6">
+          <p class="text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em]">Error & Disabled States</p>
+          <div>
+            <label class="block text-sm font-bold text-navy mb-1.5">Email Address <span class="text-gold">*</span></label>
+            <input type="email" value="not-valid-email"
+                   class="w-full bg-[#FBFBFB] border border-danger text-danger rounded-lg px-4 py-3 focus-ring-error transition-all duration-200">
+            <p class="text-danger text-[11px] mt-1.5 font-medium flex items-center gap-1">
+              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+              Please enter a valid email address
+            </p>
+          </div>
+          <div>
+            <label class="block text-sm font-bold text-gray-400 mb-1.5 uppercase text-[11px] tracking-wider">Disabled Field</label>
+            <input type="text" disabled value="Not editable"
+                   class="disabled-state w-full bg-gray-50 border border-gray-100 rounded-lg px-4 py-3 italic text-gray-400">
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- 4. DOCTOR CARDS  -->
+    <section class="fade-up">
+      <div class="mb-6">
+        <h2 class="text-2xl font-display font-bold text-navy">4. Doctor Cards</h2>
+        <p class="text-gray-500 text-sm">Deterministic avatar colors • Interactive hover states</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
+
+        <div data-name="Layla Hassan"
+             class="group bg-white rounded-[24px] p-6 border border-transparent shadow-sm hover:shadow-xl hover:border-gold hover:-translate-y-[2px] card-transition cursor-pointer">
+          <div class="flex items-start gap-4 mb-4">
+            <div class="avatar w-16 h-16 rounded-full flex items-center justify-center font-display text-xl font-bold shrink-0">LH</div>
+            <div class="flex-1 pt-1">
+              <h3 class="font-display text-xl font-bold text-navy leading-tight">Dr. Layla Hassan</h3>
+              <p class="text-sm text-gray-400 font-medium">Consultant Cardiologist</p>
+              <div class="flex items-center gap-1 mt-1.5 text-gold">
+                <span class="text-sm">★★★★★</span>
+                <span class="text-[11px] text-gray-400 font-bold ml-1">4.9 (312)</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 mb-8">
+            <span class="bg-[#F0F2FF] text-[#4F46E5] px-4 py-1.5 rounded-full text-[11px] font-bold">Cardiology</span>
+            <span class="bg-[#FFFBEB] text-[#B45309] px-4 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5">
+              <span class=" w-1.5 h-1.5 rounded-full bg-[#B45309]"></span> Today
+            </span>
+          </div>
+          <div class="flex justify-between items-baseline">
+            <div class="flex items-baseline gap-1">
+              <span class="font-display font-bold text-[28px] text-gold leading-none">350</span>
+              <span class="text-[12px] font-bold text-gray-400 uppercase tracking-tighter">EGP</span>
+            </div>
+            <span class="text-[12px] text-gray-400 font-medium">Maadi +1</span>
+          </div>
+        </div>
+
+        <div data-name="Omar Farouk"
+             class="group bg-white rounded-[24px] p-6 border border-transparent shadow-sm hover:shadow-xl hover:border-gold hover:-translate-y-[2px] card-transition cursor-pointer">
+          <div class="flex items-start gap-4 mb-4">
+            <div class="avatar w-16 h-16 rounded-full flex items-center justify-center font-display text-xl font-bold shrink-0">OF</div>
+            <div class="flex-1 pt-1">
+              <h3 class="font-display text-xl font-bold text-navy leading-tight">Dr. Omar Farouk</h3>
+              <p class="text-sm text-gray-400 font-medium">Senior Dermatologist</p>
+              <div class="flex items-center gap-1 mt-1.5 text-gold">
+                <span class="text-sm">★★★★</span><span class="text-sm text-gray-200">★</span>
+                <span class="text-[11px] text-gray-400 font-bold ml-1">4.8 (526)</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 mb-8">
+            <span class="bg-[#F0FDFA] text-[#0D9488] px-4 py-1.5 rounded-full text-[11px] font-bold">Dermatology</span>
+            <span class="bg-[#F0FDF4] text-[#16A34A] px-4 py-1.5 rounded-full text-[11px] font-bold">Available</span>
+          </div>
+          <div class="flex justify-between items-baseline">
+            <div class="flex items-baseline gap-1">
+              <span class="font-display font-bold text-[28px] text-gold leading-none">250</span>
+              <span class="text-[12px] font-bold text-gray-400 uppercase tracking-tighter">EGP</span>
+            </div>
+            <span class="text-[12px] text-gray-400 font-medium">Heliopolis</span>
+          </div>
+        </div>
+
+        <div data-name="Sara Mahmoud"
+             class="group bg-white rounded-[24px] p-6 border border-transparent shadow-sm hover:shadow-xl hover:border-gold hover:-translate-y-[2px] card-transition cursor-pointer">
+          <div class="flex items-start gap-4 mb-4">
+         <div class="w-16 h-16 rounded-full shrink-0 overflow-hidden">
+              <img
+               src="https://randomuser.me/api/portraits/women/44.jpg"
+               alt="Dr. Sara Mahmoud"
+              class="w-full h-full object-cover object-center"
+               />
+            </div>
+            <div class="flex-1 pt-1">
+              <h3 class="font-display text-xl font-bold text-navy leading-tight">Dr. Sara Mahmoud</h3>
+              <p class="text-sm text-gray-400 font-medium">Pediatric Specialist</p>
+              <div class="flex items-center gap-1 mt-1.5 text-gold">
+                <span class="text-sm">★★★★★</span>
+                <span class="text-[11px] text-gray-400 font-bold ml-1">5.0 (88)</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 mb-8">
+            <span class="bg-[#FDF2F8] text-[#BE185D] px-4 py-1.5 rounded-full text-[11px] font-bold">Pediatrics</span>
+            <span class="bg-[#FFFBEB] text-[#B45309] px-4 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5">
+              <span class=" w-1.5 h-1.5 rounded-full bg-[#B45309]"></span> Tomorrow
+            </span>
+          </div>
+          <div class="flex justify-between items-baseline">
+            <div class="flex items-baseline gap-1">
+              <span class="font-display font-bold text-[28px] text-gold leading-none">300</span>
+              <span class="text-[12px] font-bold text-gray-400 uppercase tracking-tighter">EGP</span>
+            </div>
+            <span class="text-[12px] text-gray-400 font-medium">Zamalek</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div><!-- /max-w-6xl -->
+  
+<!-- ─ AVATAR COLOR UTILITY (JS) 
+       Reads data-name on each card, hashes it to 0–5,
+       then sets data-color on the .avatar inside that card.
+       CSS does the rest. Fully deterministic — same name = same color. -->
+  
+<script>
+    function hashName(name) {
+      let h = 0;
+      for (let i = 0; i < name.length; i++) {
+        h = (h * 31 + name.charCodeAt(i)) >>> 0;
+      }
+      return h % 6;
+    }
+
+    document.querySelectorAll('[data-name]').forEach(card => {
+      const avatar = card.querySelector('.avatar');
+      if (avatar) {
+        avatar.setAttribute('data-color', hashName(card.dataset.name));
+      }
+    });
+  </script>
+
+</body>
+</html>
