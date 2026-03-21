@@ -39,28 +39,32 @@ export function updateUI() {
 function renderPatientTable() {
   const tbody = document.getElementById("patient-table-body");
   tbody.innerHTML = state.patients
-    .map(
-      (p) => `
-    <tr class="transition-colors duration-150 hover:bg-gold-tint border-b border-b-gray">
-      <td class="px-5 py-3.5">
-        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0 ${numColor(p)}">${p.id}</span>
-      </td>
-      <td class="px-4 py-3.5">
-        <div class="font-medium text-navy flex items-center gap-2">
-          ${p.name}
-          ${p.walkin ? walkInBadge() : ""}
-        </div>
-        <div class="text-xs text-txt-gray">${p.type}</div>
-      </td>
-      <td class="px-4 py-3.5 text-txt-gray">${p.phone ?? "—"}</td>
-      <td class="px-4 py-3.5 text-txt-gray">${p.joined}</td>
-      <td class="px-4 py-3.5 text-txt-gray font-medium">${p.wait}</td>
-      <td class="px-4 py-3.5">${statusBadge(p.status)}</td>
-      <td class="px-4 py-3.5">${actionBtn(p)}</td>
-    </tr>
-  `
-    )
-    .join("");
+    .map(function (p)
+    {
+      var color;
+      if(p.wait !== 'Now')
+        color = 'black';
+      else
+        color = 'our-green font-bold';
+    
+      return `<tr class="transition-colors duration-150 hover:bg-gold-tint border-b border-b-gray">
+        <td class="px-5  py-3.5">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0 ${numColor(p)}">${p.id}</span>
+        </td>
+        <td class="px-4 py-3.5">
+          <div class="font-medium text-navy flex items-center gap-2">
+            ${p.name}
+            ${p.walkin ? walkInBadge() : ""}
+          </div>
+          <div class="text-xs text-txt-gray">${p.type}</div>
+        </td>
+        <td class="px-4 py-3.5 text-txt-gray">${p.phone ?? "—"}</td>
+        <td class="px-4 py-3.5 text-txt-gray">${p.joined}</td>
+        <td class="px-4 py-3.5 text-${color} font-medium">${p.wait}</td>
+        <td class="px-4 py-3.5">${statusBadge(p.status)}</td>
+        <td class="px-4 py-3.5">${actionBtn(p)}</td>
+      </tr>`
+    }).join("");
 }
 
 function renderSidebarQueue() {
