@@ -1,0 +1,12 @@
+################# How To Run Tailwind V4 ################# 
+
+See: https://tailwindcss.com/docs/installation/tailwind-cli
+
+- Install 'node_modules' for first time:
+    npm install tailwindcss @tailwindcss/cli
+
+To start:
+  1. Make sure you are in 
+        cd 'Waitless platform\Phase1-VanillaJS-MVP'
+  2. Excute:
+        npx @tailwindcss/cli -i ./src/input.css -o ./src/output.css --watch

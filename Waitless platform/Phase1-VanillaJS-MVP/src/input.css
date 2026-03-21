@@ -1,3 +1,24 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import "tailwindcss";
+@import "./Dashboard/index.css"; /*include your css paths here*/
+
+@theme {
+  /* Custom Colors */
+  --color-navy: #0A1628;
+  --color-navy-hover: #122040;
+  
+  --color-gold: #C9922A;
+  --color-gold-light: #E8B84B;
+  --color-gold-tint: #FDF3DC;
+
+  --color-our-green: #1A7A4A;
+  --color-our-red: #C0392B;
+  --color-offWhite: #F8F6F0 ;
+  --color-b-gray: #DDD8CC;
+  --color-txt-gray: #9ca3af;
+  --color-page-background: #F8F6F0;
+
+  /* Custom Fonts */
+  --font-display: "Playfair Display", serif;
+  --font-body: "DM Sans", sans-serif;
+}
