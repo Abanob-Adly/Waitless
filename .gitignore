@@ -1,5 +1,3 @@
 node_modules/
-
-# for future folders
 .env
 dist/

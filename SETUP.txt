@@ -1,0 +1,11 @@
+1. Open your terminal and make sure you're in the right directory.
+
+2. Download dependencies:
+    npm install
+
+3. Run service:
+    npm run dev 
+
+- note i'm using nodemon with backend for auto refresh
+
+
