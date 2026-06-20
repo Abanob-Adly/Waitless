@@ -14,6 +14,7 @@ Main state machines:
     Notification
 
 
+
 1. Account
 
 - Purpose: Represents a login identity in the system.
@@ -26,7 +27,7 @@ State	                Meaning
 pending_verification    Account created but phone/email is not verified yet
 active                  Account can log in and use the system
 deactivated             User or admin disabled the account
-deleted                 Soft-deleted account, usually not physically removed immediately
+deletedA                Soft-deleted account, usually not physically removed immediately
 
 
 
@@ -36,7 +37,7 @@ State	        Meaning
 ------------------------
 active	        Organization can use the system
 suspended	    Organization temporarily blocked
-deleted	        Soft-deleted organization
+deletedAt       Soft-deleted organization
 
 
 
@@ -46,10 +47,10 @@ State	        Meaning
 ------------------------
 active	        Worker can access the organization
 suspended	    Worker temporarily blocked from this organization
-deleted	        Worker no longer belongs to the organization
+removed	        Worker no longer belongs to the organization
 
 Important Rule:
-    A deleted membership should usually be soft-deleted, not physically deleted.
+    A removed membership should usually be soft-deleted, not physically deleted.
     because of Audit history, Past appointments,..
 
 
@@ -88,7 +89,6 @@ State	        Meaning
 ------------------------
 active	        Doctor can receive appointments and queue sessions
 inactive	    Doctor temporarily hidden/unavailable
-suspended	    Doctor blocked from organization by admin
 removed	        Doctor no longer works at that branch
 
 
@@ -98,7 +98,6 @@ State	        Meaning
 ------------------------
 active	    Schedule is used for availability
 inactive	Schedule exists but is disabled
-deleted	    Soft-deleted schedule
 
 
 
@@ -108,12 +107,10 @@ State	        Meaning
 ------------------------
 booked	        Appointment created
 checked_in	    Patient arrived at clinic
-in_queue	    Appointment has queue ticket
 in_progress	    Visit started
 completed	    Visit completed
 cancelled	    Appointment cancelled
 no_show	        Patient did not appear
-rescheduled	    Appointment moved to another date/time
 
 
 
@@ -145,11 +142,8 @@ cancelled	    Payment cancelled before completion
 10. Review
 
 States:
-    pending
     published
     hidden
-    reported
-    deleted
 Rules
     Review can only be created for a completed appointment.
     One review per appointment.
@@ -162,8 +156,5 @@ Rules
 State	        Meaning
 ------------------------
 pending	        Notification created
-queued	        Waiting for background worker
 sent	        Sent to provider
-delivered	    Provider confirmed delivery
 failed	        Sending failed
-cancelled	    Notification cancelled before sending
