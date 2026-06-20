@@ -1,0 +1,54 @@
+############################# Entities
+Account
+
+Organization
+Branch
+Invitation
+OrganizationMembership
+Subscription
+SubscriptionPlan
+
+PatientProfile
+
+DoctorProfile
+DoctorAssignment
+DoctorSchedule
+
+Appointment
+Review
+
+Payment
+Invoice
+
+Notification
+ScheduleException
+AuditLog
+
+
+############################# Relations
+Account
+  ├── PatientProfile
+  ├── DoctorProfile
+  └── OrganizationMembership
+
+Organization
+  ├── Branch
+  ├── OrganizationMembership
+  ├── DoctorAssignment
+  ├── Appointment
+  ├── Subscription
+  └── Notification
+
+DoctorAssignment
+  ├── DoctorSchedule
+  ├── ScheduleException
+  └── Appointment
+
+Appointment
+  ├── PatientProfile
+  ├── DoctorAssignment
+  ├── Review
+  └── Payment
+
+Payment
+  └──Invoice

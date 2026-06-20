@@ -1,0 +1,72 @@
+1. Invitation Flow:
+    Organization Admin
+        ↓
+    Creates Invitation
+        ↓
+    worker clicks invite link
+        ↓
+    worker creates Account or logs in
+        ↓
+    worker account accept invite
+        ↓
+    System creates OrganizationMembership
+        ↓
+    If role = doctor, user can complete DoctorProfile
+Tables involved:
+    Invitation
+    Account
+    OrganizationMembership
+    DoctorProfile optional
+
+2 Add Doctor to Branch Flow
+    Admin selects account with doctor membership
+        ↓
+    Admin selects branch
+        ↓
+    Admin configures fee, duration, booking settings
+        ↓
+    Admin creates DoctorAssignment
+        ↓
+    Admin creates DoctorSchedule
+Tables involved:
+    Account
+    DoctorProfile
+    DoctorAssignment
+    DoctorSchedule
+    ScheduleException
+
+3. Walk-In Patient Flow
+    Patient arrives
+        ↓
+    Receptionist creates/selects PatientProfile
+        ↓
+    Receptionist selects doctor
+        ↓
+    Go to "Queue Management Flow"
+Tables involved:
+    PatientProfile
+    Appointment
+    Notification
+
+4. Marketplace Booking Flow
+    user searches marketplace
+        ↓
+    Selects doctor/clinic/branch/schedule
+        ↓
+    Go to "Queue Management Flow"
+
+
+5. Queue Management Flow
+    Patient/Receptionist selects doctor schedule
+        ↓
+    System gets last queue number
+        ↓
+    System assigns next queue number
+        ↓
+    System creates Appointment
+        ↓
+    System pushes appointment ID to Redis queue
+        ↓
+    Patient can see queue details in appointments page
+    Walik-in receives queue page link by WhatsApp
+

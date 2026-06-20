@@ -1,0 +1,169 @@
+State Machine Document
+This document defines the lifecycle states for major entities in the Waitless system.
+Main state machines:
+    Account
+    Organization
+    OrganizationMembership
+    Invitation
+    DoctorAssignment
+    DoctorSchedule
+    Appointment
+    Subscription
+    Payment
+    Review
+    Notification
+
+
+1. Account
+
+- Purpose: Represents a login identity in the system.
+- An account can be:
+    Patient
+    Worker
+
+State	                Meaning
+--------------------------------
+pending_verification    Account created but phone/email is not verified yet
+active                  Account can log in and use the system
+deactivated             User or admin disabled the account
+deleted                 Soft-deleted account, usually not physically removed immediately
+
+
+
+2. Organization
+
+State	        Meaning
+------------------------
+active	        Organization can use the system
+suspended	    Organization temporarily blocked
+deleted	        Soft-deleted organization
+
+
+
+3. OrganizationMembership
+
+State	        Meaning
+------------------------
+active	        Worker can access the organization
+suspended	    Worker temporarily blocked from this organization
+deleted	        Worker no longer belongs to the organization
+
+Important Rule:
+    A deleted membership should usually be soft-deleted, not physically deleted.
+    because of Audit history, Past appointments,..
+
+
+
+4. Invitation
+
+State	        Meaning
+------------------------
+pending	        Invitation was sent and can still be accepted
+accepted	    Worker accepted the invitation
+rejected	    Worker rejected the invitation
+expired	        Invitation expired before being accepted
+cancelled	    Admin cancelled the invitation
+
+Once terminal, invitation should not change except by platform admin correction.
+
+Important Acceptance Rule
+On acceptance:
+    Validate invitation is pending.
+    Validate not expired.
+    Validate account matches one of:
+    invited_account_id
+    invited_email
+    invited_phone
+    Create OrganizationMembership.
+    Mark invitation as accepted.
+
+
+
+5. DoctorAssignment
+
+- Represents:
+    Doctor works at this branch in this organization.
+
+State	        Meaning
+------------------------
+active	        Doctor can receive appointments and queue sessions
+inactive	    Doctor temporarily hidden/unavailable
+suspended	    Doctor blocked from organization by admin
+removed	        Doctor no longer works at that branch
+
+
+
+6. DoctorSchedule
+State	        Meaning
+------------------------
+active	    Schedule is used for availability
+inactive	Schedule exists but is disabled
+deleted	    Soft-deleted schedule
+
+
+
+7 Appointment
+
+State	        Meaning
+------------------------
+booked	        Appointment created
+checked_in	    Patient arrived at clinic
+in_queue	    Appointment has queue ticket
+in_progress	    Visit started
+completed	    Visit completed
+cancelled	    Appointment cancelled
+no_show	        Patient did not appear
+rescheduled	    Appointment moved to another date/time
+
+
+
+8 Subscription
+
+State	        Meaning
+------------------------
+trial	        Organization is in free trial
+active	        Subscription is paid and active
+past_due	    Payment failed or overdue
+cancelled	    Organization cancelled subscription
+expired	        Subscription ended
+
+
+
+9 Payment
+
+State	        Meaning
+------------------------
+pending	        Payment created but not processed
+processing	    Payment provider is processing
+paid	        Payment completed
+failed	        Payment failed
+refunded	    Payment refunded
+cancelled	    Payment cancelled before completion
+
+
+
+10. Review
+
+States:
+    pending
+    published
+    hidden
+    reported
+    deleted
+Rules
+    Review can only be created for a completed appointment.
+    One review per appointment.
+    Admin/platform can hide or delete inappropriate reviews.
+
+
+
+11 Notification
+
+State	        Meaning
+------------------------
+pending	        Notification created
+queued	        Waiting for background worker
+sent	        Sent to provider
+delivered	    Provider confirmed delivery
+failed	        Sending failed
+cancelled	    Notification cancelled before sending
