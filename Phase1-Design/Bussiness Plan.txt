@@ -19,3 +19,13 @@ Overall system edge:
     accurate wait times
     fewer fake schedules
     better patient trust
+
+
+Use stripped billing: (Paymob)
+
+Note: 
+Patients don't book a specified time (8:30pm) but they know that doctor comes from 5 to 10pm for example,
+and that there are 3 people who booked appointments before them (whether through marketplace or at that branch) 
+so they become the 4 at the queue and any future appointments will be after them. when there turn come if they 
+didn't show up within 5 minutes the next patient enters if they didn't show up again the appointment gets 
+cancelled and they have to book again. so patients must arrive as early as possible (we can help them with eastimated time)

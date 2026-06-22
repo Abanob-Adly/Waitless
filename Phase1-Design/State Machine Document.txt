@@ -27,7 +27,7 @@ State	                Meaning
 pending_verification    Account created but phone/email is not verified yet
 active                  Account can log in and use the system
 deactivated             User or admin disabled the account
-deletedA                Soft-deleted account, usually not physically removed immediately
+deletedAt               Soft-deleted account, usually not physically removed immediately
 
 
 
@@ -41,46 +41,22 @@ deletedAt       Soft-deleted organization
 
 
 
-3. OrganizationMembership
+3. Membership
 
 State	        Meaning
 ------------------------
+pending	        membership invitation was sent and can still be accepted
 active	        Worker can access the organization
 suspended	    Worker temporarily blocked from this organization
-removed	        Worker no longer belongs to the organization
+revoked	        Worker no longer belongs to the organization
 
 Important Rule:
-    A removed membership should usually be soft-deleted, not physically deleted.
+    A revoked membership should usually be soft-deleted, not physically deleted.
     because of Audit history, Past appointments,..
 
 
 
-4. Invitation
-
-State	        Meaning
-------------------------
-pending	        Invitation was sent and can still be accepted
-accepted	    Worker accepted the invitation
-rejected	    Worker rejected the invitation
-expired	        Invitation expired before being accepted
-cancelled	    Admin cancelled the invitation
-
-Once terminal, invitation should not change except by platform admin correction.
-
-Important Acceptance Rule
-On acceptance:
-    Validate invitation is pending.
-    Validate not expired.
-    Validate account matches one of:
-    invited_account_id
-    invited_email
-    invited_phone
-    Create OrganizationMembership.
-    Mark invitation as accepted.
-
-
-
-5. DoctorAssignment
+5. DoctorBranchSchedule
 
 - Represents:
     Doctor works at this branch in this organization.
@@ -88,25 +64,16 @@ On acceptance:
 State	        Meaning
 ------------------------
 active	        Doctor can receive appointments and queue sessions
-inactive	    Doctor temporarily hidden/unavailable
-removed	        Doctor no longer works at that branch
+inactive	    Doctor hidden/unavailable/removed
 
 
-
-6. DoctorSchedule
-State	        Meaning
-------------------------
-active	    Schedule is used for availability
-inactive	Schedule exists but is disabled
-
-
-
-7 Appointment
+6. Appointment
 
 State	        Meaning
 ------------------------
-booked	        Appointment created
-checked_in	    Patient arrived at clinic
+booked          created, waiting for session day
+called          it's their turn, 5-min window running
+skipped         missed first call, deprioritized once
 in_progress	    Visit started
 completed	    Visit completed
 cancelled	    Appointment cancelled
@@ -114,7 +81,7 @@ no_show	        Patient did not appear
 
 
 
-8 Subscription
+7. Subscription
 
 State	        Meaning
 ------------------------
@@ -126,20 +93,7 @@ expired	        Subscription ended
 
 
 
-9 Payment
-
-State	        Meaning
-------------------------
-pending	        Payment created but not processed
-processing	    Payment provider is processing
-paid	        Payment completed
-failed	        Payment failed
-refunded	    Payment refunded
-cancelled	    Payment cancelled before completion
-
-
-
-10. Review
+9. Review
 
 States:
     published
@@ -151,7 +105,7 @@ Rules
 
 
 
-11 Notification
+10. Notification
 
 State	        Meaning
 ------------------------

@@ -1,0 +1,25 @@
+// models/subscriptionPlan.model.js
+import mongoose from 'mongoose';
+const { Schema } = mongoose;
+
+const subscriptionPlanSchema = new Schema({
+  name:        { type: String, required: true, unique: true },
+  description: { type: String },
+
+  priceMonthly: { type: Number, required: true, min: 0 },
+  yearlyDiscount :  { type: Number, min: 0 },
+  currency:     { type: String, default: 'EGP' },
+
+  // Plan limits (embedded — read with the plan)
+  limits: {
+    maxBranches:       { type: Number, default: 1 },
+    maxDoctors:        { type: Number, default: 5 },
+    maxReceptionists:  { type: Number, default: 5 },
+    marketplaceListing:{ type: Boolean, default: false },
+    whatsappNotifications: { type: Boolean, default: true },
+  },
+
+  isActive: { type: Boolean, default: true },
+}, { timestamps: true });
+
+export default mongoose.model('SubscriptionPlan', subscriptionPlanSchema);
