@@ -1,0 +1,114 @@
+State Machine Document
+This document defines the lifecycle states for major entities in the Waitless system.
+Main state machines:
+    Account
+    Organization
+    OrganizationMembership
+    Invitation
+    DoctorAssignment
+    DoctorSchedule
+    Appointment
+    Subscription
+    Payment
+    Review
+    Notification
+
+
+
+1. Account
+
+- Purpose: Represents a login identity in the system.
+- An account can be:
+    Patient
+    Worker
+
+State	                Meaning
+--------------------------------
+pending_verification    Account created but phone/email is not verified yet
+active                  Account can log in and use the system
+deactivated             User or admin disabled the account
+deletedAt               Soft-deleted account, usually not physically removed immediately
+
+
+
+2. Organization
+
+State	        Meaning
+------------------------
+active	        Organization can use the system
+suspended	    Organization temporarily blocked
+deletedAt       Soft-deleted organization
+
+
+
+3. Membership
+
+State	        Meaning
+------------------------
+pending	        membership invitation was sent and can still be accepted
+active	        Worker can access the organization
+suspended	    Worker temporarily blocked from this organization
+revoked	        Worker no longer belongs to the organization
+
+Important Rule:
+    A revoked membership should usually be soft-deleted, not physically deleted.
+    because of Audit history, Past appointments,..
+
+
+
+5. DoctorBranchSchedule
+
+- Represents:
+    Doctor works at this branch in this organization.
+
+State	        Meaning
+------------------------
+active	        Doctor can receive appointments and queue sessions
+inactive	    Doctor hidden/unavailable/removed
+
+
+6. Appointment
+
+State	        Meaning
+------------------------
+booked          created, waiting for session day
+called          it's their turn, 5-min window running
+skipped         missed first call, deprioritized once
+in_progress	    Visit started
+completed	    Visit completed
+cancelled	    Appointment cancelled
+no_show	        Patient did not appear
+
+
+
+7. Subscription
+
+State	        Meaning
+------------------------
+trial	        Organization is in free trial
+active	        Subscription is paid and active
+past_due	    Payment failed or overdue
+cancelled	    Organization cancelled subscription
+expired	        Subscription ended
+
+
+
+9. Review
+
+States:
+    published
+    hidden
+Rules
+    Review can only be created for a completed appointment.
+    One review per appointment.
+    Admin/platform can hide or delete inappropriate reviews.
+
+
+
+10. Notification
+
+State	        Meaning
+------------------------
+pending	        Notification created
+sent	        Sent to provider
+failed	        Sending failed

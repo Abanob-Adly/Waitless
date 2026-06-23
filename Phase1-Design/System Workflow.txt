@@ -1,0 +1,459 @@
+ORGANIZATION LIFECYCLE
+
+1. Org Onboarding Flow
+    Founder signs up on waitless.app
+            ↓
+    System creates Account (role: 'staff', status: 'pending_verification')
+            ↓
+    Email verification → Account.status = 'active'
+            ↓
+    Founder fills "Create Organization" form:
+    • org name, type (clinic / hospital)
+    • country, default timezone
+    • isPublic (marketplace opt-in)
+            ↓
+    System creates Organization
+            ↓
+    System creates AdminMembership for founder:
+    • account: founder._id
+    • organization: org._id
+    • status: 'active'
+    • isSuper: true
+    • permissions: ['*']
+            ↓
+    System creates a default Subscription on the free/trial SubscriptionPlan
+            ↓
+    Redirect to dashboard: "Add your first branch"
+Collections involved
+    Account
+    Organization
+    Membership (AdminMembership)
+    Subscription, SubscriptionPlan
+
+
+2. Add Branch Flow
+    Admin opens "Branches" → "New branch"
+            ↓
+    Admin enters:
+    • name (e.g., "Maadi Branch")
+    • address, city, geo coordinates
+    • phone
+    • operating hours (optional — used to validate schedules)
+            ↓
+    System creates Branch linked to Organization
+            ↓
+    Branch becomes assignable to doctors via DoctorBranchSchedule
+    and to receptionists via ReceptionistMembership.branches
+Collections involved
+    Branch
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+STAFF LIFECYCLE
+
+3. Invitation Flow (Admin / Doctor / Receptionist)
+    Org Admin opens "Invite staff" modal
+            ↓
+    Admin enters: email + role + role-specific fields:
+    • doctor       → specialties, avg consultation min, fee, (optional) bio, license
+    • receptionist → branches (≥1)
+    • admin        → permissions, isSuper
+            ↓
+    System creates a Membership (discriminated by 'kind') with:
+    • account: null
+    • status: 'pending'
+    • inviteEmail, inviteToken, inviteExpiresAt, invitedBy
+    • role-specific fields populated
+            ↓
+    System sends invite email → /accept-invite?token=...
+            ↓
+    Invitee clicks link
+            ↓
+    ├── Has Account with that email? → log in
+    └── No?                          → sign up (role: 'staff')
+            ↓
+    System validates token (exists, not expired, status = 'pending')
+            ↓
+    System updates Membership atomically:
+    • account: <invitee._id>
+    • status: 'active'
+    • acceptedAt: now
+    • inviteToken: null
+            ↓
+    Redirect to org dashboard
+            ↓
+    (Doctor only) Doctor can later refine their own bio, avatar
+Collections involved
+    Account
+    Membership (discriminated)
+
+4. Add Doctor to Branch Flow (Create Schedule)
+    Admin opens "Schedules" → "Add doctor to branch"
+            ↓
+    Admin selects an active DoctorMembership from this org
+            ↓
+    Admin selects a Branch from this org
+            ↓
+    Admin configures:
+    • weekly recurring slots: [{ dayOfWeek, startTime, endTime }, ...]
+    • consultationFee
+    • avgConsultationMin      (optional → falls back to DoctorMembership.averageConsultationMinutes)
+            ↓
+    System validates:
+    • no overlap with another active schedule for this doctor at this branch
+    • slots are within Branch operating hours (if tracked)
+            ↓
+    System creates DoctorBranchSchedule
+            ↓
+    (Background job) Generates the next N days of Sessions from this schedule
+Collections involved
+    Membership (DoctorMembership, read)
+    Branch (read)
+    DoctorBranchSchedule (write)
+    Session (write — via background job)
+
+5. Schedule Exception Flow (Doctor unavailable on a specific date)
+    Admin (or Doctor) opens "Schedule" → picks a future date → "Cancel this day"
+            ↓
+    Admin enters reason (sick / leave / training / other)
+            ↓
+    System creates ScheduleException:
+    • doctorBranchSchedule: <ref>
+    • date
+    • reason
+            ↓
+    System finds the Session for that date+schedule
+            ↓
+    ├── No bookings? → Session.status = 'cancelled'
+    └── Has bookings?
+            ↓
+        For each booked Appointment:
+            • Appointment.status = 'cancelled'
+            • cancellationReason = 'doctor_unavailable'
+            ↓
+        Send WhatsApp to each affected patient:
+            "Your appointment with Dr. X on <date> was cancelled. Please rebook."
+            ↓
+    Session.status = 'cancelled'
+Collections involved
+    ScheduleException
+    Session
+    Appointment
+    Notification
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+SESSION LIFECYCLE
+
+6. Session Generation Flow (Background Job)
+    Nightly cron job runs (or on-demand after schedule creation)
+            ↓
+    For each active DoctorBranchSchedule:
+            ↓
+    For each day in the next N days (e.g., 14):
+            ↓
+        Does dayOfWeek match a slot in the schedule?
+            ↓
+        Is there a ScheduleException for this date? → skip
+            ↓
+        Does a Session already exist for (schedule, date)? → skip
+            ↓
+        Create Session:
+            • doctorBranchSchedule: <ref>
+            • doctor, branch, organization (denormalized for fast queries)
+            • date
+            • startTime, endTime
+            • status: 'scheduled'
+            • currentServing: 0
+            • bookingsCount: 0
+            • avgConsultationMin (snapshot from schedule/doctor at creation time)
+Collections involved
+    DoctorBranchSchedule (read)
+    ScheduleException (read)
+    Session (write)
+
+7. Session Open / Close Flow
+    Receptionist or Doctor arrives → opens today's Session
+            ↓
+    Clicks "Start session"
+            ↓
+    System updates Session:
+    • status: 'active'
+    • startedAt: now
+            ↓
+    System pulls the first booked Appointment (queueNumber: 1)
+    → status = 'called', calledAt = now
+    → start 5-min check-in timer
+    → send WhatsApp "It's your turn"
+            ↓
+    System publishes update to Redis pub/sub channel `session:<id>`
+            ↓
+    ... (Queue Runtime Flow runs continuously) ...
+            ↓
+    Last appointment completed OR doctor clicks "End session"
+            ↓
+    System updates Session:
+    • status: 'ended'
+    • endedAt: now
+            ↓
+    Any remaining 'booked' appointments → 'cancelled' (reason: session_ended)
+    → WhatsApp notification to affected patients
+Collections involved
+    Session
+    Appointment
+    Notification
+    Redis (pub/sub only)
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+PATIENT LIFECYCLE
+
+8. Patient Self-Signup Flow (Marketplace)
+    Visitor clicks "Sign up" on marketplace
+            ↓
+    Enters: full name, phone, email, password, preferred language
+            ↓
+    System creates Account (role: 'patient', status: 'pending_verification')
+            ↓
+    System creates PatientProfile:
+    • account: <new account._id>
+    • phone (denormalized for lookup)
+    • DOB, gender (optional, can be filled later)
+            ↓
+    Send email + phone verification
+            ↓
+    On verification → Account.status = 'active'
+Collections involved
+    Account
+    PatientProfile
+
+9. Walk-In Patient Flow
+    Patient walks into clinic
+            ↓
+    Receptionist opens "New walk-in"
+            ↓
+    Receptionist enters patient phone number
+            ↓
+    ├── PatientProfile exists for this phone? → use it
+    └── No?
+            ↓
+        Receptionist enters: full name (required), preferred language (optional)
+            ↓
+        System creates PatientProfile:
+            • account: null   ← walk-in has no account yet
+            • phone, fullName
+            ↓
+    Receptionist selects today's Session
+    (filtered to: doctor at this branch, status ∈ {scheduled, active})
+            ↓
+    Receptionist confirms booking
+            ↓
+    Go to "Queue Join Flow" (Flow 11)
+Collections involved
+    PatientProfile
+    Session (read)
+
+10. Marketplace Booking Flow
+    Visitor browses marketplace
+            ↓
+    Searches by specialty + city (only Organizations with isPublic = true)
+            ↓
+    Picks a doctor → sees branches + upcoming Sessions
+            ↓
+    Picks a Branch + date → resolves to a specific Session
+            ↓
+    ├── Logged in as patient? → continue
+    └── Not?                  → Patient Self-Signup Flow (Flow 8) → return here
+            ↓
+    System validates:
+    • Session.status = 'scheduled'
+    • Session.bookingsCount < maxBookingsPerSession (if capped)
+    • Patient has no active appointment in same Session
+    • Patient has no active appointment elsewhere at overlapping time
+            ↓
+    Patient confirms
+            ↓
+    Go to "Queue Join Flow" (Flow 11)
+Collections involved
+    Organization, Branch, Membership (read — search)
+    Session (read)
+    Account, PatientProfile (read / write)
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+🔢 QUEUE FLOWS
+11. Queue Join Flow (Booking → joining the live queue)
+    Trigger: walk-in confirmed OR marketplace booking confirmed
+            ↓
+    System atomically increments Session.bookingsCount via findOneAndUpdate:
+    { _id: session._id, status: { $in: ['scheduled', 'active'] } }
+    $inc: { bookingsCount: 1 }
+    returns new bookingsCount → this is the patient's queueNumber N
+            ↓
+    System creates Appointment:
+    • session, patient, queueNumber: N
+    • status: 'booked'
+    • source: 'walk_in' | 'marketplace'
+    • createdBy: <staff or patient accountId>
+            ↓
+    System computes ETA:
+    ETA = Session.startTime + (N - currentServing - 1) * avgConsultationMin
+            ↓
+    System creates Notification + sends WhatsApp via provider:
+    • "You're #N in Dr. X's queue. ETA ~HH:MM"
+    • Includes signed link: https://waitless.app/q/<appointmentToken>
+            ↓
+    System publishes event to Redis pub/sub `session:<id>`
+    → all live-queue page subscribers update in real-time
+Collections involved
+    Session (atomic update)
+    Appointment (write)
+    Notification (write)
+    Redis pub/sub
+
+12. Queue Runtime Flow (Calling next patient)
+    Session.status = 'active'
+            ↓
+    Trigger: consultation ends OR "skip" pressed OR check-in timer expires
+            ↓
+    ─────────────────────────────────────────────────────────
+    Branch A — Consultation ends normally:
+    • Current Appointment.status = 'completed'
+    • Session.currentServing++
+    ─────────────────────────────────────────────────────────
+    Branch B — Check-in timer expires (no-show on first call):
+    • Appointment.status = 'skipped' (deprioritized once)
+    • added to graceList[]
+    • Session.currentServing++  (move on)
+    ─────────────────────────────────────────────────────────
+    Branch C — Skipped patient re-called and still absent:
+    • Appointment.status = 'no_show' (final)
+    • Patient must rebook
+    ─────────────────────────────────────────────────────────
+            ↓
+    System finds next Appointment to call:
+    1st priority: graceList[0] if present
+    else:        Appointment with queueNumber = currentServing + 1
+            ↓
+    Selected Appointment.status = 'called', calledAt = now
+            ↓
+    Start 5-minute check-in timer
+            ↓
+    Send WhatsApp: "It's your turn. Check in within 5 minutes."
+            ↓
+    System publishes update to Redis pub/sub `session:<id>`
+            ↓
+    Threshold notifications fire for downstream patients:
+    • patients now 3 positions away → "3 ahead of you"
+    • patients now 1 position away  → "You're next — head to clinic"
+Collections involved
+    Session (currentServing, graceList)
+    Appointment
+    Notification
+    Redis pub/sub
+    
+13. Patient Check-In Flow
+    Patient (status: 'called') arrives at reception
+            ↓
+    Receptionist clicks "Check in" on the appointment
+            ↓
+    System validates:
+    • Appointment.status ∈ {'called', 'skipped'}
+    • Check-in timer not expired
+            ↓
+    Appointment.status = 'in_progress', checkedInAt = now
+            ↓
+    Cancel the 5-min timer
+            ↓
+    Publish to Redis pub/sub `session:<id>`
+Collections involved
+    Appointment
+    Redis pub/sub
+
+14. Patient Cancellation Flow
+    Patient opens their appointment in the queue page
+            ↓
+    Clicks "Cancel my appointment"
+            ↓
+    System validates:
+    • Appointment.status = 'booked'
+    • Session.status ∈ {'scheduled', 'active'}
+    • currentServing < Appointment.queueNumber  (haven't been called yet)
+            ↓
+    Appointment.status = 'cancelled', cancelledAt = now, cancellationReason = 'patient'
+            ↓
+    NOTE: queueNumbers of remaining patients are NOT renumbered
+    — positions are derived from rank of non-cancelled appointments
+            ↓
+    Publish to Redis pub/sub → all queue viewers update positions
+Collections involved
+    Appointment
+    Redis pub/sub
+
+15. Live Queue View Flow (Patient watching the queue)
+    Patient opens https://waitless.app/q/<appointmentToken>
+            ↓
+    System validates token → resolves to Appointment + Session
+            ↓
+    Server-side render initial state:
+    • position = rank among non-cancelled appointments where queueNumber < me
+    • currentServing
+    • ETA
+    • Session.status
+            ↓
+    Client opens WebSocket → subscribes to `session:<id>` channel
+            ↓
+    On each Redis pub/sub event → re-fetch + re-render position, ETA, current
+            ↓
+    On Appointment.status changes (called / in_progress / completed)
+    → page updates accordingly
+Collections involved
+    Appointment (read)
+    Session (read)
+    Redis pub/sub
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+BILLING LIFECYCLE
+
+16. Subscription Flow
+    Admin opens "Billing" → picks a SubscriptionPlan
+            ↓
+    Redirected to payment provider (e.g., Stripe Checkout)
+            ↓
+    On success webhook:
+            ↓
+    System updates Subscription:
+    • plan: <new plan>
+    • status: 'active'
+    • currentPeriodEnd: <from provider>
+    • providerSubscriptionId
+            ↓
+    Org gains access to plan features (limits, marketplace, etc.)
+            ↓
+    On renewal failure webhook → Subscription.status = 'past_due'
+            ↓
+    On final failure → Subscription.status = 'cancelled'
+    → Org reverts to read-only mode (no new bookings, queue still works for in-flight)
+Collections involved
+    Subscription
+    SubscriptionPlan
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+POST-VISIT FLOW
+
+17. Review Flow (post-MVP, marketplace only)
+    Appointment.status = 'completed'
+            ↓
+    24h later (cron) → if patient has Account → send WhatsApp:
+    "How was your visit with Dr. X? Tap to rate"
+            ↓
+    Patient opens link → submits rating (1-5) + optional comment
+            ↓
+    System creates Review:
+    • appointment, doctor, patient
+    • rating, comment
+            ↓
+    System updates DoctorMembership.ratingStats atomically:
+    • count++
+    • avg = (avg * (count-1) + rating) / count
+Collections involved
+    Appointment (read)
+    Review (write)
+    Membership (DoctorMembership, update ratingStats)
+    Notification

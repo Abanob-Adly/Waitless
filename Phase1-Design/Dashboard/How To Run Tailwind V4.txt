@@ -1,0 +1,18 @@
+################# How To Run Tailwind V4 ################# 
+
+
+We need tailwind to develop the mockups, the simplest way to use it is the tailwind-cli.
+See: https://tailwindcss.com/docs/installation/tailwind-cli
+
+
+########### To Run ##########
+1. Go to folder: 
+      cd Phase1-VanillaJS-MVP
+
+2. Install dependencies:
+    npm install
+
+3. Run the CLI tool:
+      npx @tailwindcss/cli -i ./src/input.css -o ./src/output.css --watch
+
+4. use live preview with the html

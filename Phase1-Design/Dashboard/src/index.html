@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Waitless - Receptionist Dashboard</title>
+
+  <link href="../output.css" rel="stylesheet">
+</head>
+
+<body class="bg-page-background text-navy font-body flex flex-col h-screen max-w-[1380px] min-w-[930px] overflow-y-hidden overflow-auto ">
+
+  <!-- ############### NAVBAR ############### -->
+  <nav class="bg-navy px-6 py-3 flex items-center justify-between shadow-lg">
+
+    <!-- Logo (replace with bread crumb later)-->
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-gold flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="text-navy bi bi-activity w-4 h-4" fill="currentColor"
+          viewBox="0 0 16 16">
+          <path fill-rule="evenodd" stroke="currentColor" stroke-width="0.5" stroke-linecap="round"
+            d="M6 2a.5.5 0 0 1 .47.33L10 12.036l1.53-4.208A.5.5 0 0 1 12 7.5h3.5a.5.5 0 0 1 0 1h-3.15l-1.88 5.17a.5.5 0 0 1-.94 0L6 3.964 4.47 8.171A.5.5 0 0 1 4 8.5H.5a.5.5 0 0 1 0-1h3.15l1.88-5.17A.5.5 0 0 1 6 2" />
+        </svg>
+      </div>
+      <span class="font-display text-white text-xl tracking-wide">Waitless</span>
+    </div>
+
+    <!-- Sign out button -->
+    <button
+      class="bg-gold hover:bg-gold-light text-white text-sm font-body px-5 py-1.5 rounded-md transition-colors">
+      Sign Out
+    </button>
+
+  </nav>
+
+  <!-- ############### LAYOUT ############### -->
+  <div class="flex gap-4 pl-5 flex-1 overflow-hidden w-full">
+
+    <!-- Main Panel -->
+    <main class="flex-10 py-5 min-w-0 flex flex-col overflow-hidden">
+
+      <!-- Header & Stats Section (fixed height) -->
+      <div class="shrink-0 overflow-y-auto">
+
+        <!-- Header -->
+        <div class="flex items-start justify-between mb-5">
+          <div>
+            <h1 class=" font-display text-xl leading-tight">Command Center</h1>
+            <p class="text-sm text-txt-gray mt-0.5">
+              Dr. Layla Hassan &nbsp;·&nbsp; Cardiology &nbsp;·&nbsp;
+              <span id="today-label"></span>
+            </p>
+          </div>
+          <button id="call-next-btn" class="flex items-center gap-2 bg-navy hover:bg-navy-hover text-white text-xs font-body px-3 py-1.5 rounded-lg transition-colors shadow-md">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21L8.5 10.5
+                a11.042 11.042 0 005 5l.613-1.725a1 1 0 011.21-.502l4.493 1.498A1 1 0 0121 15.72V19a2
+                2 0 01-2 2h-1C9.163 21 3 14.837 3 7V5z" />
+            </svg>
+            Call Next Patient
+          </button>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="grid grid-cols-4 gap-4 mb-4">
+          <div class="bg-white rounded-2xl border border-b-gray p-4 ">
+            <p class="transition-colors duration-300 text-2xl font-bold font-display text-gold" id="stat-waiting">4</p>
+            <p class="text-xs text-txt-gray mt-1 tracking-widest">Waiting</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-b-gray p-4 ">
+            <p class="transition-colors duration-300 text-2xl font-bold font-display text-our-green" id="stat-done">2</p>
+            <p class="text-xs text-txt-gray mt-1 tracking-widest">Done</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-b-gray p-4 ">
+            <p class="transition-colors duration-300 text-2xl font-bold font-display text-our-red" id="stat-noshow">1</p>
+            <p class="text-xs text-txt-gray mt-1 tracking-widest">No Shows</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-b-gray p-4 ">
+            <p class="transition-colors duration-300 text-2xl font-bold font-display text-navy" id="stat-total">7</p>
+            <p class="text-xs text-txt-gray mt-1 tracking-widest">Total Today</p>
+          </div>
+        </div>
+
+        <!-- Avg. Consultation Time -->
+        <div class="bg-gold-tint border border-gold-light/50 rounded-lg px-5 py-3 flex items-center justify-between mb-4">
+          <span class="text-sm font-medium text-gold">Avg. consultation time</span>
+          <div class="flex items-center gap-3">
+            <button onclick="changeConsultTime(-1)" class="w-7 h-7 rounded-full border border-gold/50 flex items-center justify-center
+                  text-gold hover:bg-gold/10 transition-colors font-bold leading-none">−</button>
+            <span class="text-lg font-display font-bold text-gold" id="consult-time">12 min</span>
+            <button onclick="changeConsultTime(1)" class="w-7 h-7 rounded-full border border-gold/50 flex items-center justify-center
+                  text-gold hover:bg-gold/10 transition-colors font-bold leading-none">+</button>
+          </div>
+        </div>
+
+        <!-- In Session Now -->
+        <div id="in-session-banner" class=" bg-gold-tint border border-gold-light/50 rounded-lg px-5 py-2.5 flex items-center
+              justify-between mb-4">
+          <div>
+            <p class="text-xs font-body font-medium tracking-widest text-gold mb-0.5">IN SESSION NOW</p>
+            <p class="text-md font-bold font-body text-navy" id="session-name">Ahmed Youssef</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="w-2.5 h-2.5 bg-our-green rounded-full block"></span>
+            <button onclick="markCurrentDone()" class="border border-gold-light/50 text-sm font-medium text-gold px-4 py-1.5 rounded-lg
+                  hover:bg-white transition-colors">
+              Mark Done ✓
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Patient Table -->
+      <div class="overflow-y-auto flex flex-col">
+        <table class="w-full text-sm">
+        <thead class="shrink-0 border-b border-b-gray">
+          <tr>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-5 py-3 w-8">#</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Patient</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Phone</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Joined</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Est. Wait</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Status</th>
+            <th class="text-left text-xs font-body text-txt-gray uppercase tracking-widest px-4 py-3">Action</th>
+          </tr>
+        </thead>
+        <tbody id="patient-table-body" class="overflow-y-auto flex-1">
+          <!-- Rendered by JS -->
+        </tbody>
+      </table>
+      </div>
+    </main>
+
+    <!-- Right Sidebar -->
+    <aside  class="flex-3 overflow-hidden flex flex-col">
+      <div class="bg-navy p-5 h-full flex flex-col gap-5">
+
+        <!-- Walk-in form -->
+        <div class="pb-5 border border-b-gray-700">
+          <p class="text-xs font-body uppercase tracking-widest text-txt-gray mb-3">
+            Add Walk-In Patient
+          </p>
+          <label class="block text-xs font-medium text-white/70 mb-1">
+            Full Name <span class="text-our-red">*</span>
+          </label>
+          <input id="walkin-name" type="text" placeholder="Patient full name" class="w-full bg-white/10 border border-white/30 rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/30 outline-0 focus:border-gold/60 focus:bg-white/15 transition-colors mb-3" />
+
+          <label class="block text-xs font-medium text-white/70 mb-1">Phone (optional)</label>
+          <input id="walkin-phone" type="tel" placeholder="01XXXXXXXXX" class="w-full bg-white/10 border border-white/30 rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/30 outline-0 focus:border-gold/60 focus:bg-white/15 transition-colors mb-4" />
+
+          <button onclick="addWalkIn()" class="w-full bg-gold hover:bg-gold-light text-white text-sm font-body
+                 py-2.5 rounded-lg transition-colors">
+            + Add to Queue
+          </button>
+        </div>
+
+        <!-- Waiting list -->
+        <div class="flex-3 overflow-y-auto ">
+          <p class="sticky top-0 pb-2 bg-navy text-xs font-body uppercase tracking-widest text-white/50 mb-3">
+            Waiting Patients
+          </p>
+          <div id="sidebar-queue" class="flex flex-col gap-2.5">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed top-0 right-1/2 bg-navy text-white px-5.5 py-3 rounded-xl text-sm font-medium shadow-xl z-999 pointer-events-none"></div>
+
+  <!-- Module Script -->
+  <script type="module" src="./js/main.js"></script>
+</body>
+
+</html>
+</body>
+
+</html>

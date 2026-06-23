@@ -1,0 +1,31 @@
+Waitless is a software solution for hospitals and clinics.
+It merges:
+
+1. A clinic management system, through which hospitals can:
+    - Manage doctors and their schedule
+    - Receptionists can book visits to walk-in patients.
+    - other features...
+- The main advantage of the system is the "Live Queue," which allows any patient to see how many patients are ahead of them.
+- Users can access the queue page through a link, and they may also receive updates directly via WhatsApp as live notifications.
+
+* The business model is "subscription" based. *
+
+2. A booking marketplace (like Veezeta)
+- you can add your clinic/hospital to the marketplace website so users can book visits online.
+- In future, The booking system can be "Commision" based besides the SAS subscription.
+
+Overall system edge:
+    accurate availability
+    accurate wait times
+    fewer fake schedules
+    better patient trust
+
+
+Use stripped billing: (Paymob)
+
+Note: 
+Patients don't book a specified time (8:30pm) but they know that doctor comes from 5 to 10pm for example,
+and that there are 3 people who booked appointments before them (whether through marketplace or at that branch) 
+so they become the 4 at the queue and any future appointments will be after them. when there turn come if they 
+didn't show up within 5 minutes the next patient enters if they didn't show up again the appointment gets 
+cancelled and they have to book again. so patients must arrive as early as possible (we can help them with eastimated time)
