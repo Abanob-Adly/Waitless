@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
-import { BookingWidget } from "../../components/doctors/BookingWidget";
+import { BookingWidget } from "../../components/doctor/BookingWidget";
 import { mockDoctors } from "../../data/mockDoctors";
 
 export function DoctorProfilePage() {
