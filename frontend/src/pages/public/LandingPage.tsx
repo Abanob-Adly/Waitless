@@ -1,5 +1,9 @@
 import { Navbar } from "../../components/layout/Navbar";
+<<<<<<< HEAD
 import { DoctorCard } from "../../components/doctors/DoctorCard";
+=======
+import { DoctorCard } from "../../components/doctor/DoctorCard";
+>>>>>>> 7a83634e1ffa21b7db94c8ad5290d61944d50e3c
 import { Button } from "../../components/ui/Button";
 import { mockDoctors } from "../../data/mockDoctors";
 
