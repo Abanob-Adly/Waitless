@@ -8,7 +8,7 @@ ORGANIZATION LIFECYCLE
     Email verification → Account.status = 'active'
             ↓
     Founder fills "Create Organization" form:
-    • org name, type (clinic / hospital / polyclinic)
+    • org name, type (clinic / hospital)
     • country, default timezone
     • isPublic (marketplace opt-in)
             ↓
@@ -357,7 +357,7 @@ Collections involved
     • Appointment.status ∈ {'called', 'skipped'}
     • Check-in timer not expired
             ↓
-    Appointment.status = 'in_consultation', checkedInAt = now
+    Appointment.status = 'in_progress', checkedInAt = now
             ↓
     Cancel the 5-min timer
             ↓
@@ -401,7 +401,7 @@ Collections involved
             ↓
     On each Redis pub/sub event → re-fetch + re-render position, ETA, current
             ↓
-    On Appointment.status changes (called / in_consultation / completed)
+    On Appointment.status changes (called / in_progress / completed)
     → page updates accordingly
 Collections involved
     Appointment (read)

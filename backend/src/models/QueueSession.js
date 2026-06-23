@@ -1,4 +1,3 @@
-// models/session.model.js
 import mongoose from 'mongoose';
 const { Schema, Types } = mongoose;
 

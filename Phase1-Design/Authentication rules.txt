@@ -194,7 +194,7 @@ plan_limits                     // SubscriptionPlan.limits
 
 ## 7.7 Schedule Exception Rules
 
-### Create / delete exception
+### Create / delete exception 
 **Allowed if:**
 - "is_super_admin === true" in the org, OR
 - "active_membership_kind === 'admin'" AND "'schedule.manage' ∈ membership_permissions", OR

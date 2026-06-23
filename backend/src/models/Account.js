@@ -1,4 +1,3 @@
-// models/account.model.js
 import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
@@ -28,10 +27,6 @@ const accountSchema = new Schema(
       required: true,
       index: true,
     },
-
-    // ── Localization (needed for WhatsApp templates & ETA display) ──
-    preferredLanguage: { type: String, enum: ['ar', 'en'], default: 'ar' },
-    timezone:          { type: String, default: 'Africa/Cairo' },
 
     status: {
       type: String,

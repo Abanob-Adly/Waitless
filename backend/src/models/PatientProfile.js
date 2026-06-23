@@ -7,7 +7,12 @@ const patientProfileSchema = new Schema(
         accountId: { type: Schema.Types.ObjectId, ref: 'Account', default: null },
 
         fullName:  { type: String, required: true, trim: true },
-        phone:     { type: String, required: true, trim: true },
+        phone: {
+            type: String,
+            required: true,
+            trim: true,
+            match: [/^\+?[1-9]\d{7,14}$/, 'Please use a valid E.164 phone number'],
+        },
         gender:    { type: String, enum: ['male', 'female'] },
         dateOfBirth: { type: Date },
 

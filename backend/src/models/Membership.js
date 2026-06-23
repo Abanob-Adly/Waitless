@@ -9,7 +9,15 @@ const baseOptions = {
 
 const membershipSchema = new Schema(
   {
-    account:      { type: Schema.Types.ObjectId, ref: 'Account',      required: true, index: true },
+    account: { 
+      type: Schema.Types.ObjectId, 
+      ref: 'Account',     
+      default: null, 
+      index: true,
+      required: function() {
+        return ['active', 'suspended', 'revoked'].includes(this.status);
+      }
+    },
     organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
 
     // 'pending' = invited but hasn't accepted yet
@@ -30,11 +38,17 @@ const membershipSchema = new Schema(
   baseOptions
 );
 
-// One account can hold multiple roles in the same org (e.g. owner + doctor),
-// but not two memberships of the SAME role.
+
+// Prevent duplicate accepted memberships.
+// Pending invites have account=null, so they are excluded.
 membershipSchema.index(
-  { account: 1, organization: 1, kind: 1 },
-  { unique: true }
+  { account: 1, organization: 1, kind: 1, },
+  {
+    unique: true,
+    partialFilterExpression: {
+      account: { $exists: true, $ne: null },
+    },
+  }
 );
 
 // Fast "list all doctors in org X" / "list active receptionists in org X"
