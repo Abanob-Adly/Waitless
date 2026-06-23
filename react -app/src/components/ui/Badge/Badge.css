@@ -1,0 +1,77 @@
+/* ── Badge Component ──────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── Specialty Variants ── */
+.badge--cardiology   { background: #ECEEFF; color: #3D4257; }
+.badge--dermatology  { background: #E5F5EE; color: #3D7A65; }
+.badge--pediatrics   { background: #FDF0F6; color: #A81A5C; }
+.badge--orthopedics  { background: #FFF7ED; color: #C2410C; }
+.badge--neutral      { background: #EEEDF7; color: #4C4D62; }
+
+/* ── Status Variants ── */
+.badge--available {
+  background: #D1FAE5;
+  color: #1A7A4A;
+}
+.badge--waiting {
+  background: #FDF3DC;
+  color: #B07B1C;
+}
+.badge--in-session {
+  background: #DAEEF0;
+  color: #2F7D7A;
+}
+.badge--confirmed {
+  background: #E8F5EC;
+  color: #1A7A4A;
+}
+.badge--no-show {
+  background: #FCEAEA;
+  color: #C0392B;
+}
+.badge--completed {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+.badge--verified {
+  background: #E5F5EE;
+  color: #3D7A65;
+}
+.badge--today {
+  background: #FDF3DC;
+  color: #A0710E;
+}
+.badge--wait-days {
+  background: #FFF7ED;
+  color: #C2410C;
+}
+
+/* ── Live dot inside badge ── */
+.badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+
+.badge--waiting   .badge__dot { background: #C2952F; }
+.badge--available .badge__dot { background: #1A7A4A; }
+.badge--today     .badge__dot { background: #C9922A; }
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1;    transform: scale(1);   }
+  50%       { opacity: 0.55; transform: scale(1.5); }
+}

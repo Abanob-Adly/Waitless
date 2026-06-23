@@ -1,0 +1,129 @@
+/* ── DoctorCard Component ─────────────────────────────────────── */
+
+.doctor-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 20px;
+  border: 1px solid #E0DBD0;
+  box-shadow: 0 1px 4px rgba(10,22,40,0.05), 0 8px 24px rgba(10,22,40,0.07);
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1),
+              border-color 0.25s ease,
+              box-shadow 0.25s ease;
+}
+
+.doctor-card:hover {
+  transform: translateY(-2px);
+  border-color: #C9922A;
+  box-shadow: 0 4px 12px rgba(10,22,40,0.08), 0 20px 40px rgba(10,22,40,0.12);
+}
+
+/* ── Header ── */
+.doctor-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.doctor-card__avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Playfair Display', serif;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Deterministic avatar color palette */
+.doctor-card__avatar--0 { background: #EEF2FF; color: #4F46E5; }
+.doctor-card__avatar--1 { background: #F5F3FF; color: #7C3AED; }
+.doctor-card__avatar--2 { background: #FDF2F8; color: #BE185D; }
+.doctor-card__avatar--3 { background: #ECFDF5; color: #059669; }
+.doctor-card__avatar--4 { background: #FFF7ED; color: #C2410C; }
+.doctor-card__avatar--5 { background: #EFF6FF; color: #1D4ED8; }
+
+.doctor-card__info { flex: 1; min-width: 0; }
+
+.doctor-card__name {
+  font-family: 'Playfair Display', serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0A1628;
+  line-height: 1.25;
+  margin: 0 0 2px 0;
+}
+
+.doctor-card__specialty {
+  font-size: 11.5px;
+  color: #9CA3AF;
+  font-weight: 500;
+  margin: 0 0 4px 0;
+}
+
+.doctor-card__rating {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.doctor-card__stars {
+  color: #C9922A;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.doctor-card__review-count {
+  font-size: 10px;
+  color: #9CA3AF;
+  font-weight: 700;
+}
+
+/* ── Badges row ── */
+.doctor-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/* ── Footer ── */
+.doctor-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid #E0DBD0;
+}
+
+.doctor-card__price {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.doctor-card__price-amount {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #C9922A;
+  line-height: 1;
+}
+
+.doctor-card__price-currency {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9CA3AF;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+
+.doctor-card__location {
+  font-size: 10.5px;
+  color: #9CA3AF;
+  font-weight: 500;
+}

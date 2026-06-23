@@ -1,0 +1,185 @@
+
+
+
+/* ── LiveTicket Section ───────────────────────────────────────── */
+
+.live-ticket-wrapper {
+  max-width: 620px;
+}
+
+/* CARD */
+.live-ticket {
+  background: #ffffff;
+  border: 1px solid #E6E0D6;
+  border-radius: 32px;
+  padding: 42px;
+  box-shadow: 0 1px 4px rgba(10,22,40,0.05), 0 8px 24px rgba(10,22,40,0.07);
+}
+
+/* TOP ROW */
+.live-ticket__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.live-ticket__doctor-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #0A1628;
+  margin: 0;
+}
+
+.live-ticket__doctor-meta {
+  font-size: 20px;
+  color: #A3A1A8;
+  font-weight: 500;
+  margin: 8px 0 0 0;
+}
+
+/* LIVE BADGE */
+.live-ticket__live-badge {
+  background: #E8F5EC;
+  color: #1A7A4A;
+  border-radius: 9999px;
+  padding: 12px 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.live-ticket__live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #1A7A4A;
+  animation: livePulse 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* QUEUE CIRCLE */
+.live-ticket__queue-ring {
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  margin: 56px auto;
+  border: 5px dashed #E8C866;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-ticket__queue-inner {
+  width: 212px;
+  height: 212px;
+  border-radius: 50%;
+  background: #F5ECD3;
+  border: 6px solid #E4C45F;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-ticket__queue-number {
+  font-family: 'Playfair Display', serif;
+  font-size: 96px;
+  font-weight: 700;
+  color: #0A1628;
+  line-height: 1;
+}
+
+/* POSITION LABEL */
+.live-ticket__position-label {
+  text-align: center;
+  color: #A6A4AB;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 36px 0;
+}
+
+/* STATS */
+.live-ticket__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 32px;
+}
+
+.live-ticket__stat {
+  background: #F5F3EE;
+  border-radius: 18px;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.live-ticket__stat-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.live-ticket__stat-value--gold  { color: #C9922A; }
+.live-ticket__stat-value--navy  { color: #0A1628; }
+
+.live-ticket__stat-label {
+  color: #9D9AA1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+/* PROGRESS BAR */
+.live-ticket__progress-track {
+  width: 100%;
+  height: 14px;
+  background: #E9E4DB;
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-bottom: 40px;
+}
+
+.live-ticket__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #C9922A 0%, #E4C45F 100%);
+  border-radius: 9999px;
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* CANCEL BUTTON */
+.live-ticket__cancel-btn {
+  width: 100%;
+  height: 78px;
+  border: none;
+  border-radius: 18px;
+  background: #FCEAEA;
+  color: #C0392B;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px #F0CBC7;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+}
+
+.live-ticket__cancel-btn:hover {
+  background: #C0392B;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 2px #A93226, 0 8px 24px rgba(192,57,43,0.25);
+}
+
+.live-ticket__cancel-btn:active { transform: scale(0.97); }
+
+/* ANIMATION */
+@keyframes livePulse {
+  0%, 100% { opacity: 1;    transform: scale(1);   }
+  50%       { opacity: 0.55; transform: scale(1.5); }
+}
