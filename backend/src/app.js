@@ -21,4 +21,5 @@ app.get("/", (req, res) => res.send("Hello World!"));
 app.use('/auth', authRoutes);
 app.use('/memberships', membershipRoutes);
 
+// error handler must be at bottom
 app.use(errorHandler);

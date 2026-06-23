@@ -30,8 +30,8 @@ const accountSchema = new Schema(
 
     status: {
       type: String,
-      enum: ['pending_verification', 'active', 'deactivated', 'deleted'],
-      default: 'pending_verification',
+      enum: ['active', 'deactivated', 'deleted'],
+      default: 'active',
       index: true,
     },
     isEmailVerified: { type: Boolean, default: false },

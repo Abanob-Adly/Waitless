@@ -26,7 +26,7 @@ export const authController = {
         res.status(201).json({ accountId: account._id, message: 'Verification code sent' });
     },
 
-    async registerWorker(req, res) {
+    async registerWorker(req, res) {  
         const account = await authService.registerWorker(req.body);
         res.status(201).json({ accountId: account._id, message: 'Verification code sent' });
     },
@@ -42,7 +42,8 @@ export const authController = {
     },
 
     async loginWorker(req, res) {
-        const { account, accessToken, refreshToken } = await authService.loginWorker({ ...req.body, ip: req.ip, userAgent: req.get('user-agent') });
+        const { account, accessToken, refreshToken } = 
+            await authService.loginWorker({ ...req.body, ip: req.ip, userAgent: req.get('user-agent') });
 
         res.json({
             account: pickPublic(account),
@@ -69,6 +70,11 @@ export const authController = {
 
     async me(req, res) {
         res.json({ account: pickPublic(req.actor.account) });
+    },
+    
+    async requestEmailVerification(req, res) {
+        await authService.requestEmailVerification({ accountId: req.actor.account._id });
+        res.json({ ok: true });
     },
 
     async confirmEmailVerification(req, res) {

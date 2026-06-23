@@ -19,8 +19,9 @@ router.post('/password-reset/confirm', validate(schemas.confirmReset), authContr
 
 // Authenticated
 router.get ('/me',                   authenticate, authController.me);
-router.post('/email/verify',         authenticate, validate(schemas.verifyEmail), authController.confirmEmailVerification);
-router.post('/phone/verify/request', authenticate, authController.requestPhoneVerification);
-router.post('/phone/verify/confirm', authenticate, validate(schemas.verifyPhone), authController.confirmPhoneVerification);
+router.post('/email/verify/request', authenticate, authController.requestEmailVerification);
+router.post('/email/verify/confirm', validate(schemas.verifyEmail), authenticate, authController.confirmEmailVerification);
+router.post('/phone/verify/request', validate(schemas.verifyPhone), authenticate, authController.requestPhoneVerification);
+router.post('/phone/verify/confirm', authenticate, authController.confirmPhoneVerification);
 
 export default router;

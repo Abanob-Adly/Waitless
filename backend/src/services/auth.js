@@ -1,30 +1,36 @@
-import Account from '../models/account.js';
-import PatientProfile from '../models/patientProfile.js';
-import { hashPassword, verifyPassword } from '../utils/password.js';
-import { AppError, Conflict, NotFound, Unauthorized } from '../utils/errors.js';
-import { tokenService } from './token.js';
-import { verificationService } from './verification.js';
+import Account from "../models/account.js";
+import PatientProfile from "../models/patientProfile.js";
+import { hashPassword, verifyPassword } from "../utils/password.js";
+import { AppError, Conflict, NotFound, Unauthorized } from "../utils/errors.js";
+import { tokenService } from "./token.js";
+import { verificationService } from "./verification.js";
 
 export const authService = {
   // Patient Registration
   async registerPatient({ email, phone, password, fullName }) {
-    if (await Account.findOne({ email })) throw Conflict('Email already in use');
+    if (await Account.findOne({ email }))
+      throw Conflict("Email already in use");
 
     const account = await Account.create({
-      email, phone, fullName,
+      email,
+      phone,
+      fullName,
       passwordHash: await hashPassword(password),
-      role: 'patient',
-      status: 'pending_verification',
+      role: "patient",
+      status: "active",
     });
 
     await PatientProfile.create({
       accountId: account._id,
-      fullName, phone,
+      fullName,
+      phone,
     });
 
     // Fire-and-forget verification
     await verificationService.issue({
-      account, purpose: 'email_verify', sendTo: email,
+      account,
+      purpose: "email_verify",
+      sendTo: email,
     });
 
     return account;
@@ -33,17 +39,22 @@ export const authService = {
   // Worker Registration
   // Note: invited workers use a different path — see invite.js
   async registerWorker({ email, phone, password, fullName }) {
-    if (await Account.findOne({ email })) throw Conflict('Email already in use');
+    if (await Account.findOne({ email }))
+      throw Conflict("Email already in use");
 
     const account = await Account.create({
-      email, phone, fullName,
+      email,
+      phone,
+      fullName,
       passwordHash: await hashPassword(password),
-      role: 'staff',
-      status: 'pending_verification',
+      role: "staff",
+      status: "active",
     });
 
     await verificationService.issue({
-      account, purpose: 'email_verify', sendTo: email,
+      account,
+      purpose: "email_verify",
+      sendTo: email,
     });
 
     return account;
@@ -53,53 +64,60 @@ export const authService = {
   async loginPatient({ email, password, ip, userAgent }) {
     const account = await Account.findOne({
       email: email,
-      role: 'Patient'
-    }).select('+passwordHash');
-    if (!account) throw Unauthorized('Invalid credentials');
-    if (account.status === 'deleted') throw Unauthorized('Account deleted');
-    if (account.status === 'deactivated') throw Unauthorized('Account deactivated');
-    if (account.status === 'pending_verification') throw Unauthorized('Account is not verified');
+      role: "patient",
+    }).select("+passwordHash");
+    if (!account) throw Unauthorized("Invalid credentials");
+    if (account.status === "deleted") throw Unauthorized("Account deleted");
+    if (account.status === "deactivated") throw Unauthorized("Account deactivated");
 
     const ok = await verifyPassword(password, account.passwordHash);
-    if (!ok) throw Unauthorized('Invalid credentials');
+    if (!ok) throw Unauthorized("Invalid credentials");
 
     account.lastLoginAt = new Date();
     await account.save();
 
     const accessToken = tokenService.signAccessToken(account);
-    const refreshToken = await tokenService.issueRefreshToken(account._id, { ip, userAgent });
+    const refreshToken = await tokenService.issueRefreshToken(account._id, {
+      ip,
+      userAgent,
+    });
 
     return { account, accessToken, refreshToken };
   },
   async loginWorker({ email, password, ip, userAgent }) {
     const account = await Account.findOne({
       email: email,
-      role: 'Worker'
-    }).select('+passwordHash');
-    if (!account) throw Unauthorized('Invalid credentials');
-    if (account.status === 'deleted') throw Unauthorized('Account deleted');
-    if (account.status === 'deactivated') throw Unauthorized('Account deactivated');
-    if (account.status === 'pending_verification') throw Unauthorized('Account is not verified');
+      role: "staff",
+    }).select("+passwordHash");
+    if (!account) throw Unauthorized("Invalid credentials");
+    if (account.status === "deleted") throw Unauthorized("Account deleted");
+    if (account.status === "deactivated") throw Unauthorized("Account deactivated");
 
     const ok = await verifyPassword(password, account.passwordHash);
-    if (!ok) throw Unauthorized('Invalid credentials');
+    if (!ok) throw Unauthorized("Invalid credentials");
 
     account.lastLoginAt = new Date();
     await account.save();
 
     const accessToken = tokenService.signAccessToken(account);
-    const refreshToken = await tokenService.issueRefreshToken(account._id, { ip, userAgent });
+    const refreshToken = await tokenService.issueRefreshToken(account._id, {
+      ip,
+      userAgent,
+    });
 
     return { account, accessToken, refreshToken };
   },
 
   // Refresh
   async refresh({ refreshToken, ip, userAgent }) {
-    const result = await tokenService.rotateRefreshToken(refreshToken, { ip, userAgent });
-    if (!result) throw Unauthorized('Invalid refresh token');
+    const result = await tokenService.rotateRefreshToken(refreshToken, {
+      ip,
+      userAgent,
+    });
+    if (!result) throw Unauthorized("Invalid refresh token");
 
     const account = await Account.findById(result.accountId);
-    if (!account || account.status !== 'active') throw Unauthorized();
+    if (!account || account.status !== "active") throw Unauthorized();
 
     return {
       accessToken: tokenService.signAccessToken(account),
@@ -108,24 +126,42 @@ export const authService = {
   },
 
   // Email/Phone Verification
+  async requestEmailVerification({ accountId }) {
+    const account = await Account.findById(accountId);
+    if (!account?.email) throw new AppError("No email on file");
+    if (account.isEmailVerified === true) throw Forbidden("Account is already verified");
+
+    return verificationService.issue({
+      account,
+      purpose: "email_verify",
+      sendTo: account.email,
+    });
+  },
+
   async confirmEmailVerification({ accountId, code }) {
     const account = await Account.findById(accountId);
-    if (!account) throw NotFound('Account not found');
+    if (!account) throw NotFound("Account not found");
 
-    await verificationService.consume({ account, purpose: 'email_verify', code });
+    await verificationService.consume({
+      account,
+      purpose: "email_verify",
+      code,
+    });
 
     account.isEmailVerified = true;
-    if (account.status === 'pending_verification') account.status = 'active';
     await account.save();
-
     return account;
   },
 
   async requestPhoneVerification({ accountId }) {
     const account = await Account.findById(accountId);
-    if (!account?.phone) throw new AppError('No phone on file');
+    if (!account?.phone) throw new AppError("No phone on file");
+    if (account.isPhoneVerified === true) throw Forbidden("Account is already verified");
+
     return verificationService.issue({
-      account, purpose: 'phone_verify', sendTo: account.phone,
+      account,
+      purpose: "phone_verify",
+      sendTo: account.phone,
     });
   },
 
@@ -133,30 +169,40 @@ export const authService = {
     const account = await Account.findById(accountId);
     if (!account) throw NotFound();
 
-    await verificationService.consume({ account, purpose: 'phone_verify', code });
+    await verificationService.consume({
+      account,
+      purpose: "phone_verify",
+      code,
+    });
 
     account.isPhoneVerified = true;
     await account.save();
     return account;
   },
 
-  // Password Reset 
+  // Password Reset
   async requestPasswordReset({ email }) {
     const account = await Account.findOne({ email });
     // Always return success — don't leak account existence
     if (!account) return { ok: true };
 
     await verificationService.issue({
-      account, purpose: 'password_reset', sendTo: email,
+      account,
+      purpose: "password_reset",
+      sendTo: email,
     });
     return { ok: true };
   },
 
   async confirmPasswordReset({ email, token, newPassword }) {
     const account = await Account.findOne({ email });
-    if (!account) throw new AppError('Invalid reset token', 401);
+    if (!account) throw new AppError("Invalid reset token", 401);
 
-    await verificationService.consume({ account, purpose: 'password_reset', code: token });
+    await verificationService.consume({
+      account,
+      purpose: "password_reset",
+      code: token,
+    });
 
     account.passwordHash = await hashPassword(newPassword);
     await account.save();

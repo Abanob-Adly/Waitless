@@ -3,7 +3,7 @@ ORGANIZATION LIFECYCLE
 1. Org Onboarding Flow
     Founder signs up on waitless.app
             ↓
-    System creates Account (role: 'staff', status: 'pending_verification')
+    System creates Account (role: 'staff', status: 'active')
             ↓
     Email verification → Account.status = 'active'
             ↓
@@ -210,7 +210,7 @@ PATIENT LIFECYCLE
             ↓
     Enters: full name, phone, email, password, preferred language
             ↓
-    System creates Account (role: 'patient', status: 'pending_verification')
+    System creates Account (role: 'patient', status: 'active')
             ↓
     System creates PatientProfile:
     • account: <new account._id>
@@ -219,7 +219,7 @@ PATIENT LIFECYCLE
             ↓
     Send email + phone verification
             ↓
-    On verification → Account.status = 'active'
+    On verification → account.isEmailVerified === true'
 Collections involved
     Account
     PatientProfile

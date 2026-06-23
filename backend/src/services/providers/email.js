@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { env } from "../../config/env.js";
+import { AppError } from '../../utils/errors.js';
 
 const resend = new Resend(env.email.resend);
 export const emailProvider = {
