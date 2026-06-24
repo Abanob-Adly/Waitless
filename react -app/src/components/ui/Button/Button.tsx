@@ -1,22 +1,21 @@
 import './Button.css';
 
-/**
- * Button — Waitless UI Kit
- *
- * @prop {string}   variant   - 'navy' | 'gold' | 'outline-navy' | 'ghost' | 'danger' | 'danger-filled'
- * @prop {string}   size      - 'sm' | 'md' | 'lg'
- * @prop {boolean}  disabled
- * @prop {boolean}  loading
- * @prop {boolean}  fullWidth
- * @prop {function} onClick
- * @prop {string}   type      - 'button' | 'submit' | 'reset'
- * @prop {node}     children
- *
- * @example
- * <Button variant="gold" size="lg" onClick={handleBook}>Book Appointment</Button>
- * <Button variant="danger" size="md" disabled>Cancel</Button>
- * <Button variant="navy" loading>Saving…</Button>
- */
+type ButtonVariant = 'navy' | 'gold' | 'outline-navy' | 'ghost' | 'danger' | 'danger-filled';
+type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonType = 'button' | 'submit' | 'reset';
+
+interface ButtonProps {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  disabled?: boolean;
+  loading?: boolean;
+  fullWidth?: boolean;
+  onClick?: () => void;
+  type?: ButtonType;
+  children: React.ReactNode;
+  className?: string;
+}
+
 export default function Button({
   variant = 'navy',
   size = 'md',
@@ -27,7 +26,7 @@ export default function Button({
   type = 'button',
   children,
   className = '',
-}) {
+}: ButtonProps) {
   const classes = [
     'btn',
     `btn--${variant}`,

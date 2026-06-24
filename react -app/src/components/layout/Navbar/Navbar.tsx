@@ -1,28 +1,19 @@
 import './Navbar.css';
 import Button from '../../ui/Button/Button';
 
-/**
- * Navbar — Waitless UI Kit
- *
- * @prop {Array}  links        - [{ label, href, active? }]
- * @prop {string} signInHref   - href for Sign In link
- * @prop {string} ctaLabel     - CTA button text (default "Get Started")
- * @prop {func}   onCtaClick
- * @prop {string} logoHref     - href for logo link (default "#")
- *
- * @example
- * <Navbar
- *   links={[
- *     { label: 'Find Doctors', href: '/doctors' },
- *     { label: 'Specialties', href: '/specialties' },
- *     { label: 'For Clinics', href: '/clinics' },
- *     { label: 'My Bookings', href: '/bookings', active: true },
- *   ]}
- *   signInHref="/login"
- *   ctaLabel="Get Started"
- *   onCtaClick={() => navigate('/register')}
- * />
- */
+interface NavLink {
+  label: string;
+  href: string;
+  active?: boolean;
+}
+
+interface NavbarProps {
+  links?: NavLink[];
+  signInHref?: string;
+  ctaLabel?: string;
+  onCtaClick?: () => void;
+  logoHref?: string;
+}
 
 const WaitlessLogo = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -42,9 +33,9 @@ export default function Navbar({
   ],
   signInHref  = '#',
   ctaLabel    = 'Get Started',
-  onCtaClick,
+  onCtaClick  = () => {},
   logoHref    = '#',
-}) {
+}: NavbarProps) {
   return (
     <nav className="navbar">
       <div className="navbar__inner">

@@ -1,30 +1,17 @@
 import './LiveTicket.css';
 
-/**
- * LiveTicket — Waitless UI Kit (Abanob's Module)
- *
- * @prop {string}   doctorName      - e.g. "Dr. Layla Hassan"
- * @prop {string}   specialty       - e.g. "Cardiology"
- * @prop {string}   location        - e.g. "Maadi"
- * @prop {number}   queuePosition   - patient's current position (1-based)
- * @prop {number}   totalInQueue    - total patients in queue (for progress bar)
- * @prop {string}   estimatedWait   - formatted wait string e.g. "~36m"
- * @prop {number}   fee             - consultation fee in EGP
- * @prop {boolean}  isLive          - shows Live badge (default true)
- * @prop {function} onCancel        - called when Cancel button is clicked
- *
- * @example
- * <LiveTicket
- *   doctorName="Dr. Layla Hassan"
- *   specialty="Cardiology"
- *   location="Maadi"
- *   queuePosition={3}
- *   totalInQueue={8}
- *   estimatedWait="~36m"
- *   fee={350}
- *   onCancel={() => handleCancelBooking()}
- * />
- */
+interface LiveTicketProps {
+  doctorName?:    string;
+  specialty?:     string;
+  location?:      string;
+  queuePosition?: number;
+  totalInQueue?:  number;
+  estimatedWait?: string;
+  fee?:           number;
+  isLive?:        boolean;
+  onCancel?:      () => void;
+}
+
 export default function LiveTicket({
   doctorName    = 'Dr. Layla Hassan',
   specialty     = 'Cardiology',
@@ -35,8 +22,7 @@ export default function LiveTicket({
   fee           = 350,
   isLive        = true,
   onCancel,
-}) {
-  // Progress: percentage of queue passed = (position-1) / total
+}: LiveTicketProps) {
   const passed   = Math.max(0, queuePosition - 1);
   const progress = totalInQueue > 0 ? Math.round((passed / totalInQueue) * 100) : 0;
 
@@ -101,4 +87,3 @@ export default function LiveTicket({
     </div>
   );
 }
-

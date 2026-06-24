@@ -1,5 +1,5 @@
 /**
- * App.jsx — Waitless UI Kit Demo
+ * App.tsx — Waitless UI Kit Demo
  *
  * This file demonstrates how to compose all components together.
  * In the real project, replace this with your router/page structure.
@@ -71,7 +71,18 @@ const BOOKING = {
   fee:        350,
 };
 
-const INITIAL_PATIENTS = [
+type PatientStatus = 'in-session' | 'waiting' | 'no-show' | 'done';
+
+type Patient = {
+  id: number;
+  position: number;
+  name: string;
+  joinedAt: string;
+  source: string;
+  status: PatientStatus;
+};
+
+const INITIAL_PATIENTS: Patient[] = [
   { id: 1, position: 1, name: 'Ahmed Youssef', joinedAt: '09:10', source: 'Walk-in', status: 'in-session' },
   { id: 2, position: 2, name: 'Nadia Karim',   joinedAt: '09:22', source: 'Online',  status: 'waiting'    },
   { id: 3, position: 3, name: 'Khaled Emad',   joinedAt: '09:35', source: 'Walk-in', status: 'no-show'    },
@@ -82,14 +93,17 @@ const INITIAL_PATIENTS = [
 export default function App() {
   const [patients, setPatients] = useState(INITIAL_PATIENTS);
 
-  function handleMarkDone(id) {
-    setPatients((prev) => prev.map((p) => p.id === id ? { ...p, status: 'done' } : p));
+  function handleMarkDone(id: string | number) {
+    const patientId = typeof id === 'string' ? Number(id) : id;
+    setPatients((prev) => prev.map((p) => p.id === patientId ? { ...p, status: 'done' } : p));
   }
-  function handleMarkNoShow(id) {
-    setPatients((prev) => prev.map((p) => p.id === id ? { ...p, status: 'no-show' } : p));
+  function handleMarkNoShow(id: string | number) {
+    const patientId = typeof id === 'string' ? Number(id) : id;
+    setPatients((prev) => prev.map((p) => p.id === patientId ? { ...p, status: 'no-show' } : p));
   }
-  function handleRestore(id) {
-    setPatients((prev) => prev.map((p) => p.id === id ? { ...p, status: 'waiting' } : p));
+  function handleRestore(id: string | number) {
+    const patientId = typeof id === 'string' ? Number(id) : id;
+    setPatients((prev) => prev.map((p) => p.id === patientId ? { ...p, status: 'waiting' } : p));
   }
 
   return (

@@ -1,31 +1,25 @@
 import './Input.css';
 
-/**
- * Input — Waitless UI Kit
- *
- * @prop {string}   label       - field label text
- * @prop {boolean}  required    - shows gold asterisk
- * @prop {string}   state       - 'default' | 'error' | 'success' | 'disabled'
- * @prop {string}   message     - helper / error / success message below field
- * @prop {string}   type        - input type ('text', 'email', 'password', 'tel', etc.)
- * @prop {string}   placeholder
- * @prop {string}   value
- * @prop {function} onChange
- * @prop {array}    options     - if provided, renders a <select> instead of <input>
- *
- * @example
- * // Default text input
- * <Input label="Full Name" required placeholder="Dr. Ahmed Yousef" />
- *
- * // Error state
- * <Input label="Email" state="error" message="Please enter a valid email" value="bad@" />
- *
- * // Select dropdown
- * <Input label="Specialty" options={['Cardiology','Dermatology','Pediatrics']} />
- *
- * // Disabled
- * <Input label="Disabled Field" state="disabled" value="Not editable" />
- */
+type InputState = 'default' | 'error' | 'success' | 'disabled';
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface InputProps {
+  label?: string;
+  required?: boolean;
+  state?: InputState;
+  message?: string;
+  type?: React.HTMLInputTypeAttribute;
+  placeholder?: string;
+  value?: string;
+  onChange?: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement>;
+  options?: string[] | SelectOption[];
+  id?: string;
+  className?: string;
+}
 
 const ErrorIcon = () => (
   <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
@@ -57,7 +51,7 @@ export default function Input({
   options,
   id,
   className = '',
-}) {
+}: InputProps) {
   const fieldClass = [
     'input-field',
     state === 'error'    ? 'input-field--error'    : '',
@@ -83,7 +77,7 @@ export default function Input({
             id={inputId}
             className={fieldClass}
             value={value}
-            onChange={onChange}
+            onChange={onChange as React.ChangeEventHandler<HTMLSelectElement>}
             disabled={state === 'disabled'}
           >
             {options.map((opt) =>
@@ -101,7 +95,7 @@ export default function Input({
           className={fieldClass}
           placeholder={placeholder}
           value={value}
-          onChange={onChange}
+          onChange={onChange as React.ChangeEventHandler<HTMLInputElement>}
           disabled={state === 'disabled'}
         />
       )}

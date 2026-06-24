@@ -1,39 +1,30 @@
 import './QueueTable.css';
 import Badge from '../../ui/Badge/Badge';
 
-/**
- * QueueTable — Waitless UI Kit (Mohamed Eid's Module)
- *
- * @prop {string}   title         - header title (default "Today's Queue")
- * @prop {Array}    patients      - array of patient objects
- * @prop {function} onCallNext    - called when "Call Next" button is clicked
- * @prop {function} onMarkDone    - called with patient id
- * @prop {function} onMarkNoShow  - called with patient id
- * @prop {function} onRestore     - called with patient id
- *
- * Patient object shape:
- * {
- *   id:        string | number,
- *   position:  number,
- *   name:      string,
- *   joinedAt:  string,   // e.g. "09:10"
- *   source:    string,   // e.g. "Walk-in" | "Online"
- *   status:    'in-session' | 'waiting' | 'no-show' | 'done',
- * }
- *
- * @example
- * <QueueTable
- *   patients={[
- *     { id: 1, position: 1, name: 'Ahmed Youssef', joinedAt: '09:10', source: 'Walk-in',  status: 'in-session' },
- *     { id: 2, position: 2, name: 'Nadia Karim',   joinedAt: '09:22', source: 'Online',   status: 'waiting'    },
- *     { id: 3, position: 3, name: 'Khaled Emad',   joinedAt: '09:35', source: 'Walk-in',  status: 'no-show'    },
- *   ]}
- *   onCallNext={() => callNext()}
- *   onMarkDone={(id) => markDone(id)}
- *   onMarkNoShow={(id) => markNoShow(id)}
- *   onRestore={(id) => restorePatient(id)}
- * />
- */
+type PatientStatus = 'in-session' | 'waiting' | 'no-show' | 'done';
+
+interface Patient {
+  id:       string | number;
+  position: number;
+  name:     string;
+  joinedAt: string;
+  source:   string;
+  status:   PatientStatus;
+}
+
+interface BadgeConfig {
+  variant: string;
+  label:   string;
+}
+
+interface QueueTableProps {
+  title?:        string;
+  patients?:     Patient[];
+  onCallNext?:   () => void;
+  onMarkDone?:   (id: string | number) => void;
+  onMarkNoShow?: (id: string | number) => void;
+  onRestore?:    (id: string | number) => void;
+}
 
 const PhoneIcon = () => (
   <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -43,21 +34,21 @@ const PhoneIcon = () => (
   </svg>
 );
 
-const STATUS_BADGE_MAP = {
-  'in-session': { variant: 'in-session', label: 'In Session'   },
-  'waiting':    { variant: 'waiting',    label: 'Waiting'       },
-  'no-show':    { variant: 'no-show',    label: '✕ No Show'     },
-  'done':       { variant: 'completed',  label: '✓ Done'        },
+const STATUS_BADGE_MAP: Record<PatientStatus, BadgeConfig> = {
+  'in-session': { variant: 'in-session', label: 'In Session' },
+  'waiting':    { variant: 'waiting',    label: 'Waiting'    },
+  'no-show':    { variant: 'no-show',    label: '✕ No Show'  },
+  'done':       { variant: 'completed',  label: '✓ Done'     },
 };
 
-const NUMBER_CLASS_MAP = {
+const NUMBER_CLASS_MAP: Record<PatientStatus, string> = {
   'in-session': 'queue-table__number--in-session',
   'waiting':    'queue-table__number--waiting',
   'no-show':    'queue-table__number--no-show',
   'done':       'queue-table__number--default',
 };
 
-const ROW_CLASS_MAP = {
+const ROW_CLASS_MAP: Partial<Record<PatientStatus, string>> = {
   'in-session': 'queue-table__row--in-session',
   'no-show':    'queue-table__row--no-show',
 };
@@ -69,10 +60,10 @@ export default function QueueTable({
   onMarkDone,
   onMarkNoShow,
   onRestore,
-}) {
-  const waiting  = patients.filter((p) => p.status === 'waiting').length;
-  const done     = patients.filter((p) => p.status === 'done').length;
-  const noShows  = patients.filter((p) => p.status === 'no-show').length;
+}: QueueTableProps) {
+  const waiting = patients.filter((p) => p.status === 'waiting').length;
+  const done    = patients.filter((p) => p.status === 'done').length;
+  const noShows = patients.filter((p) => p.status === 'no-show').length;
 
   return (
     <div className="queue-table">
@@ -89,7 +80,7 @@ export default function QueueTable({
         </button>
       </div>
 
-      {/* Column headers (desktop only) */}
+      {/* Column headers */}
       <div className="queue-table__col-headers">
         <div className="queue-table__col-label">#</div>
         <div className="queue-table__col-label">Patient</div>
@@ -123,32 +114,26 @@ export default function QueueTable({
 
             {/* Status badge */}
             <div className="queue-table__status">
-              <Badge variant={badgeConfig.variant}>{badgeConfig.label}</Badge>
+              <Badge variant={badgeConfig.variant as any}>{badgeConfig.label}</Badge>
             </div>
 
             {/* Action button */}
             <div className="queue-table__action">
               {patient.status === 'in-session' && (
-                <button
-                  className="queue-table__action-btn queue-table__action-btn--done"
-                  onClick={() => onMarkDone?.(patient.id)}
-                >
+                <button className="queue-table__action-btn queue-table__action-btn--done"
+                  onClick={() => onMarkDone?.(patient.id)}>
                   Done ✓
                 </button>
               )}
               {patient.status === 'waiting' && (
-                <button
-                  className="queue-table__action-btn queue-table__action-btn--no-show"
-                  onClick={() => onMarkNoShow?.(patient.id)}
-                >
+                <button className="queue-table__action-btn queue-table__action-btn--no-show"
+                  onClick={() => onMarkNoShow?.(patient.id)}>
                   No Show
                 </button>
               )}
               {patient.status === 'no-show' && (
-                <button
-                  className="queue-table__action-btn queue-table__action-btn--restore"
-                  onClick={() => onRestore?.(patient.id)}
-                >
+                <button className="queue-table__action-btn queue-table__action-btn--restore"
+                  onClick={() => onRestore?.(patient.id)}>
                   Restore
                 </button>
               )}

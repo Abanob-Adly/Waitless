@@ -1,40 +1,38 @@
 import { useState } from 'react';
 import './SearchSection.css';
 
-/**
- * SearchSection — Waitless UI Kit
- *
- * @prop {string}   title          - section heading
- * @prop {string}   subtitle       - section subtitle
- * @prop {Array}    specialties    - options for the specialty dropdown
- * @prop {Array}    areas          - options for the area dropdown
- * @prop {string}   searchLabel    - button label (default "Search")
- * @prop {function} onSearch       - called with { specialty, area, query }
- *
- * @example
- * <SearchSection
- *   specialties={['All Specialties','Cardiology','Dermatology','Pediatrics']}
- *   areas={['All Areas','Maadi','Nasr City','Dokki','Heliopolis']}
- *   onSearch={({ specialty, area, query }) => handleSearch(specialty, area, query)}
- * />
- */
+interface SearchValues {
+  specialty: string;
+  area: string;
+  query: string;
+}
+
+interface SearchSectionProps {
+  title?: string;
+  subtitle?: string;
+  specialties?: string[];
+  areas?: string[];
+  searchLabel?: string;
+  onSearch?: (values: SearchValues) => void;
+}
+
 export default function SearchSection({
-  title      = 'Find Your Doctor',
-  subtitle   = 'Search by specialty, area or doctor name',
+  title       = 'Find Your Doctor',
+  subtitle    = 'Search by specialty, area or doctor name',
   specialties = ['All Specialties', 'Cardiology', 'Dermatology', 'Pediatrics', 'Orthopedics'],
   areas       = ['All Areas', 'Maadi', 'Nasr City', 'Dokki', 'Heliopolis', '5th Settlement'],
   searchLabel = 'Search',
   onSearch,
-}) {
-  const [specialty, setSpecialty] = useState(specialties[0]);
-  const [area,      setArea]      = useState(areas[0]);
-  const [query,     setQuery]     = useState('');
+}: SearchSectionProps) {
+  const [specialty, setSpecialty] = useState<string>(specialties[0] ?? '');
+  const [area,      setArea]      = useState<string>(areas[0] ?? '');
+  const [query,     setQuery]     = useState<string>('');
 
-  function handleSearch() {
+  function handleSearch(): void {
     onSearch?.({ specialty, area, query });
   }
 
-  function handleKeyDown(e) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     if (e.key === 'Enter') handleSearch();
   }
 
@@ -53,7 +51,7 @@ export default function SearchSection({
           <select
             className="search-input"
             value={specialty}
-            onChange={(e) => setSpecialty(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSpecialty(e.target.value)}
             aria-label="Specialty"
           >
             {specialties.map((s) => (
@@ -65,7 +63,7 @@ export default function SearchSection({
           <select
             className="search-input"
             value={area}
-            onChange={(e) => setArea(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setArea(e.target.value)}
             aria-label="Area"
           >
             {areas.map((a) => (
@@ -79,7 +77,7 @@ export default function SearchSection({
             className="search-input"
             placeholder="Search doctors..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             aria-label="Search doctors"
           />

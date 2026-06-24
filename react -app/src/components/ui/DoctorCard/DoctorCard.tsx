@@ -1,41 +1,30 @@
 import './DoctorCard.css';
 import Badge from '../Badge/Badge';
 
-/**
- * DoctorCard — Waitless UI Kit
- *
- * @prop {string}   name        - Doctor's full name e.g. "Dr. Layla Hassan"
- * @prop {string}   specialty   - e.g. "Consultant Cardiologist"
- * @prop {number}   rating      - 0–5 (supports half stars)
- * @prop {number}   reviewCount
- * @prop {number}   price       - consultation fee in EGP
- * @prop {string}   location    - e.g. "Maadi +1"
- * @prop {Array}    badges      - array of { variant, label } objects for Badge component
- * @prop {function} onClick
- *
- * @example
- * <DoctorCard
- *   name="Dr. Layla Hassan"
- *   specialty="Consultant Cardiologist"
- *   rating={4.9}
- *   reviewCount={312}
- *   price={350}
- *   location="Maadi +1"
- *   badges={[
- *     { variant: 'cardiology', label: 'Cardiology' },
- *     { variant: 'today',      label: 'Today' },
- *   ]}
- *   onClick={() => navigate('/doctor/layla-hassan')}
- * />
- */
+interface DoctorBadge {
+  variant: string;
+  label: string;
+}
 
-function hashName(name) {
+interface DoctorCardProps {
+  name: string;
+  specialty: string;
+  rating?: number;
+  reviewCount?: number;
+  price: number;
+  location?: string;
+  badges?: DoctorBadge[];
+  onClick?: () => void;
+  className?: string;
+}
+
+function hashName(name: string): number {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return h % 6;
 }
 
-function getInitials(name) {
+function getInitials(name: string): string {
   return name
     .split(' ')
     .map((w) => w[0])
@@ -46,7 +35,7 @@ function getInitials(name) {
     .toUpperCase();
 }
 
-function renderStars(rating) {
+function renderStars(rating: number): string {
   const full  = Math.floor(rating);
   const empty = 5 - full;
   return '★'.repeat(full) + '☆'.repeat(empty);
@@ -62,7 +51,7 @@ export default function DoctorCard({
   badges = [],
   onClick,
   className = '',
-}) {
+}: DoctorCardProps) {
   const colorIndex = hashName(name);
   const initials   = getInitials(name);
 
@@ -88,7 +77,7 @@ export default function DoctorCard({
       {badges.length > 0 && (
         <div className="doctor-card__badges">
           {badges.map((b, i) => (
-            <Badge key={i} variant={b.variant}>{b.label}</Badge>
+            <Badge key={i} variant={b.variant as any}>{b.label}</Badge>
           ))}
         </div>
       )}

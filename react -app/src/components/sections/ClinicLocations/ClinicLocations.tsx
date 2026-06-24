@@ -1,26 +1,21 @@
 import { useState } from 'react';
 import './ClinicLocations.css';
 
-/**
- * ClinicLocations — Waitless UI Kit
- *
- * @prop {string} title   - card heading (default "Clinic Locations")
- * @prop {Array}  clinics - array of { id, name, address, phone }
- * @prop {string} activeId        - id of the currently active clinic
- * @prop {function} onSelect      - called with clinic id when a row is clicked
- *
- * @example
- * <ClinicLocations
- *   clinics={[
- *     { id: 'maadi',     name: 'Layla Hassan Heart Center', address: '15 Road 9, Maadi, Cairo',          phone: '02-25168800' },
- *     { id: 'newcairo',  name: 'New Cairo Medical Complex', address: '3rd District, 5th Settlement',     phone: '02-24188800' },
- *   ]}
- *   activeId="maadi"
- *   onSelect={(id) => setActiveClinic(id)}
- * />
- */
+interface Clinic {
+  id:       string;
+  name:     string;
+  address:  string;
+  phone?:   string;
+}
 
-const PinIcon = ({ active }) => (
+interface ClinicLocationsProps {
+  title?:    string;
+  clinics?:  Clinic[];
+  activeId?: string;
+  onSelect?: (id: string) => void;
+}
+
+const PinIcon = ({ active }: { active: boolean }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
     <path
       d="M12 22C12 22 19 15.5 19 10C19 6.13401 15.866 3 12 3C8.13401 3 5 6.13401 5 10C5 15.5 12 22 12 22Z"
@@ -45,10 +40,10 @@ export default function ClinicLocations({
   clinics = [],
   activeId,
   onSelect,
-}) {
-  const [selected, setSelected] = useState(activeId ?? clinics[0]?.id);
+}: ClinicLocationsProps) {
+  const [selected, setSelected] = useState<string | undefined>(activeId ?? clinics[0]?.id);
 
-  function handleSelect(id) {
+  function handleSelect(id: string): void {
     setSelected(id);
     onSelect?.(id);
   }

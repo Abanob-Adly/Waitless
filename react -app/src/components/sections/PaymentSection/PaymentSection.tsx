@@ -1,59 +1,73 @@
 import { useState } from 'react';
 import './PaymentSection.css';
 
-/**
- * PaymentSection — Waitless UI Kit
- *
- * @prop {Object}   booking         - { doctorName, specialty, date, time, clinic, area, fee }
- * @prop {Array}    paymentMethods  - [{ id, label }] (default: Credit/Debit, Vodafone Cash, Pay at Clinic)
- * @prop {function} onPay           - called with { method, cardData }
- *
- * @example
- * <PaymentSection
- *   booking={{
- *     doctorName: 'Dr. Layla Hassan',
- *     specialty:  'Consultant Cardiologist',
- *     date:       'Mon, Mar 16',
- *     time:       '09:30 AM',
- *     clinic:     'Layla Hassan Heart Center',
- *     area:       'Maadi, Cairo',
- *     fee:        350,
- *   }}
- *   onPay={(data) => processPayment(data)}
- * />
- */
+interface Booking {
+  doctorName: string;
+  specialty:  string;
+  date:       string;
+  time:       string;
+  clinic:     string;
+  area:       string;
+  fee:        number;
+}
 
-function getInitials(name = '') {
+interface PaymentMethod {
+  id:    string;
+  label: string;
+}
+
+interface CardData {
+  name:       string;
+  cardNumber: string;
+  expiry:     string;
+  cvv:        string;
+}
+
+interface PayData {
+  method:   string;
+  cardData?: CardData;
+}
+
+interface PaymentSectionProps {
+  booking?:        Booking;
+  paymentMethods?: PaymentMethod[];
+  onPay?:          (data: PayData) => void;
+}
+
+function getInitials(name: string = ''): string {
   return name.replace(/^Dr\.?\s*/i, '').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-const DEFAULT_METHODS = [
-  { id: 'card',      label: '💳 Credit/Debit'  },
-  { id: 'vodafone',  label: '📱 Vodafone Cash'  },
-  { id: 'clinic',    label: '🏥 Pay at Clinic'  },
+const DEFAULT_METHODS: PaymentMethod[] = [
+  { id: 'card',     label: '💳 Credit/Debit' },
+  { id: 'vodafone', label: '📱 Vodafone Cash' },
+  { id: 'clinic',   label: '🏥 Pay at Clinic' },
 ];
 
+const DEFAULT_BOOKING: Booking = {
+  doctorName: 'Dr. Layla Hassan',
+  specialty:  'Consultant Cardiologist',
+  date:       'Mon, Mar 16',
+  time:       '09:30 AM',
+  clinic:     'Layla Hassan Heart Center',
+  area:       'Maadi, Cairo',
+  fee:        350,
+};
+
 export default function PaymentSection({
-  booking = {
-    doctorName: 'Dr. Layla Hassan',
-    specialty:  'Consultant Cardiologist',
-    date:       'Mon, Mar 16',
-    time:       '09:30 AM',
-    clinic:     'Layla Hassan Heart Center',
-    area:       'Maadi, Cairo',
-    fee:        350,
-  },
+  booking        = DEFAULT_BOOKING,
   paymentMethods = DEFAULT_METHODS,
   onPay,
-}) {
-  const [activeMethod, setActiveMethod] = useState(paymentMethods[0]?.id);
-  const [form, setForm] = useState({ name: '', cardNumber: '', expiry: '', cvv: '' });
+}: PaymentSectionProps) {
+  const [activeMethod, setActiveMethod] = useState<string>(paymentMethods[0]?.id ?? '');
+  const [form, setForm] = useState<CardData>({ name: '', cardNumber: '', expiry: '', cvv: '' });
 
-  function handleField(key) {
-    return (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  function handleField(key: keyof CardData) {
+    return (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
   }
 
-  function handlePay() {
+  function handlePay(): void {
     onPay?.({ method: activeMethod, cardData: form });
   }
 
@@ -82,51 +96,31 @@ export default function PaymentSection({
             ))}
           </div>
 
-          {/* Card form (shown for card method) */}
+          {/* Card form */}
           {activeMethod === 'card' && (
             <div className="payment-form">
               <div className="payment-field">
                 <label>Cardholder Name *</label>
-                <input
-                  type="text"
-                  placeholder="As printed on card"
-                  value={form.name}
-                  onChange={handleField('name')}
-                />
+                <input type="text" placeholder="As printed on card"
+                  value={form.name} onChange={handleField('name')} />
               </div>
               <div className="payment-field">
                 <label>Card Number *</label>
-                <input
-                  type="text"
-                  placeholder="0000 0000 0000 0000"
-                  value={form.cardNumber}
-                  onChange={handleField('cardNumber')}
-                  maxLength={19}
-                />
+                <input type="text" placeholder="0000 0000 0000 0000"
+                  value={form.cardNumber} onChange={handleField('cardNumber')} maxLength={19} />
               </div>
               <div className="payment-row">
                 <div className="payment-field">
                   <label>Expiry *</label>
-                  <input
-                    type="text"
-                    placeholder="MM / YY"
-                    value={form.expiry}
-                    onChange={handleField('expiry')}
-                    maxLength={7}
-                  />
+                  <input type="text" placeholder="MM / YY"
+                    value={form.expiry} onChange={handleField('expiry')} maxLength={7} />
                 </div>
                 <div className="payment-field">
                   <label>CVV *</label>
-                  <input
-                    type="password"
-                    placeholder="•••"
-                    value={form.cvv}
-                    onChange={handleField('cvv')}
-                    maxLength={4}
-                  />
+                  <input type="password" placeholder="•••"
+                    value={form.cvv} onChange={handleField('cvv')} maxLength={4} />
                 </div>
               </div>
-
               <button className="payment-btn" type="button" onClick={handlePay}>
                 Pay {booking.fee} EGP
               </button>
@@ -134,7 +128,7 @@ export default function PaymentSection({
             </div>
           )}
 
-          {/* Simplified CTA for non-card methods */}
+          {/* Non-card methods */}
           {activeMethod !== 'card' && (
             <div className="payment-form">
               <button className="payment-btn" type="button" onClick={handlePay}>
@@ -162,22 +156,10 @@ export default function PaymentSection({
           </div>
 
           <div className="summary-details">
-            <div className="summary-row">
-              <span>📅 Date</span>
-              <strong>{booking.date}</strong>
-            </div>
-            <div className="summary-row">
-              <span>⏰ Time</span>
-              <strong>{booking.time}</strong>
-            </div>
-            <div className="summary-row">
-              <span>📍 Clinic</span>
-              <strong>{booking.clinic}</strong>
-            </div>
-            <div className="summary-row">
-              <span>📌 Area</span>
-              <strong>{booking.area}</strong>
-            </div>
+            <div className="summary-row"><span>📅 Date</span><strong>{booking.date}</strong></div>
+            <div className="summary-row"><span>⏰ Time</span><strong>{booking.time}</strong></div>
+            <div className="summary-row"><span>📍 Clinic</span><strong>{booking.clinic}</strong></div>
+            <div className="summary-row"><span>📌 Area</span><strong>{booking.area}</strong></div>
           </div>
 
           <div className="summary-total">
