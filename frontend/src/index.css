@@ -22,6 +22,94 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+
+  /* ── Animation presets ─────────────────────────────────────────────────── */
+  --animate-fade-up:        fade-up        0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in:        fade-in        0.4s  ease                          both;
+  --animate-slide-in-right: slide-in-right 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-down:     slide-down     0.25s ease                          both;
+  --animate-scale-in:       scale-in       0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-bounce-in:      bounce-in      0.5s  cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+  --animate-float:          float          4s    ease-in-out                   infinite;
+  --animate-ping-slow:      ping-slow      1.8s  cubic-bezier(0, 0, 0.2, 1)   infinite;
+  --animate-shimmer:        shimmer        1.8s  linear                        infinite;
+  --animate-spin-slow:      spin-slow      8s    linear                        infinite;
+}
+
+/* ── Keyframe definitions ────────────────────────────────────────────────────── */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0);     }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+@keyframes bounce-in {
+  0%   { opacity: 0; transform: scale(0.72); }
+  60%  { opacity: 1; transform: scale(1.06); }
+  100% {             transform: scale(1);    }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0);    }
+  50%       { transform: translateY(-10px); }
+}
+
+@keyframes ping-slow {
+  0%   { opacity: 0.85; transform: scale(1);   }
+  100% { opacity: 0;    transform: scale(2.2); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Shimmer utility (used on skeleton cards) ────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-offwhite) 25%,
+    var(--color-border)   50%,
+    var(--color-offwhite) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
+/* ── Scroll-triggered reveal: add .reveal to any element, JS adds .visible ───── */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 body {

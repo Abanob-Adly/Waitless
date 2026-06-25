@@ -14,9 +14,8 @@ export function useQueueSubscription(
   queueNumber: number,
   avgConsultationMin: number,
 ): QueueSubscriptionResult {
-  const [currentServing, setCurrentServing] = useState(
-    Math.max(0, queueNumber - 3),
-  );
+  // Server controls the initial value; start at 0 until first poll returns
+  const [currentServing, setCurrentServing] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
@@ -30,16 +29,16 @@ export function useQueueSubscription(
     }
 
     tick();
-    const id = setInterval(tick, 5000);
+    const id = setInterval(tick, 3000);
     return () => {
       alive = false;
       clearInterval(id);
     };
   }, [appointmentId, queueNumber]);
 
-  const position = Math.max(0, queueNumber - currentServing);
-  const isCalled = position === 0;
-  // Corrected ETA: (position - 1) slots ahead × avg minutes per slot
+  const position = Math.max(1, queueNumber - currentServing);
+  const isCalled = currentServing >= queueNumber;
+  // ETA: (position - 1) slots ahead × avg minutes per slot
   // position=1 → ETA=0 ("you're next"), position=3 → ETA=2*avg
   const etaMinutes = Math.max(0, (position - 1) * avgConsultationMin);
 

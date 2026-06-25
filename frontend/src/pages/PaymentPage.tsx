@@ -8,6 +8,7 @@ import {
   validateCVV,
   validatePhone,
 } from "../utils/validation";
+import { CardVisual, detectCardBrand } from "../components/payment/CardVisual";
 import type { Doctor, Session } from "../context/AppContext";
 import type { BookingPayload, PaymentPayload } from "../types/index";
 
@@ -27,11 +28,10 @@ type PaymentMethod = "card" | "vodafone" | "clinic";
 export function PaymentPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { setPatient, setBooking, setBookingIntent } = useApp();
+  const { setBookingIntent } = useApp();
 
   const state = location.state as CheckoutState | null;
 
-  // Guard: if user lands here without booking state, redirect to search
   if (!state?.doctor || !state?.session) {
     return (
       <main className="py-24 text-center">
@@ -60,13 +60,17 @@ export function PaymentPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Card fields
-  const [cardholderName, setCardholderName] = useState("");
+  const [cardholderName, setCardholderName] = useState(patientName);
   const [cardNumber, setCardNumber] = useState("");
   const [expiry, setExpiry] = useState("");
   const [cvv, setCvv] = useState("");
+  const [showCardBack, setShowCardBack] = useState(false);
 
   // Vodafone Cash field
   const [vodafonePhone, setVodafonePhone] = useState(patientPhone);
+
+  const rawDigits = cardNumber.replace(/\s/g, "");
+  const brand = detectCardBrand(rawDigits);
 
   function formatCardNumber(raw: string) {
     return raw
@@ -88,13 +92,10 @@ export function PaymentPage() {
     if (method === "card") {
       if (!cardholderName.trim())
         errs.cardholderName = "Cardholder name is required.";
-
       const cardResult = validateCardNumber(cardNumber.replace(/\s/g, ""));
       if (!cardResult.valid) errs.cardNumber = cardResult.error;
-
       const expiryResult = validateExpiry(expiry);
       if (!expiryResult.valid) errs.expiry = expiryResult.error;
-
       const cvvResult = validateCVV(cvv);
       if (!cvvResult.valid) errs.cvv = cvvResult.error;
     }
@@ -118,20 +119,38 @@ export function PaymentPage() {
       sessionId: session.id,
       patientName,
       patientPhone,
+      avgConsultationMin: session.avgConsultationMin,
     };
     const { appointmentId, queueNumber } = await submitBooking(bookingPayload);
 
+    const last4 = rawDigits.length >= 4 ? rawDigits.slice(-4) : undefined;
     const paymentPayload: PaymentPayload = {
-      method: method === "vodafone" ? "vodafone" : method === "clinic" ? "clinic" : "card",
+      method,
       appointmentId,
       amount: doctor.fee,
+      last4,
     };
-    await processPayment(paymentPayload);
+    const result = await processPayment(paymentPayload);
 
-    setPatient({ name: patientName, phone: patientPhone });
-    setBooking({ id: appointmentId, doctor, session, queueNumber });
     setBookingIntent(null);
-    navigate("/ticket");
+    setProcessing(false);
+
+    navigate("/payment-result", {
+      state: {
+        success: result.success,
+        transactionId: result.transactionId,
+        error: result.error,
+        doctor,
+        session,
+        amount: doctor.fee,
+        method,
+        last4,
+        patientName,
+        patientPhone,
+        appointmentId,
+        queueNumber,
+      },
+    });
   }
 
   const methodLabels: Record<PaymentMethod, string> = {
@@ -179,6 +198,19 @@ export function PaymentPage() {
             ))}
           </div>
 
+          {/* Animated card visual (card method only) */}
+          {method === "card" && (
+            <div className="mt-6 flex justify-center">
+              <CardVisual
+                cardNumber={cardNumber}
+                cardholderName={cardholderName}
+                expiry={expiry}
+                showBack={showCardBack}
+                brand={brand}
+              />
+            </div>
+          )}
+
           {/* Form area */}
           <form onSubmit={handlePay} className="mt-6">
             {method === "card" && (
@@ -217,6 +249,8 @@ export function PaymentPage() {
                     error={errors.cvv}
                     inputMode="numeric"
                     type="password"
+                    onFocus={() => setShowCardBack(true)}
+                    onBlur={() => setShowCardBack(false)}
                   />
                 </div>
               </div>
@@ -272,7 +306,7 @@ export function PaymentPage() {
                   Processing…
                 </>
               ) : method === "clinic" ? (
-                `Confirm Booking →`
+                "Confirm Booking →"
               ) : (
                 `Pay ${doctor.fee} EGP →`
               )}
@@ -358,6 +392,8 @@ function FormField({
   error,
   inputMode,
   type = "text",
+  onFocus,
+  onBlur,
 }: {
   label: string;
   placeholder: string;
@@ -366,6 +402,8 @@ function FormField({
   error?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   type?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }) {
   return (
     <label className="block">
@@ -376,6 +414,8 @@ function FormField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         inputMode={inputMode}
+        onFocus={onFocus}
+        onBlur={onBlur}
         className={`mt-1.5 h-12 w-full rounded-md border bg-white px-4 text-sm text-navy outline-none transition focus:ring-2 ${
           error
             ? "border-danger focus:ring-danger/20"

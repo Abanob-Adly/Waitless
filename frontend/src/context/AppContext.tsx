@@ -1,13 +1,25 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import type {
+import { createContext, useContext, useState } from "react";
+import type { ActiveBooking, HistoryRecord, BookingIntent } from "../types/index";
+
+// Re-export all canonical types so existing consumers don't need to change their imports
+export type {
   Patient,
+  PatientProfile,
+  DoctorAccount,
+  AuthRole,
+  AuthUser,
+  PatientSignupPayload,
+  DoctorSignupPayload,
+  ClinicLocation,
+  Doctor,
+  Session,
   ActiveBooking,
   HistoryRecord,
   BookingIntent,
+  BookingPayload,
+  PaymentPayload,
+  PaymentRecord,
 } from "../types/index";
-
-// Re-export all types so existing consumers don't need to change their imports
-export type { Patient, ClinicLocation, Doctor, Session, ActiveBooking, HistoryRecord, BookingIntent } from "../types/index";
 
 // ── Seed history ──────────────────────────────────────────────────────────────
 
@@ -32,52 +44,70 @@ const SEED_HISTORY: HistoryRecord[] = [
   },
 ];
 
-// ── Context ───────────────────────────────────────────────────────────────────
+// ── Context type ──────────────────────────────────────────────────────────────
 
 type AppCtx = {
-  patient: Patient | null;
-  setPatient: (p: Patient | null) => void;
-  booking: ActiveBooking | null;
-  setBooking: (b: ActiveBooking | null) => void;
+  bookings: ActiveBooking[];
+  addBooking: (b: ActiveBooking) => void;
+  removeBooking: (id: string) => void;
+  updateBookingNotes: (id: string, notes: string) => void;
+  clearBookings: () => void;
   history: HistoryRecord[];
-  cancelBooking: () => void;
   bookingIntent: BookingIntent | null;
   setBookingIntent: (intent: BookingIntent | null) => void;
 };
 
 const Ctx = createContext<AppCtx | null>(null);
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [patient, setPatient] = useState<Patient | null>(null);
-  const [booking, setBooking] = useState<ActiveBooking | null>(null);
+// ── Provider ──────────────────────────────────────────────────────────────────
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [bookings, setBookings] = useState<ActiveBooking[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>(SEED_HISTORY);
   const [bookingIntent, setBookingIntent] = useState<BookingIntent | null>(null);
 
-  function cancelBooking() {
-    if (booking) {
-      const record: HistoryRecord = {
-        id: booking.id,
-        doctorName: booking.doctor.name,
-        doctorInitials: booking.doctor.initials,
-        specialty: booking.doctor.specialty,
-        date: booking.session.date,
-        fee: booking.doctor.fee,
-        status: "cancelled",
-      };
-      setHistory((prev) => [record, ...prev]);
+  function addBooking(b: ActiveBooking) {
+    setBookings((prev) => [...prev, b]);
+  }
+
+  function removeBooking(id: string) {
+    const found = bookings.find((b) => b.id === id);
+    if (found) {
+      setHistory((h) => [
+        {
+          id: found.id,
+          doctorName: found.doctor.name,
+          doctorInitials: found.doctor.initials,
+          specialty: found.doctor.specialty,
+          date: found.session.date,
+          fee: found.doctor.fee,
+          status: "cancelled",
+        },
+        ...h,
+      ]);
     }
-    setBooking(null);
+    setBookings((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  function updateBookingNotes(id: string, notes: string) {
+    setBookings((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, patientNotes: notes } : b)),
+    );
+  }
+
+  function clearBookings() {
+    setBookings([]);
   }
 
   return (
     <Ctx.Provider
       value={{
-        patient,
-        setPatient,
-        booking,
-        setBooking,
+        bookings,
+        addBooking,
+        removeBooking,
+        updateBookingNotes,
+        clearBookings,
         history,
-        cancelBooking,
         bookingIntent,
         setBookingIntent,
       }}
@@ -87,7 +117,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useApp() {
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+export function useApp(): AppCtx {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;

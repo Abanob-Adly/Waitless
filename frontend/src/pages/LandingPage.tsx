@@ -53,32 +53,50 @@ export function LandingPage() {
           <div className="grid items-center gap-12 lg:grid-cols-[1fr_360px]">
             {/* Left */}
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/80">
-                <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+              <span
+                className="inline-flex animate-fade-up items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/80"
+                style={{ animationDelay: "0ms" }}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping-slow rounded-full bg-gold opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-gold" />
+                </span>
                 Egypt&apos;s #1 Healthcare Booking Platform
               </span>
 
               <h1 className="mt-5 font-heading leading-tight text-white">
-                <span className="block text-5xl font-bold md:text-6xl">
+                <span
+                  className="block animate-fade-up text-5xl font-bold md:text-6xl"
+                  style={{ animationDelay: "120ms" }}
+                >
                   Book Your Doctor.
                 </span>
-                <span className="block text-5xl font-bold text-gold md:text-6xl">
+                <span
+                  className="block animate-fade-up text-5xl font-bold text-gold md:text-6xl"
+                  style={{ animationDelay: "240ms" }}
+                >
                   Skip the Wait.
                 </span>
               </h1>
 
-              <p className="mt-6 max-w-lg text-lg leading-7 text-white/70">
+              <p
+                className="mt-6 max-w-lg animate-fade-up text-lg leading-7 text-white/70"
+                style={{ animationDelay: "360ms" }}
+              >
                 Find, compare and book appointments with Egypt&apos;s top
                 specialists — online, instantly, no phone calls.
               </p>
 
               {/* Search widget */}
-              <div className="mt-8 max-w-2xl rounded-xl bg-white p-4 shadow-2xl">
+              <div
+                className="mt-8 max-w-2xl animate-fade-up rounded-xl bg-white p-4 shadow-2xl"
+                style={{ animationDelay: "480ms" }}
+              >
                 <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
                   <select
                     value={specialty}
                     onChange={(e) => setSpecialty(e.target.value)}
-                    className="h-12 rounded-md border border-border px-4 text-sm text-navy outline-none transition focus:border-gold"
+                    className="h-12 rounded-md border border-border px-4 text-sm text-navy outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
                   >
                     {SPECIALTIES.map((s) => (
                       <option key={s}>{s}</option>
@@ -88,7 +106,7 @@ export function LandingPage() {
                   <select
                     value={area}
                     onChange={(e) => setArea(e.target.value)}
-                    className="h-12 rounded-md border border-border px-4 text-sm text-navy outline-none transition focus:border-gold"
+                    className="h-12 rounded-md border border-border px-4 text-sm text-navy outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
                   >
                     {AREAS.map((a) => (
                       <option key={a}>{a}</option>
@@ -97,7 +115,7 @@ export function LandingPage() {
 
                   <button
                     onClick={handleSearch}
-                    className="h-12 rounded-md bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
+                    className="h-12 rounded-md bg-gold px-6 text-sm font-medium text-navy transition hover:scale-105 hover:bg-gold-light active:scale-95"
                   >
                     Search Doctors
                   </button>
@@ -106,8 +124,12 @@ export function LandingPage() {
 
               {/* Stats */}
               <div className="mt-10 grid grid-cols-2 gap-x-10 gap-y-6 md:grid-cols-4">
-                {STATS.map(({ value, label }) => (
-                  <div key={label}>
+                {STATS.map(({ value, label }, i) => (
+                  <div
+                    key={label}
+                    className="animate-fade-up"
+                    style={{ animationDelay: `${580 + i * 100}ms` }}
+                  >
                     <p className="font-heading text-3xl font-bold text-gold">
                       {value}
                     </p>
@@ -118,7 +140,10 @@ export function LandingPage() {
             </div>
 
             {/* Right — decorative live-ticket preview */}
-            <div className="hidden lg:block">
+            <div
+              className="hidden animate-slide-in-right lg:block"
+              style={{ animationDelay: "300ms" }}
+            >
               <TicketPreview />
             </div>
           </div>
@@ -128,7 +153,7 @@ export function LandingPage() {
       {/* ── Top Specialists ──────────────────────────────────────────────── */}
       <section className="mx-auto max-w-7xl px-6 py-16">
         <div className="mb-8 flex items-end justify-between">
-          <div>
+          <div className="animate-fade-up">
             <p className="text-sm font-medium text-gold">
               Highly rated — available now
             </p>
@@ -138,15 +163,22 @@ export function LandingPage() {
           </div>
           <button
             onClick={() => navigate("/search")}
-            className="text-sm font-medium text-navy transition hover:text-gold"
+            className="animate-fade-up text-sm font-medium text-navy transition hover:text-gold"
+            style={{ animationDelay: "100ms" }}
           >
             View all →
           </button>
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          {MOCK_DOCTORS.map((doctor) => (
-            <DoctorCard key={doctor.id} doctor={doctor} />
+          {MOCK_DOCTORS.map((doctor, i) => (
+            <div
+              key={doctor.id}
+              className="animate-fade-up"
+              style={{ animationDelay: `${i * 100}ms` }}
+            >
+              <DoctorCard doctor={doctor} />
+            </div>
           ))}
         </div>
       </section>
@@ -154,26 +186,33 @@ export function LandingPage() {
       {/* ── How It Works ─────────────────────────────────────────────────── */}
       <section className="bg-navy py-20">
         <div className="mx-auto max-w-7xl px-6 text-center">
-          <p className="text-sm font-medium text-gold">
+          <p className="animate-fade-up text-sm font-medium text-gold">
             Simple &amp; Transparent
           </p>
-          <h2 className="mt-2 font-heading text-4xl font-bold text-white">
+          <h2
+            className="mt-2 animate-fade-up font-heading text-4xl font-bold text-white"
+            style={{ animationDelay: "100ms" }}
+          >
             How It Works
           </h2>
-          <p className="mt-3 text-white/60">
+          <p
+            className="mt-3 animate-fade-up text-white/60"
+            style={{ animationDelay: "200ms" }}
+          >
             Three easy steps to skip the waiting room forever.
           </p>
 
           <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {STEPS.map((step) => (
+            {STEPS.map((step, i) => (
               <div
                 key={step.num}
-                className="rounded-xl bg-white/5 p-7 text-left"
+                className="animate-fade-up rounded-xl bg-white/5 p-7 text-left transition hover:bg-white/10"
+                style={{ animationDelay: `${300 + i * 150}ms` }}
               >
                 <span className="font-heading text-4xl font-bold text-gold/30">
                   {step.num}
                 </span>
-                <div className="mt-4 text-3xl">{step.icon}</div>
+                <div className="mt-4 text-3xl transition-transform hover:scale-110 inline-block">{step.icon}</div>
                 <h3 className="mt-3 font-heading text-xl font-bold text-white">
                   {step.title}
                 </h3>
@@ -188,7 +227,7 @@ export function LandingPage() {
 
       {/* ── CTA Banner ───────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-7xl px-6 py-16">
-        <div className="flex flex-col items-center justify-between gap-6 rounded-2xl bg-gold-tint px-8 py-10 sm:flex-row">
+        <div className="animate-fade-up flex flex-col items-center justify-between gap-6 rounded-2xl bg-gold-tint px-8 py-10 transition hover:shadow-lg sm:flex-row">
           <div>
             <h3 className="font-heading text-2xl font-bold text-navy">
               Ready to skip the wait?
@@ -199,7 +238,7 @@ export function LandingPage() {
           </div>
           <button
             onClick={() => navigate("/search")}
-            className="shrink-0 rounded-md bg-navy px-8 py-3 text-sm font-medium text-white transition hover:bg-navy-mid"
+            className="shrink-0 rounded-md bg-navy px-8 py-3 text-sm font-medium text-white transition hover:scale-105 hover:bg-navy-mid active:scale-95"
           >
             Find Your Doctor →
           </button>
@@ -213,7 +252,7 @@ export function LandingPage() {
 
 function TicketPreview() {
   return (
-    <div className="w-full rounded-2xl border border-white/15 bg-white/5 p-5">
+    <div className="animate-float w-full rounded-2xl border border-white/15 bg-white/5 p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-xs text-white/50">Live queue preview</p>
@@ -222,7 +261,10 @@ function TicketPreview() {
           </p>
         </div>
         <span className="flex items-center gap-1.5 rounded-full bg-success px-2.5 py-1 text-xs font-medium text-white">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping-slow rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+          </span>
           Live
         </span>
       </div>
@@ -257,9 +299,10 @@ function TicketPreview() {
               strokeLinecap="round"
               strokeDasharray="376.99"
               strokeDashoffset="188.5"
+              style={{ transition: "stroke-dashoffset 1s ease" }}
             />
           </svg>
-          <div className="text-center">
+          <div className="animate-bounce-in text-center" style={{ animationDelay: "600ms" }}>
             <span className="font-heading text-5xl font-bold leading-none text-white">
               3
             </span>
@@ -273,11 +316,11 @@ function TicketPreview() {
         </p>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg bg-white/10 p-2.5 text-center">
+          <div className="rounded-lg bg-white/10 p-2.5 text-center transition hover:bg-white/15">
             <p className="font-heading text-xl font-bold text-gold">~36m</p>
             <p className="text-xs text-white/50">Est. wait</p>
           </div>
-          <div className="rounded-lg bg-white/10 p-2.5 text-center">
+          <div className="rounded-lg bg-white/10 p-2.5 text-center transition hover:bg-white/15">
             <p className="font-heading text-xl font-bold text-white">
               350 EGP
             </p>
@@ -297,10 +340,10 @@ function DoctorCard({ doctor }: { doctor: Doctor }) {
   return (
     <article
       onClick={() => navigate(`/doctors/${doctor.id}`)}
-      className="cursor-pointer rounded-xl border border-border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-gold hover:shadow-md"
+      className="group cursor-pointer rounded-xl border border-border bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-gold hover:shadow-lg"
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-lg font-bold text-navy">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-lg font-bold text-navy transition group-hover:scale-110">
           {doctor.initials}
         </div>
         <div className="min-w-0 flex-1">
@@ -332,8 +375,8 @@ function DoctorCard({ doctor }: { doctor: Doctor }) {
             EGP
           </span>
         </p>
-        <span className="rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white">
-          View Profile
+        <span className="rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white transition group-hover:bg-navy-mid">
+          View Profile →
         </span>
       </div>
     </article>

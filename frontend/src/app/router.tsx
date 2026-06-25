@@ -1,35 +1,91 @@
 import { createBrowserRouter } from "react-router-dom";
-import { LandingPage } from "../pages/public/LandingPage";
-import { DoctorProfilePage } from "../pages/public/DoctorProfilePage";
-import { PaymentPage } from "../pages/booking/PaymentPage";
-<<<<<<< HEAD
+import { Layout } from "../components/layout/Layout";
+import { LandingPage } from "../pages/LandingPage";
+import { Marketplace } from "../pages/Marketplace";
+import { DoctorProfile } from "../pages/DoctorProfile";
+import { PaymentPage } from "../pages/PaymentPage";
+import { PaymentResult } from "../pages/PaymentResult";
+import { LiveTicket } from "../pages/LiveTicket";
+import { PatientDashboard } from "../pages/PatientDashboard";
+import { DoctorDashboard } from "../pages/DoctorDashboard";
+import { LoginPage } from "../pages/auth/LoginPage";
+import { SignupPage } from "../pages/auth/SignupPage";
+import { ProtectedRoute } from "../components/auth/ProtectedRoute";
+import { OrgOnboardingPage } from "../pages/org/OrgOnboardingPage";
+import { AcceptInvitePage } from "../pages/org/AcceptInvitePage";
+import { AdminDashboard } from "../pages/admin/AdminDashboard";
+import { ReceptionistDashboard } from "../pages/receptionist/ReceptionistDashboard";
+import { LiveQueuePage } from "../pages/public/LiveQueuePage";
+import { ReviewPage } from "../pages/public/ReviewPage";
+import { OrgProvider } from "../context/OrgContext";
 
-=======
-import { DoctorDashboardPage } from "../pages/doctor/DoctorDashboardPage";
-import { DoctorSessionQueuePage } from "../pages/doctor/DoctorSessionQueuePage";
->>>>>>> 7a83634e1ffa21b7db94c8ad5290d61944d50e3c
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <LandingPage />,
+    element: <Layout />,
+    children: [
+      { index: true, element: <LandingPage /> },
+      { path: "search", element: <Marketplace /> },
+      { path: "doctors/:doctorId", element: <DoctorProfile /> },
+      { path: "login", element: <LoginPage /> },
+      { path: "signup", element: <SignupPage /> },
+      { path: "payment-result", element: <PaymentResult /> },
+      { path: "org/signup", element: <OrgOnboardingPage /> },
+      { path: "accept-invite", element: <AcceptInvitePage /> },
+      { path: "q/:token", element: <LiveQueuePage /> },
+      { path: "review", element: <ReviewPage /> },
+      {
+        path: "checkout",
+        element: (
+          <ProtectedRoute role="patient">
+            <PaymentPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "ticket",
+        element: (
+          <ProtectedRoute role="patient">
+            <LiveTicket />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "dashboard",
+        element: (
+          <ProtectedRoute role="patient">
+            <PatientDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "doctor-dashboard",
+        element: (
+          <ProtectedRoute role="doctor">
+            <DoctorDashboard />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "admin",
+        element: (
+          <ProtectedRoute role="admin">
+            <OrgProvider>
+              <AdminDashboard />
+            </OrgProvider>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "reception",
+        element: (
+          <ProtectedRoute role="receptionist">
+            <OrgProvider>
+              <ReceptionistDashboard />
+            </OrgProvider>
+          </ProtectedRoute>
+        ),
+      },
+    ],
   },
-  {
-    path: "/doctors/:doctorId",
-    element: <DoctorProfilePage />,
-  },
-  {
-    path: "/payment",
-    element: <PaymentPage />,
-  },
-<<<<<<< HEAD
-=======
-  {
-    path: "/doctor/dashboard",
-    element: <DoctorDashboardPage />,
-  },
-  {
-    path: "/doctor/sessions/:sessionId/queue",
-    element: <DoctorSessionQueuePage />,
-  },
->>>>>>> 7a83634e1ffa21b7db94c8ad5290d61944d50e3c
 ]);

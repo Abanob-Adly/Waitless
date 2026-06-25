@@ -23,11 +23,32 @@ export type DoctorAccount = {
   password: string;
 };
 
-export type AuthRole = "patient" | "doctor";
+export type AdminAccount = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  password: string;
+  orgId: string;
+};
+
+export type ReceptionistAccount = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  password: string;
+  orgId: string;
+  branchId: string;
+};
+
+export type AuthRole = "patient" | "doctor" | "admin" | "receptionist";
 
 export type AuthUser =
   | { role: "patient"; profile: PatientProfile }
   | { role: "doctor"; profile: DoctorAccount }
+  | { role: "admin"; profile: AdminAccount }
+  | { role: "receptionist"; profile: ReceptionistAccount }
   | null;
 
 // ── Signup payloads ───────────────────────────────────────────────────────────
@@ -45,6 +66,25 @@ export type DoctorSignupPayload = {
   phone: string;
   specialty: string;
   licenseNumber: string;
+  password: string;
+};
+
+export type OrgOnboardingPayload = {
+  adminName: string;
+  adminPhone: string;
+  adminEmail: string;
+  adminPassword: string;
+  orgName: string;
+  orgType: OrgType;
+  country: string;
+  timezone: string;
+  isPublic: boolean;
+};
+
+export type InviteAcceptPayload = {
+  token: string;
+  name: string;
+  phone: string;
   password: string;
 };
 
@@ -87,6 +127,9 @@ export type Session = {
   endTime: string;
   availableSlots: number;
   avgConsultationMin: number;
+  status: "scheduled" | "active" | "closed";
+  queueToken: string;
+  scheduleId?: string;
 };
 
 // ── Booking ───────────────────────────────────────────────────────────────────
@@ -125,6 +168,7 @@ export type BookingPayload = {
   sessionId: string;
   patientName: string;
   patientPhone: string;
+  avgConsultationMin: number;
 };
 
 export type PaymentPayload = {
@@ -142,4 +186,103 @@ export type PaymentRecord = {
   status: "success" | "failed";
   timestamp: string;
   last4?: string;
+};
+
+// ── Organization domain ───────────────────────────────────────────────────────
+
+export type OrgType = "clinic" | "hospital" | "polyclinic";
+
+export type Organization = {
+  id: string;
+  name: string;
+  type: OrgType;
+  country: string;
+  timezone: string;
+  isPublic: boolean;
+  createdAt: string;
+  trialEndsAt: string;
+};
+
+export type Branch = {
+  id: string;
+  orgId: string;
+  name: string;
+  address: string;
+  city: string;
+  phone: string;
+};
+
+export type Membership = {
+  id: string;
+  orgId: string;
+  userId: string;
+  userRole: "admin" | "doctor" | "receptionist";
+  branchId?: string;
+  status: "active" | "pending";
+  inviteToken?: string;
+  invitedEmail: string;
+  memberName: string;
+  createdAt: string;
+};
+
+// ── Schedule domain ───────────────────────────────────────────────────────────
+
+export type WeeklySlot = {
+  dayOfWeek: number; // 0=Sun..6=Sat
+  startTime: string; // "HH:MM"
+  endTime: string;
+};
+
+export type DoctorBranchSchedule = {
+  id: string;
+  doctorId: string;
+  branchId: string;
+  doctorName: string;
+  specialty: string;
+  weeklySlots: WeeklySlot[];
+  fee: number;
+  avgConsultationMin: number;
+  isActive: boolean;
+};
+
+export type ScheduleException = {
+  id: string;
+  scheduleId: string;
+  date: string; // "YYYY-MM-DD"
+  reason: string;
+};
+
+// ── Billing domain ────────────────────────────────────────────────────────────
+
+export type PlanTier = "trial" | "starter" | "growth" | "enterprise";
+
+export type SubscriptionPlan = {
+  id: string;
+  tier: PlanTier;
+  name: string;
+  pricePerMonth: number; // EGP; 0 = contact sales
+  maxDoctors: number;
+  maxBranches: number;
+  features: string[];
+};
+
+export type Subscription = {
+  id: string;
+  orgId: string;
+  planId: string;
+  status: "trial" | "active" | "cancelled";
+  currentPeriodEnd: string;
+};
+
+// ── Review domain ─────────────────────────────────────────────────────────────
+
+export type ReviewSubmission = {
+  id: string;
+  appointmentId: string;
+  doctorId: string;
+  patientId: string;
+  rating: number; // 1–5
+  comment: string;
+  submittedAt: string;
+  reviewToken: string;
 };

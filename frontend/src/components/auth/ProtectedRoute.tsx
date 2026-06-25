@@ -7,13 +7,15 @@ export function ProtectedRoute({
   role,
   children,
 }: {
-  role: AuthRole;
+  role: AuthRole | AuthRole[];
   children: ReactNode;
 }) {
   const { authUser } = useAuth();
   const location = useLocation();
 
-  if (!authUser || authUser.role !== role) {
+  const allowed = Array.isArray(role) ? role : [role];
+
+  if (!authUser || !allowed.includes(authUser.role)) {
     return (
       <Navigate
         to={`/login?next=${encodeURIComponent(location.pathname)}`}

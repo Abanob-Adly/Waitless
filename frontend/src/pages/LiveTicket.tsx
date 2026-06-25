@@ -8,8 +8,11 @@ import type { ActiveBooking } from "../context/AppContext";
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function LiveTicket() {
-  const { booking, cancelBooking } = useApp();
+  const { bookings, removeBooking } = useApp();
   const navigate = useNavigate();
+
+  // Show the first active booking
+  const booking = bookings[0] ?? null;
 
   if (!booking) return <NoTicketView />;
 
@@ -17,7 +20,7 @@ export function LiveTicket() {
     <TicketView
       booking={booking}
       onCancel={() => {
-        cancelBooking();
+        removeBooking(booking.id);
         navigate("/");
       }}
     />
@@ -50,6 +53,17 @@ function TicketView({
   const progress = initialGap > 0 ? 1 - position / initialGap : 1;
   const dashOffset = circumference * (1 - progress);
 
+  // Clinic address from doctor clinics list
+  const clinicDetails = booking.doctor.clinics.find(
+    (c) => c.id === booking.session.clinicId,
+  );
+
+  const paymentBadge = {
+    success: { label: "Paid ✓", cls: "bg-success/10 text-success" },
+    failed: { label: "Payment Failed", cls: "bg-danger/10 text-danger" },
+    pending: { label: "Pay at Clinic", cls: "bg-gold-tint text-navy" },
+  }[booking.paymentStatus];
+
   async function handleCancel() {
     if (!window.confirm("Cancel your appointment? This cannot be undone."))
       return;
@@ -60,7 +74,7 @@ function TicketView({
 
   return (
     <main className="mx-auto max-w-lg px-4 pb-16 pt-8">
-      {/* Live indicator row */}
+      {/* Live indicator */}
       <div className="mb-6 flex items-center justify-center gap-2">
         <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
         <span className="text-sm text-navy-mid">
@@ -82,6 +96,11 @@ function TicketView({
             <p className="mt-0.5 text-xs text-white/40">
               {booking.session.clinicName}
             </p>
+            {clinicDetails?.address && (
+              <p className="mt-0.5 text-xs text-white/30">
+                📍 {clinicDetails.address}
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="flex items-center gap-1.5 rounded-full bg-success px-3 py-1 text-xs font-medium text-white">
@@ -89,6 +108,9 @@ function TicketView({
               Live
             </span>
             <p className="text-xs text-white/40">{booking.session.date}</p>
+            <p className="text-xs text-white/40">
+              {booking.session.startTime} – {booking.session.endTime}
+            </p>
           </div>
         </div>
 
@@ -102,13 +124,33 @@ function TicketView({
               queueNumber={booking.queueNumber}
               currentServing={currentServing}
               etaMinutes={etaMinutes}
-              fee={booking.doctor.fee}
               circumference={circumference}
               dashOffset={dashOffset}
               R={R}
             />
           )}
         </div>
+
+        {/* ── Payment + fee row ── */}
+        <div className="mx-6 mb-2 flex items-center justify-between rounded-lg border border-border bg-offwhite px-4 py-3">
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${paymentBadge.cls}`}
+          >
+            {paymentBadge.label}
+          </span>
+          <span className="font-heading text-base font-bold text-navy">
+            {booking.doctor.fee} EGP
+          </span>
+        </div>
+
+        {/* ── Patient notes preview ── */}
+        {booking.patientNotes && (
+          <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid">
+            <span className="font-medium text-navy">Note: </span>
+            {booking.patientNotes.slice(0, 80)}
+            {booking.patientNotes.length > 80 ? "…" : ""}
+          </div>
+        )}
 
         {/* ── Cancel button ── */}
         {!isCalled && (
@@ -123,7 +165,7 @@ function TicketView({
           </div>
         )}
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         <p className="pb-5 text-center text-xs text-navy-mid">
           Keep this page open to track your position.
         </p>
@@ -149,7 +191,6 @@ type WaitingViewProps = {
   queueNumber: number;
   currentServing: number;
   etaMinutes: number;
-  fee: number;
   circumference: number;
   dashOffset: number;
   R: number;
@@ -160,14 +201,12 @@ function WaitingView({
   queueNumber,
   currentServing,
   etaMinutes,
-  fee,
   circumference,
   dashOffset,
   R,
 }: WaitingViewProps) {
   return (
     <div>
-      {/* Your number badge */}
       <div className="mb-4 flex justify-center">
         <span className="rounded-full bg-navy px-4 py-1.5 text-sm font-medium text-white/70">
           Your number:{" "}
@@ -179,14 +218,13 @@ function WaitingView({
         Your position in queue
       </p>
 
-      {/* SVG circular ring — core visual */}
+      {/* SVG circular ring */}
       <div className="relative mx-auto flex h-48 w-48 items-center justify-center">
         <svg
           className="absolute inset-0 -rotate-90"
           viewBox="0 0 180 180"
           aria-hidden="true"
         >
-          {/* Background track */}
           <circle
             cx="90"
             cy="90"
@@ -195,7 +233,6 @@ function WaitingView({
             stroke="#DDD8CC"
             strokeWidth="10"
           />
-          {/* Gold progress arc */}
           <circle
             cx="90"
             cy="90"
@@ -209,8 +246,6 @@ function WaitingView({
             style={{ transition: "stroke-dashoffset 1.2s ease" }}
           />
         </svg>
-
-        {/* Centre: position number */}
         <div className="text-center">
           <span className="font-heading text-7xl font-bold leading-none text-navy">
             {position}
@@ -218,13 +253,11 @@ function WaitingView({
         </div>
       </div>
 
-      {/* Currently serving */}
       <p className="mt-5 text-center text-sm text-navy-mid">
         Currently serving{" "}
         <span className="font-semibold text-navy">#{currentServing}</span>
       </p>
 
-      {/* ETA + Fee stats — matches mockup layout */}
       <div className="mt-6 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-gold-tint p-4 text-center">
           <p className="font-heading text-2xl font-bold text-gold">
@@ -236,9 +269,11 @@ function WaitingView({
         </div>
         <div className="rounded-xl bg-offwhite p-4 text-center">
           <p className="font-heading text-2xl font-bold text-navy">
-            {fee} EGP
+            #{currentServing}
           </p>
-          <p className="mt-1 text-xs font-medium text-navy-mid">Consult fee</p>
+          <p className="mt-1 text-xs font-medium text-navy-mid">
+            Now serving
+          </p>
         </div>
       </div>
     </div>

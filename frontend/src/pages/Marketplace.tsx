@@ -88,7 +88,7 @@ export function Marketplace() {
 
       {/* ── Results ── */}
       <main className="mx-auto max-w-7xl px-6 py-10">
-        <div className="mb-6">
+        <div className="mb-6 animate-fade-up">
           <p className="text-sm font-medium text-gold">
             {filterLabel ?? "All specialties · All areas"}
           </p>
@@ -112,12 +112,17 @@ export function Marketplace() {
           />
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {doctors.map((doctor) => (
-              <DoctorCard
+            {doctors.map((doctor, i) => (
+              <div
                 key={doctor.id}
-                doctor={doctor}
-                onViewProfile={() => navigate(`/doctors/${doctor.id}`)}
-              />
+                className="animate-fade-up"
+                style={{ animationDelay: `${i * 70}ms` }}
+              >
+                <DoctorCard
+                  doctor={doctor}
+                  onViewProfile={() => navigate(`/doctors/${doctor.id}`)}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -136,7 +141,7 @@ function DoctorCard({
   onViewProfile: () => void;
 }) {
   return (
-    <article className="overflow-hidden rounded-lg border border-border bg-white shadow-sm transition hover:border-gold hover:shadow-md">
+    <article className="group overflow-hidden rounded-lg border border-border bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-gold hover:shadow-lg">
       {/* Card header */}
       <div className="flex items-start gap-4 p-5">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-xl font-bold text-navy">
@@ -199,9 +204,9 @@ function DoctorCard({
 
         <button
           onClick={onViewProfile}
-          className="rounded-md bg-navy px-5 py-2.5 text-sm font-medium text-white transition hover:bg-navy-mid"
+          className="rounded-md bg-navy px-5 py-2.5 text-sm font-medium text-white transition hover:scale-105 hover:bg-navy-mid active:scale-95"
         >
-          View Profile
+          View Profile →
         </button>
       </div>
     </article>
@@ -214,22 +219,22 @@ function DoctorCardSkeleton() {
   return (
     <article className="overflow-hidden rounded-lg border border-border bg-white shadow-sm">
       <div className="flex items-start gap-4 p-5">
-        <div className="h-14 w-14 shrink-0 animate-pulse rounded-full bg-offwhite" />
+        <div className="shimmer h-14 w-14 shrink-0 rounded-full" />
         <div className="flex-1 space-y-2">
-          <div className="h-5 w-3/4 animate-pulse rounded bg-offwhite" />
-          <div className="h-3 w-1/2 animate-pulse rounded bg-offwhite" />
-          <div className="h-3 w-1/3 animate-pulse rounded bg-offwhite" />
-          <div className="h-3 w-24 animate-pulse rounded bg-offwhite" />
+          <div className="shimmer h-5 w-3/4 rounded" />
+          <div className="shimmer h-3 w-1/2 rounded" />
+          <div className="shimmer h-3 w-1/3 rounded" />
+          <div className="shimmer h-3 w-24 rounded" />
         </div>
       </div>
       <div className="flex gap-2 border-t border-border px-5 py-3">
-        <div className="h-5 w-16 animate-pulse rounded-sm bg-offwhite" />
-        <div className="h-5 w-12 animate-pulse rounded-sm bg-offwhite" />
-        <div className="h-5 w-14 animate-pulse rounded-sm bg-offwhite" />
+        <div className="shimmer h-5 w-16 rounded-sm" />
+        <div className="shimmer h-5 w-12 rounded-sm" />
+        <div className="shimmer h-5 w-14 rounded-sm" />
       </div>
       <div className="flex items-center justify-between px-5 py-4">
-        <div className="h-8 w-20 animate-pulse rounded bg-offwhite" />
-        <div className="h-9 w-24 animate-pulse rounded-md bg-offwhite" />
+        <div className="shimmer h-8 w-20 rounded" />
+        <div className="shimmer h-9 w-24 rounded-md" />
       </div>
     </article>
   );
