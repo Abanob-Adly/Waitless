@@ -22,8 +22,8 @@ app.listen(env.port, () => {
 app.get("/", (req, res) => res.send("Hello World!"));
 app.use('/auth', authRoutes);
 app.use('/organizations/:orgId/branches', branchRoutes);
+app.use('/organizations/:orgId/members', membershipRoutes);
 app.use('/organizations', orgRoutes);
-app.use('/memberships', membershipRoutes);
 
 // error handler must be at bottom
 app.use(errorHandler);

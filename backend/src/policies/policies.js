@@ -98,9 +98,9 @@ const membershipPolicies = {
   'member.invite': (actor, { invitedKind } = {}) => {
     const m = actor.activeMembership;
     if (!m || m.kind !== 'admin') return false;
-
-    // Inviting an admin requires super
-    if (invitedKind === 'admin') return m.isSuper;
+    if (!actor.activeOrgId || !resource?.organization) return false;
+    if (!actor.activeOrgId.equals(resource.organization._id ?? resource.organization)) return false;
+    if (resource.invitedKind === 'admin') return m.isSuper === true; // Inviting an admin requires super
 
     // Inviting doctor/receptionist: super OR explicit permission
     return m.isSuper || (m.permissions || []).includes('members.invite');
@@ -118,10 +118,9 @@ const membershipPolicies = {
   },
 };
 
-
 export const policies = {
   ...accountPolicies,
   ...organizationPolicies,
-  ...membershipPolicies,
   ...branchPolicies,
+  ...membershipPolicies,
 };
