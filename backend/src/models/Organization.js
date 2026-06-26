@@ -1,21 +1,42 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 const { Schema } = mongoose;
 
 const organizationSchema = new Schema(
   {
     name: { type: String, required: true, trim: true, index: true },
     slug: { type: String, required: true, lowercase: true, trim: true },
-    type: { type: String, enum: ['clinic', 'hospital'], required: true },
+    type: { type: String, enum: ["clinic", "hospital"], required: true },
 
     // Branding (used in dashboard + marketplace)
-    description: { type: String, maxlength: 2000 },
-    logoUrl:     { type: String },
-    coverUrl:    { type: String },
+    logoUrl: { type: String },
+    coverUrl: { type: String },
 
     contact: {
-      email:   { type: String, lowercase: true, trim: true },
-      phone:   { type: String, trim: true },
+      email: { type: String, lowercase: true, trim: true },
+      phone: { type: String, trim: true },
       website: { type: String, trim: true },
+    },
+
+    marketplaceProfile: {
+      shortDescription: { type: String, maxlength: 2000 },
+
+      specialties: [
+        {
+          type: String,
+          lowercase: true,
+          trim: true,
+        },
+      ],
+
+      keywords: [
+        {
+          type: String,
+          lowercase: true,
+          trim: true,
+        },
+      ],
+
+      gallery: [String],
     },
 
     // single marketplace switch
@@ -23,23 +44,23 @@ const organizationSchema = new Schema(
 
     status: {
       type: String,
-      enum: ['active', 'suspended', 'deleted'],
-      default: 'active',
+      enum: ["active", "suspended", "deleted"],
+      default: "active",
       index: true,
     },
     deletedAt: { type: Date, default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 organizationSchema.index(
   { slug: 1 },
-  { unique: true, partialFilterExpression: { status: { $ne: 'deleted' } } }
+  { unique: true, partialFilterExpression: { status: { $ne: "deleted" } } },
 );
 
 // Marketplace listing query
 organizationSchema.index({ isPublic: 1, status: 1 });
 // Marketplace text search
-organizationSchema.index({ name: 'text', description: 'text' });
+organizationSchema.index({ name: "text", description: "text" });
 
-export default mongoose.model('Organization', organizationSchema);
+export default mongoose.model("Organization", organizationSchema);

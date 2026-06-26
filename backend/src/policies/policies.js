@@ -9,9 +9,10 @@ const accountPolicies = {
   },
 };
 
+// SAAS
 const organizationPolicies = {
   'organization.create': (actor) =>
-    actor.account.role === 'staff' && actor.account.status === 'active',
+    actor.account.role === 'staff' && actor.account.status === 'active' && actor.account.isEmailVerified,
 
   'organization.view': (actor, org) => {
     if (!org) return false;
@@ -28,11 +29,19 @@ const organizationPolicies = {
     return m.isSuper || (m.permissions || []).includes('organization.update');
   },
 
+  'organization.delete': (actor, org) => {
+    if (!org || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(org._id)) return false;
+    const m = actor.activeMembership;
+    return m.kind === 'admin' && m.isSuper;
+  },
+
   'organization.toggle_public': (actor, org) => {
     if (!org || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(org._id)) return false;
     return actor.activeMembership.kind === 'admin' && actor.activeMembership.isSuper;
   },
+
 };
 
 const membershipPolicies = {

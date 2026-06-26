@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { validate } from '../middleware/validate.js';
-import { membershipController, inviteSchemas } from '../controllers/membership.js';
+import { membershipController, inviteSchemas } from '../controllers/membershipController.js';
 
 const router = Router();
 

@@ -1,6 +1,100 @@
-# Waitless — Authorization Rules (MVP, Reconciled)
+# Waitless  Authorization Rules (MVP, Reconciled)
 
 > **Style note:** Each rule lists the **decision inputs** that must be evaluated, then the **allow conditions** (any one of which grants access), then **additional checks** (all of which must pass). If no allow condition matches → **deny** (per 7.20).
+
+---
+## Actions
+
+### Account
+
+* account.view
+* account.update
+
+### Organization
+
+* organization.create
+* organization.view
+* organization.update
+* organization.delete
+* organization.toggle_public
+
+### Branch
+
+* branch.create
+* branch.view
+* branch.update
+* branch.delete
+
+### Membership & Invitations
+
+* member.invite
+* member.view
+* member.update
+* member.revoke
+* member.suspend
+* member.cancel_invite
+* member.accept
+* member.permissions.update
+
+### Doctor Schedules
+
+* schedule.create
+* schedule.view
+* schedule.update
+* schedule.deactivate
+
+### Schedule Exceptions
+
+* schedule_exception.create
+* schedule_exception.delete
+
+### Sessions
+
+* session.view
+* session.start
+* session.end
+* session.cancel
+
+### Appointments
+
+* appointment.create.walkin
+* appointment.create.marketplace
+* appointment.view
+* appointment.call
+* appointment.skip
+* appointment.checkin
+* appointment.complete
+* appointment.cancel.patient
+* appointment.cancel.staff
+
+### Patient Profiles
+
+* patient.create.walkin
+* patient.create.self
+* patient.view
+* patient.update
+
+### Live Queue
+
+* queue.view
+
+### Billing
+
+* subscription.view
+* subscription.change
+* subscription.webhook
+
+> **Marketplace actions:** (no authorization required)
+marketplace.organization.list \
+marketplace.organization.view \
+marketplace.branch.list \
+marketplace.branch.view \
+marketplace.doctor.list \
+marketplace.doctor.view \
+marketplace.doctor.sessions \
+queue.view \
+billing.plan.list
+
 
 ---
 
@@ -8,27 +102,27 @@
 
 For every protected request, evaluate:
 
-"""
-account_id
-account_role                    // 'patient' | 'staff' | 'super_admin'
-active_organization_id
-active_membership_id
-active_membership_kind          // 'admin' | 'doctor' | 'receptionist'
-active_membership_status        // 'pending' | 'active' | 'suspended' | 'revoked'
-is_super_admin                  // AdminMembership.isSuper
-membership_permissions          // AdminMembership.permissions[]
-assigned_branch_ids             // ReceptionistMembership.branches[]
-requested_action
-target_resource
-target_organization_id
-target_branch_id
-target_doctor_membership_id
-target_appointment_id
-target_session_id
-queue_access_token              // for walk-in patients
-subscription_state              // 'trialing' | 'active' | 'past_due' | 'cancelled' | 'expired'
-plan_limits                     // SubscriptionPlan.limits
-"""
+
+* **account_id**: Unique identifier for the user account.
+* **account_role**: User type ('patient', 'staff', or 'super_admin').
+* **active_organization_id**: Currently selected organization ID.
+* **active_membership_id**: Active membership identifier for the user.
+* **active_membership_kind**: Staff role ('admin', 'doctor', or 'receptionist').
+* **active_membership_status**: Current status ('pending', 'active', 'suspended', or 'revoked').
+* **is_super_admin**: Boolean flag mapping to AdminMembership.isSuper.
+* **membership_permissions**: Array of permissions from AdminMembership.permissions[].
+* **assigned_branch_ids**: Allowed locations from ReceptionistMembership.branches[].
+* requested_action: The action the user is trying to perform.
+* **target_resource**: The system asset being accessed.
+* **target_organization_id**: Destination organization ID for the action.
+* **target_branch_id**: Destination branch ID for the action.
+* **target_doctor_membership_id**: ID of the doctor involved in the request.
+* **target_appointment_id**: ID of the specific appointment being modified.
+* **target_session_id**: ID of the active clinic session.
+* **queue_access_token**: Temporary token authentication for walk-in patients.
+* **subscription_state**: Billing status ('trialing', 'active', 'past_due', 'cancelled', or 'expired').
+* **plan_limits**: Numeric restrictions mapped from SubscriptionPlan.limits.
+
 
 ---
 
@@ -74,7 +168,7 @@ plan_limits                     // SubscriptionPlan.limits
 
 **Additional checks:**
 - "plan_limits.marketplaceListing === true"
-- "subscription_state ∈ ['trialing', 'active']"
+- "subscription_state ∈ ['trial', 'active']"
 
 ### Delete organization
 **Allowed if:**
@@ -113,7 +207,7 @@ plan_limits                     // SubscriptionPlan.limits
 - "is_super_admin === true" in the org (only owners can create other admins)
 
 **Additional checks:**
-- "active_membership_status === 'active'"
+- "active_membersxhip_status === 'active'"
 - No existing active Membership for "(inviteEmail, target_organization_id, kind)"
 - No existing pending Membership for "(inviteEmail, target_organization_id, kind)" with non-expired token
 - "subscription_state ∈ ['trialing', 'active']"
