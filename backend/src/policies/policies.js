@@ -44,6 +44,56 @@ const organizationPolicies = {
 
 };
 
+const branchPolicies = {
+  'branch.create': (actor) => {
+    const m = actor.activeMembership;
+    if (!m || m.status !== 'active') return false;
+    if (actor.isPlatformAdmin) return true;
+    return m.kind === 'admin' && (m.isSuper || (m.permissions || []).includes('branch.manage'));
+  },
+
+  'branch.view': (actor, branch) => {
+    if (!branch) return false;
+    if (actor.isPlatformAdmin) return true;
+
+    const orgId = branch.organization?._id || branch.organization;
+    const org = branch.organization && branch.organization._id ? branch.organization : null;
+
+    if (actor.activeOrgId && orgId && actor.activeOrgId.equals(orgId)) return true;
+    return org?.isPublic === true;
+  },
+
+  'branch.update': (actor, branch) => {
+    if (!branch || !actor.activeMembership) return false;
+    if (actor.isPlatformAdmin) return true;
+
+    const orgId = branch.organization?._id || branch.organization;
+    if (!actor.activeOrgId?.equals(orgId)) return false;
+
+    const m = actor.activeMembership;
+    return (
+      m.kind === 'admin' &&
+      m.status === 'active' &&
+      (m.isSuper || (m.permissions || []).includes('branch.manage'))
+    );
+  },
+
+  'branch.delete': (actor, branch) => {
+    if (!branch || !actor.activeMembership) return false;
+    if (actor.isPlatformAdmin) return true;
+
+    const orgId = branch.organization?._id || branch.organization;
+    if (!actor.activeOrgId?.equals(orgId)) return false;
+
+    const m = actor.activeMembership;
+    return (
+      m.kind === 'admin' &&
+      m.status === 'active' &&
+      (m.isSuper || (m.permissions || []).includes('branch.manage'))
+    );
+  },
+};
+
 const membershipPolicies = {
   'member.invite': (actor, { invitedKind } = {}) => {
     const m = actor.activeMembership;
@@ -73,4 +123,5 @@ export const policies = {
   ...accountPolicies,
   ...organizationPolicies,
   ...membershipPolicies,
+  ...branchPolicies,
 };

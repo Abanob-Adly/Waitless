@@ -4,6 +4,7 @@ import connectDB from "./config/db.js";
 import authRoutes from './routes/authRoutes.js';
 import orgRoutes from './routes/orgRoutes.js';
 import membershipRoutes from './routes/membershipRoutes.js';
+import branchRoutes from './routes/branchRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 connectDB();
@@ -20,6 +21,7 @@ app.listen(env.port, () => {
 // routes
 app.get("/", (req, res) => res.send("Hello World!"));
 app.use('/auth', authRoutes);
+app.use('/organizations/:orgId/branches', branchRoutes);
 app.use('/organizations', orgRoutes);
 app.use('/memberships', membershipRoutes);
 
