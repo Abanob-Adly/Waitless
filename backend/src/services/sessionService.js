@@ -82,7 +82,7 @@ export const sessionService = {
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
     }
     return Session.find(query)
-      .populate('doctor', 'kind')
+      .populate({ path: 'doctor', select: 'kind specialties', populate: { path: 'account', select: 'fullName' } })
       .sort({ startTime: 1 });
   },
 

@@ -76,7 +76,13 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const [isLoading, setIsLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  // Use local date to avoid UTC midnight mismatches in non-UTC timezones
+  const now = new Date();
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 
   // Find the doctor's membership ID from OrgContext
   const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
@@ -88,17 +94,28 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
       // Search all branches for the doctor's active session today
       for (const branch of branches) {
         const sessions = await sessionService.getSessions(orgId, branch.id, { date: today });
+        // Match by membership ID (primary) or account ID fallback; also accept "active" or "scheduled" so
+        // the doctor can see their queue even before reception starts the session
         const myActive = sessions.find(
-          (s) => s.status === "active" && (s.doctorId === myMembershipId || s.doctorId === doctorAccountId),
+          (s) =>
+            (s.status === "active" || s.status === "scheduled") &&
+            (s.doctorId === myMembershipId || s.doctorId === doctorAccountId),
         );
         if (myActive) {
           setActiveSession(myActive);
           setActiveBranchId(branch.id);
-          const q = await sessionService.getQueue(orgId, branch.id, myActive.id);
-          setQueue(q.appointments);
+          try {
+            const q = await sessionService.getQueue(orgId, branch.id, myActive.id);
+            setQueue(q.appointments);
+          } catch {
+            setQueue([]);
+          }
           return;
         }
       }
+      setActiveSession(null);
+      setQueue([]);
+    } catch {
       setActiveSession(null);
       setQueue([]);
     } finally {
@@ -246,7 +263,12 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
 
   useEffect(() => {
     if (!orgId || branches.length === 0) return;
-    const today = new Date().toISOString().split("T")[0];
+    const d = new Date();
+    const today = [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, "0"),
+      String(d.getDate()).padStart(2, "0"),
+    ].join("-");
 
     Promise.all(
       branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today }))

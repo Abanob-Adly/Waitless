@@ -48,10 +48,8 @@ export function SignupPage() {
       const bd = validateBirthdate(birthdate);
       if (!bd.valid) errs.birthdate = bd.error;
     }
-    if (role === "doctor") {
-      if (!specialty) errs.specialty = "Please select your specialty.";
-      if (!licenseNumber.trim()) errs.licenseNumber = "License number is required.";
-    }
+    // Doctor-specific fields (specialty, licenseNumber) are stored on the Membership
+    // created when the doctor accepts an org invite — not on the Account. No validation needed here.
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -178,7 +176,7 @@ export function SignupPage() {
             {role === "doctor" && (
               <div>
                 <label className="block text-sm font-medium text-navy">
-                  Specialty *
+                  Specialty (configured when joining an organization)
                 </label>
                 <input
                   list="specialty-options"
@@ -205,11 +203,10 @@ export function SignupPage() {
             {/* Doctor — License Number */}
             {role === "doctor" && (
               <Field
-                label="Medical License Number *"
+                label="Medical License Number"
                 placeholder="EG-XXXXXX"
                 value={licenseNumber}
                 onChange={setLicenseNumber}
-                error={errors.licenseNumber}
               />
             )}
 

@@ -68,4 +68,9 @@ export const appointmentController = {
     const result = await queueService.trackByToken({ token: req.params.token });
     res.json({ data: result });
   },
+
+  async getOwn(req, res) {
+    const result = await appointmentService.getOwnAppointments({ actor: req.actor });
+    res.json({ data: result });
+  },
 };

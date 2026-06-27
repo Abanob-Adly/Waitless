@@ -4,20 +4,27 @@ import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { getOwnProfile, updateOwnProfile } from "../services/patientService";
-import type { PatientRecord } from "../services/patientService";
-import type { HistoryRecord, ActiveBooking } from "../context/AppContext";
+import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory } from "../services/patientService";
+import type { PatientRecord, OwnAppointmentItem } from "../services/patientService";
+import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function PatientDashboard() {
-  const { bookings, history, removeBooking } = useApp();
+  const { bookings, removeBooking } = useApp();
   const { authUser } = useAuth();
   const navigate = useNavigate();
+  const [appointmentHistory, setAppointmentHistory] = useState<OwnAppointmentItem[]>([]);
 
   const patientProfile =
     authUser?.role === "patient" ? authUser.profile : null;
+
+  useEffect(() => {
+    if (authUser?.role === "patient") {
+      getOwnAppointmentHistory().then(setAppointmentHistory);
+    }
+  }, [authUser]);
 
   const dashboardTabs = [
     {
@@ -34,8 +41,8 @@ export function PatientDashboard() {
     },
     {
       id: "history",
-      label: `Past History (${history.length})`,
-      content: <HistoryTab history={history} />,
+      label: `Past History (${appointmentHistory.length})`,
+      content: <HistoryTab history={appointmentHistory} />,
     },
   ];
 
@@ -561,7 +568,7 @@ function BookingCard({
 
 // ── Past History tab ──────────────────────────────────────────────────────────
 
-function HistoryTab({ history }: { history: HistoryRecord[] }) {
+function HistoryTab({ history }: { history: OwnAppointmentItem[] }) {
   if (history.length === 0) {
     return (
       <EmptyState
@@ -583,23 +590,34 @@ function HistoryTab({ history }: { history: HistoryRecord[] }) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HistoryRow({ record }: { record: HistoryRecord }) {
+function HistoryRow({ record }: { record: OwnAppointmentItem }) {
   const isCompleted = record.status === "completed";
+  const isCancelled = record.status === "cancelled" || record.status === "no_show";
+  const initials = record.doctorName
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase() || "?";
+
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border bg-white p-4 transition hover:border-navy/20">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading font-bold text-navy">
-        {record.doctorInitials}
+        {initials}
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-navy">
           {record.doctorName}
         </p>
         <p className="text-xs text-navy-mid">
-          {record.specialty} · {record.date}
+          {record.specialty}{record.specialty && record.sessionDate ? " · " : ""}{record.sessionDate}
         </p>
-        {isCompleted && (
+        {record.clinicName && (
+          <p className="text-xs text-navy-mid">{record.clinicName}</p>
+        )}
+        {isCompleted && record.accessToken && (
           <a
-            href={`/review?token=rev-${record.id}`}
+            href={`/review?token=${record.accessToken}`}
             className="mt-1 block text-xs font-medium text-gold hover:text-gold-light"
           >
             Leave a Review →
@@ -611,14 +629,13 @@ function HistoryRow({ record }: { record: HistoryRecord }) {
           className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
             isCompleted
               ? "bg-success/10 text-success"
-              : "bg-danger/10 text-danger"
+              : isCancelled
+                ? "bg-danger/10 text-danger"
+                : "bg-gold-tint text-gold"
           }`}
         >
-          {isCompleted ? "✓ Completed" : "✕ Cancelled"}
+          {isCompleted ? "✓ Completed" : isCancelled ? "✕ Cancelled" : record.status}
         </span>
-        <p className="mt-1 text-xs font-medium text-navy-mid">
-          {record.fee} EGP
-        </p>
       </div>
     </div>
   );

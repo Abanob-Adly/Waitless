@@ -150,20 +150,17 @@ export async function getQueue(
   branchId: string,
   sessionId: string,
 ): Promise<QueueStatus> {
-  const res = await api.get<{
-    data: {
-      session: Record<string, unknown>;
-      appointments: Record<string, unknown>[];
-    };
-  }>(`${base(orgId, branchId)}/${sessionId}/queue`);
-  const { session, appointments } = res.data.data;
+  const res = await api.get<{ data: Record<string, unknown> }>(
+    `${base(orgId, branchId)}/${sessionId}/queue`,
+  );
+  const d = res.data.data;
   return {
-    queueNumber: Number((session as Record<string, unknown>)?.bookingsCount ?? 0),
-    currentlyServing: Number((session as Record<string, unknown>)?.currentServing ?? 0),
+    queueNumber: Number(d.totalWaiting ?? 0),
+    currentlyServing: Number(d.currentServing ?? 0),
     estimatedWaitMin: 0,
-    status: String((session as Record<string, unknown>)?.status ?? ""),
-    appointments: (Array.isArray(appointments) ? appointments : []).map(
-      (a) => adaptAppointment(a as Record<string, unknown>),
+    status: String(d.status ?? ""),
+    appointments: (Array.isArray(d.appointments) ? (d.appointments as Record<string, unknown>[]) : []).map(
+      (a) => adaptAppointment(a),
     ),
   };
 }

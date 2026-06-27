@@ -7,12 +7,12 @@ type QueueSubscriptionResult = {
   etaMinutes: number;
   isCalled: boolean;
   isConnected: boolean;
+  sessionDate: string;
 };
 
 /**
  * Polls the public queue tracking endpoint every 3 seconds.
  * `trackingToken` is the accessToken returned when an appointment is booked.
- * Falls back to appointmentId-based polling if no token is provided.
  */
 export function useQueueSubscription(
   trackingToken: string,
@@ -22,6 +22,7 @@ export function useQueueSubscription(
   const [currentServing, setCurrentServing] = useState(0);
   const [etaMinutes, setEtaMinutes] = useState(0);
   const [appointmentStatus, setAppointmentStatus] = useState("");
+  const [sessionDate, setSessionDate] = useState("");
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export function useQueueSubscription(
             currentlyServing: number;
             estimatedWaitMin: number;
             status: string;
+            sessionDate?: string;
           };
         }>(`/appointments/track/${trackingToken}`);
 
@@ -44,6 +46,7 @@ export function useQueueSubscription(
         setCurrentServing(d.currentlyServing ?? 0);
         setEtaMinutes(d.estimatedWaitMin ?? 0);
         setAppointmentStatus(d.status ?? "");
+        if (d.sessionDate) setSessionDate(d.sessionDate);
         setIsConnected(true);
       } catch {
         if (!alive) return;
@@ -60,8 +63,10 @@ export function useQueueSubscription(
   }, [trackingToken]);
 
   const position = Math.max(1, queueNumber - currentServing);
+
+  // Guard against false positive: 0 >= 0 is true but means "not yet loaded"
   const isCalled =
-    currentServing >= queueNumber ||
+    (currentServing > 0 && currentServing >= queueNumber) ||
     appointmentStatus === "called" ||
     appointmentStatus === "in_progress";
 
@@ -77,5 +82,6 @@ export function useQueueSubscription(
     etaMinutes: computedEta,
     isCalled,
     isConnected,
+    sessionDate,
   };
 }

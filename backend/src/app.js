@@ -42,6 +42,9 @@ app.use("/reviews", reviewRoutes);
 app.get("/patients/me", authenticate, patientController.getOwn);
 app.patch("/patients/me", authenticate, validate(patientSchemas.updateOwn), patientController.updateOwn);
 
+// Patient: own appointment history
+app.get("/appointments/mine", authenticate, appointmentController.getOwn);
+
 // Public appointment tracking (no auth — token-based)
 app.get("/appointments/track/:token", appointmentController.track);
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import type { ActiveBooking, HistoryRecord, BookingIntent } from "../types/index";
 
 // Re-export all canonical types so existing consumers don't need to change their imports
@@ -21,7 +21,15 @@ export type {
   PaymentRecord,
 } from "../types/index";
 
-// Seed history removed — real history is loaded from API per user session.
+const BOOKINGS_KEY = "waitless_bookings";
+
+function loadStoredBookings(): ActiveBooking[] {
+  try {
+    const raw = localStorage.getItem(BOOKINGS_KEY);
+    if (raw) return JSON.parse(raw) as ActiveBooking[];
+  } catch { /* corrupted */ }
+  return [];
+}
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
@@ -41,12 +49,19 @@ const Ctx = createContext<AppCtx | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [bookings, setBookings] = useState<ActiveBooking[]>([]);
+  const [bookings, setBookings] = useState<ActiveBooking[]>(loadStoredBookings);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [bookingIntent, setBookingIntent] = useState<BookingIntent | null>(null);
 
+  useEffect(() => {
+    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
+  }, [bookings]);
+
   function addBooking(b: ActiveBooking) {
-    setBookings((prev) => [...prev, b]);
+    setBookings((prev) => {
+      const exists = prev.some((x) => x.id === b.id);
+      return exists ? prev : [...prev, b];
+    });
   }
 
   function removeBooking(id: string) {
@@ -76,6 +91,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function clearBookings() {
     setBookings([]);
+    localStorage.removeItem(BOOKINGS_KEY);
   }
 
   return (

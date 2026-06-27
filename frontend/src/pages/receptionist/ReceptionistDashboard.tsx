@@ -66,7 +66,12 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 
   const load = useCallback(async () => {
     if (!orgId || !branchId) return;
@@ -221,7 +226,12 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   const [result, setResult] = useState<{ queueNumber: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  const walkinNow = new Date();
+  const today = [
+    walkinNow.getFullYear(),
+    String(walkinNow.getMonth() + 1).padStart(2, "0"),
+    String(walkinNow.getDate()).padStart(2, "0"),
+  ].join("-");
 
   useEffect(() => {
     if (!orgId || !branchId) return;
@@ -392,7 +402,12 @@ function CheckInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
   const [queues, setQueues] = useState<Record<string, BackendAppointment[]>>({});
 
-  const today = new Date().toISOString().split("T")[0];
+  const checkinNow = new Date();
+  const today = [
+    checkinNow.getFullYear(),
+    String(checkinNow.getMonth() + 1).padStart(2, "0"),
+    String(checkinNow.getDate()).padStart(2, "0"),
+  ].join("-");
 
   const load = useCallback(async () => {
     if (!orgId || !branchId) return;

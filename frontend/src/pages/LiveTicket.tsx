@@ -39,12 +39,22 @@ function TicketView({
   const [cancelling, setCancelling] = useState(false);
 
   const trackingToken = booking.accessToken ?? booking.id;
-  const { position, currentServing, etaMinutes, isCalled } =
+  const { position, currentServing, etaMinutes, isCalled, sessionDate } =
     useQueueSubscription(
       trackingToken,
       booking.queueNumber,
       booking.session.avgConsultationMin,
     );
+
+  // Use booking's stored date as fallback until backend confirms sessionDate
+  const effectiveDate = sessionDate || booking.session.date || "";
+  const now = new Date();
+  const todayLocal = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
 
   // SVG ring geometry — initialGap is fixed at 3 (hook starts 3 behind)
   const R = 68;
@@ -84,11 +94,11 @@ function TicketView({
 
   return (
     <main className="mx-auto max-w-lg px-4 pb-16 pt-8">
-      {/* Live indicator */}
+      {/* Live / scheduled indicator */}
       <div className="mb-6 flex items-center justify-center gap-2">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
+        <span className={`h-2 w-2 rounded-full ${isSessionDay ? "animate-pulse bg-success" : "bg-gold"}`} />
         <span className="text-sm text-navy-mid">
-          Live queue · syncing in real-time
+          {isSessionDay ? "Live queue · syncing in real-time" : "Appointment confirmed · awaiting session day"}
         </span>
       </div>
 
@@ -126,7 +136,9 @@ function TicketView({
 
         {/* ── Queue position area ── */}
         <div className="px-6 pb-2 pt-6">
-          {isCalled ? (
+          {!isSessionDay ? (
+            <CountdownView sessionDate={effectiveDate} />
+          ) : isCalled ? (
             <CalledView />
           ) : (
             <WaitingView
@@ -162,8 +174,8 @@ function TicketView({
           </div>
         )}
 
-        {/* ── Cancel button ── */}
-        {!isCalled && (
+        {/* ── Cancel button (only available on the session day while not yet called) ── */}
+        {isSessionDay && !isCalled && (
           <div className="px-6 pb-6 pt-2">
             <button
               onClick={handleCancel}
@@ -191,6 +203,41 @@ function TicketView({
         </button>
       </p>
     </main>
+  );
+}
+
+// ── Countdown view (appointment is in the future) ────────────────────────────
+
+function CountdownView({ sessionDate }: { sessionDate: string }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const session = new Date(sessionDate + "T00:00:00");
+  session.setHours(0, 0, 0, 0);
+  const daysLeft = Math.round((session.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  const formatted = session.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
+        📅
+      </div>
+      <h2 className="font-heading text-3xl font-bold text-navy">
+        {daysLeft <= 0 ? "Today!" : daysLeft === 1 ? "Tomorrow!" : `${daysLeft} days to go`}
+      </h2>
+      <p className="mt-4 text-sm leading-6 text-navy-mid">
+        Your appointment is scheduled for{" "}
+        <span className="font-semibold text-navy">{formatted}</span>.
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        Return on the day of your appointment to track your live queue position.
+      </p>
+    </div>
   );
 }
 

@@ -92,6 +92,46 @@ export async function getPatient(
   return adaptPatient(res.data.data);
 }
 
+export type OwnAppointmentItem = {
+  id: string;
+  queueNumber: number;
+  status: string;
+  accessToken?: string;
+  sessionDate?: string;
+  doctorName: string;
+  specialty: string;
+  clinicName: string;
+  fee?: number;
+};
+
+export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> {
+  try {
+    const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");
+    const list = Array.isArray(res.data.data) ? res.data.data : [];
+    return list.map((a) => {
+      const raw = a as Record<string, unknown>;
+      const session = (raw.session as Record<string, unknown>) ?? {};
+      const doctor = (raw.doctorMembership as Record<string, unknown>) ?? {};
+      const account = (doctor.account as Record<string, unknown>) ?? {};
+      const specialties = (doctor.specialties as string[]) ?? [];
+      const branch = (raw.branch as Record<string, unknown>) ?? {};
+      const startTime = session.startTime ? String(session.startTime) : "";
+      return {
+        id: String(raw._id ?? raw.id),
+        queueNumber: Number(raw.queueNumber ?? 0),
+        status: String(raw.status ?? "booked"),
+        accessToken: raw.accessToken ? String(raw.accessToken) : undefined,
+        sessionDate: startTime ? startTime.slice(0, 10) : undefined,
+        doctorName: String(account.fullName ?? "Unknown Doctor"),
+        specialty: specialties[0] ?? "",
+        clinicName: String(branch.name ?? ""),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function getPatientHistory(
   orgId: string,
   profileId: string,

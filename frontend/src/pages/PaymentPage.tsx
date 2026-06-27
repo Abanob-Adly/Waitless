@@ -126,8 +126,7 @@ export function PaymentPage() {
     }
 
     const last4 = rawDigits.length >= 4 ? rawDigits.slice(-4) : undefined;
-    // Payment processing is handled at the clinic (no backend payment system yet)
-    const success = method === "clinic" || true;
+    const success = true; // No payment gateway yet — all validated submissions succeed
     const transactionId = `TXN-${Date.now()}`;
 
     setBookingIntent(null);

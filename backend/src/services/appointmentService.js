@@ -139,4 +139,24 @@ export const appointmentService = {
     await appointment.save();
     return appointment;
   },
+
+  async getOwnAppointments({ actor }) {
+    const PatientProfile = (await import('../models/PatientProfile.js')).default;
+    const profile = await PatientProfile.findOne({ accountId: actor.account._id });
+    if (!profile) return [];
+
+    return Appointment.find({ patientProfile: profile._id })
+      .populate({
+        path: 'doctorMembership',
+        select: 'specialties',
+        populate: { path: 'account', select: 'fullName' },
+      })
+      .populate({
+        path: 'session',
+        select: 'startTime endTime status',
+      })
+      .populate('branch', 'name')
+      .sort({ createdAt: -1 })
+      .limit(50);
+  },
 };
