@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect } from "react";
+  import { createContext, useContext, useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
-import * as orgService from "../services/orgService";
+  import * as orgService from "../services/orgService";
 import type {
   Organization,
   Branch,

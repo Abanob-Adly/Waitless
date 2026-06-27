@@ -219,6 +219,7 @@ export type Branch = {
 };
 
 export type Membership = {
+  avatarUrl: string;
   id: string;
   orgId: string;
   userId: string;

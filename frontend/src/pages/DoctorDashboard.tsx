@@ -449,7 +449,7 @@ function ProfileTab({
     setForm({
       bio: myMembership.bio ?? "",
       specialties: (myMembership.specialties ?? []).join(", "),
-      avatarUrl: "",
+      avatarUrl: myMembership.avatarUrl ?? "",
       websiteUrl: myMembership.websiteUrl ?? "",
       insurances: myMembership.acceptedInsurances ?? [],
     });
@@ -472,19 +472,23 @@ function ProfileTab({
     }));
   }
 
-  async function handleSave(e: React.FormEvent) {
+async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!myMembership) return;
     setSaving(true);
     setResult(null);
     const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
-    const ok = await updateMember(orgId, myMembership.id, {
+    
+    // Notice we dropped 'orgId' here, and we are using the context's updateMember
+    const ok = await updateMember(myMembership.id, {
       bio: form.bio.trim() || undefined,
       specialties: specialtiesList.length ? specialtiesList : undefined,
       avatarUrl: form.avatarUrl.trim() || undefined,
       websiteUrl: form.websiteUrl.trim() || null,
-      acceptedInsurances: form.insurances,
+      acceptedInsurances: form.insurances, // Ensure this matches what your backend/context expects
     });
+
+    // We don't even need a manual refresh here because your OrgContext does it for us!
     setSaving(false);
     setResult({ ok, msg: ok ? "Profile updated successfully." : "Failed to save. Please try again." });
   }
