@@ -18,6 +18,8 @@ const organizationSchema = new Schema(
       website: { type: String, trim: true },
     },
 
+    whatsappNumber: { type: String, trim: true, default: null },
+
     // single marketplace switch
     isPublic: { type: Boolean, default: false, index: true },
 

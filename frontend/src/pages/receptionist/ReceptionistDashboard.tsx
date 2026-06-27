@@ -3,26 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
 import { Tabs } from "../../components/ui/Tabs";
-import {
-  fetchSessionsForBranch,
-  openSession,
-  closeSession,
-  lookupPatientByPhone,
-  walkInBooking,
-  fetchDoctorQueue,
-  skipPatient,
-  markNoShow,
-  checkInPatient,
-} from "../../services/mockApi";
-import type { Session } from "../../types/index";
-
-type QueueEntry = {
-  id: string;
-  name: string;
-  status: "waiting" | "serving" | "done" | "skipped" | "no_show";
-  queueNumber: number;
-  estimatedWaitMin: number;
-};
+import * as sessionService from "../../services/sessionService";
+import { bookWalkIn } from "../../services/appointmentService";
+import { lookupPatientByPhone } from "../../services/patientService";
+import { toE164 } from "../../utils/phone";
+import type { BackendSession, BackendAppointment } from "../../services/sessionService";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -37,11 +22,13 @@ export function ReceptionistDashboard() {
   }
 
   const rec = authUser.profile;
+  const orgId = rec.orgId;
+  const branchId = rec.branchId;
 
   const tabs = [
-    { id: "sessions", label: "Today's Sessions", content: <SessionsTab branchId={rec.branchId} /> },
-    { id: "walkin",   label: "Walk-In",           content: <WalkInTab branchId={rec.branchId} /> },
-    { id: "checkin",  label: "Check-In",           content: <CheckInTab branchId={rec.branchId} /> },
+    { id: "sessions", label: "Today's Sessions", content: <SessionsTab orgId={orgId} branchId={branchId} /> },
+    { id: "walkin",   label: "Walk-In",           content: <WalkInTab orgId={orgId} branchId={branchId} /> },
+    { id: "checkin",  label: "Check-In",           content: <CheckInTab orgId={orgId} branchId={branchId} /> },
   ];
 
   return (
@@ -73,8 +60,8 @@ export function ReceptionistDashboard() {
 
 // ── Today's Sessions Tab ──────────────────────────────────────────────────────
 
-function SessionsTab({ branchId }: { branchId: string }) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
+  const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
@@ -82,20 +69,34 @@ function SessionsTab({ branchId }: { branchId: string }) {
   const today = new Date().toISOString().split("T")[0];
 
   const load = useCallback(async () => {
-    const result = await fetchSessionsForBranch(branchId, today);
-    setSessions(result);
-    setLoading(false);
-  }, [branchId, today]);
+    if (!orgId || !branchId) return;
+    try {
+      const result = await sessionService.getSessions(orgId, branchId, { date: today });
+      setSessions(result);
+    } catch {
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, branchId, today]);
 
   useEffect(() => { void load(); }, [load]);
 
   async function handleStart(sessionId: string) {
-    await openSession(sessionId);
-    await load();
+    try {
+      await sessionService.startSession(orgId, branchId, sessionId);
+      await load();
+    } catch {
+      // ignore
+    }
   }
 
   async function handleClose(sessionId: string) {
-    await closeSession(sessionId);
+    try {
+      await sessionService.endSession(orgId, branchId, sessionId);
+    } catch {
+      // ignore
+    }
     setConfirmClose(null);
     await load();
   }
@@ -105,7 +106,8 @@ function SessionsTab({ branchId }: { branchId: string }) {
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
     active:    "bg-success/10 text-success",
-    closed:    "bg-border text-navy-mid",
+    ended:     "bg-border text-navy-mid",
+    cancelled: "bg-danger/10 text-danger",
   };
 
   return (
@@ -122,13 +124,14 @@ function SessionsTab({ branchId }: { branchId: string }) {
             <div key={s.id}>
               <div className="flex items-start justify-between px-5 py-4">
                 <div>
-                  <p className="font-medium text-navy">{s.doctorName}</p>
-                  <p className="text-sm text-navy-mid">{s.specialty}</p>
+                  <p className="font-medium text-navy">
+                    {s.doctorName || "Doctor"}
+                  </p>
+                  {s.specialty && (
+                    <p className="text-sm text-navy-mid">{s.specialty}</p>
+                  )}
                   <p className="text-xs text-navy-mid">
                     {s.date} · {s.startTime} – {s.endTime}
-                  </p>
-                  <p className="mt-1 text-xs text-navy-mid">
-                    Token: <span className="font-mono">{s.queueToken}</span>
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
@@ -166,7 +169,7 @@ function SessionsTab({ branchId }: { branchId: string }) {
 
               {expandedId === s.id && s.status === "active" && (
                 <div className="border-t border-border bg-offwhite px-5 py-4">
-                  <SessionQueuePanel doctorId={s.doctorId} sessionId={s.id} />
+                  <SessionQueuePanel orgId={orgId} branchId={branchId} sessionId={s.id} />
                 </div>
               )}
             </div>
@@ -205,75 +208,77 @@ function SessionsTab({ branchId }: { branchId: string }) {
 
 // ── Walk-In Tab ───────────────────────────────────────────────────────────────
 
-type PatientLookup = {
-  id: string;
-  name: string;
-  phone: string;
-};
-
-function WalkInTab({ branchId }: { branchId: string }) {
-  const [phone, setPhone] = useState("");
+function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
+  const [phase, setPhase] = useState<"lookup" | "booking">("lookup");
+  const [foundPatient, setFoundPatient] = useState<{ fullName: string; phone: string } | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
-  const [foundPatient, setFoundPatient] = useState<PatientLookup | null | "not_found">(null);
-  const [newPatientName, setNewPatientName] = useState("");
-  const [sessions, setSessions] = useState<Session[]>([]);
+
+  const [patientName, setPatientName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string>("");
   const [adding, setAdding] = useState(false);
-  const [result, setResult] = useState<{ queueNumber: number; appointmentId: string } | null>(null);
+  const [result, setResult] = useState<{ queueNumber: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
-    fetchSessionsForBranch(branchId, today).then((s) => {
+    if (!orgId || !branchId) return;
+    sessionService.getSessions(orgId, branchId, { date: today }).then((s) => {
       const active = s.filter((x) => x.status === "active");
       setSessions(active);
       if (active.length > 0) setSelectedSession(active[0].id);
-    });
-  }, [branchId, today]);
+    }).catch(() => setSessions([]));
+  }, [orgId, branchId, today]);
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
-    if (!phone.trim()) return;
+    if (!phone.trim()) { setError("Phone number is required."); return; }
     setLookingUp(true);
-    setResult(null);
-    setFoundPatient(null);
     setError(null);
-    const p = await lookupPatientByPhone(phone.trim());
-    if (p) {
-      setFoundPatient({ id: p.id, name: p.name, phone: p.phone });
-    } else {
-      setFoundPatient("not_found");
-    }
+    const patient = await lookupPatientByPhone(orgId, toE164(phone.trim()));
     setLookingUp(false);
+    if (patient) {
+      setFoundPatient({ fullName: patient.fullName, phone: patient.phone });
+      setPatientName(patient.fullName);
+    } else {
+      setFoundPatient(null);
+      setPatientName("");
+    }
+    setPhase("booking");
   }
 
-  async function handleWalkIn() {
-    const session = sessions.find((s) => s.id === selectedSession);
-    if (!session) { setError("Please select an active session."); return; }
-
-    const patientId =
-      foundPatient && foundPatient !== "not_found"
-        ? foundPatient.id
-        : `walkin-${Date.now()}`;
+  async function handleWalkIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedSession) { setError("Please select an active session."); return; }
+    if (!patientName.trim()) { setError("Patient name is required."); return; }
 
     setAdding(true);
     setError(null);
     try {
-      const res = await walkInBooking({
-        sessionId: session.id,
-        doctorId: session.doctorId,
-        patientId,
-        avgConsultationMin: 12,
+      const appt = await bookWalkIn(orgId, branchId, selectedSession, {
+        patientPhone: phone.trim() ? toE164(phone.trim()) : undefined,
+        patientName: patientName.trim(),
       });
-      setResult(res);
+      setResult({ queueNumber: appt.queueNumber });
+      setPatientName("");
       setPhone("");
       setFoundPatient(null);
-      setNewPatientName("");
-    } catch {
-      setError("Failed to add patient to queue.");
+      setPhase("lookup");
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to add patient to queue.";
+      setError(msg);
+    } finally {
+      setAdding(false);
     }
-    setAdding(false);
+  }
+
+  function handleReset() {
+    setPhase("lookup");
+    setFoundPatient(null);
+    setPatientName("");
+    setError(null);
   }
 
   return (
@@ -283,87 +288,97 @@ function WalkInTab({ branchId }: { branchId: string }) {
           <p className="font-medium text-success">Patient added to queue</p>
           <p className="mt-1 text-2xl font-bold text-navy">#{result.queueNumber}</p>
           <p className="text-xs text-navy-mid">Queue number assigned</p>
-        </div>
-      )}
-
-      <form onSubmit={handleLookup} className="flex gap-3">
-        <input
-          type="text"
-          placeholder="Patient phone number"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          inputMode="numeric"
-          className="h-11 flex-1 rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-        />
-        <button
-          type="submit"
-          disabled={lookingUp}
-          className="rounded-md bg-gold px-5 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
-        >
-          {lookingUp ? "Looking up…" : "Look Up"}
-        </button>
-      </form>
-
-      {foundPatient === "not_found" && (
-        <div className="rounded-lg border border-border bg-offwhite p-4">
-          <p className="text-sm font-medium text-navy">Patient not found</p>
-          <p className="text-xs text-navy-mid">Enter name for a new walk-in record:</p>
-          <input
-            type="text"
-            placeholder="Patient full name"
-            value={newPatientName}
-            onChange={(e) => setNewPatientName(e.target.value)}
-            className="mt-2 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-          />
-        </div>
-      )}
-
-      {foundPatient && foundPatient !== "not_found" && (
-        <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/5 px-4 py-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-success/20 font-bold text-success">
-            {foundPatient.name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <p className="font-medium text-navy">{foundPatient.name}</p>
-            <p className="text-xs text-navy-mid">{foundPatient.phone}</p>
-          </div>
-          <span className="ml-auto rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">Found</span>
-        </div>
-      )}
-
-      {sessions.length > 0 && (
-        <div>
-          <label className="block text-sm font-medium text-navy">Active Session</label>
-          <select
-            value={selectedSession}
-            onChange={(e) => setSelectedSession(e.target.value)}
-            className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          <button
+            onClick={() => setResult(null)}
+            className="mt-2 text-xs text-navy-mid hover:text-navy"
           >
-            {sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.doctorName} · {s.startTime}–{s.endTime}
-              </option>
-            ))}
-          </select>
+            Add another →
+          </button>
         </div>
       )}
 
-      {sessions.length === 0 && (
-        <div className="rounded-lg border border-border bg-offwhite px-4 py-3 text-sm text-navy-mid">
-          No active sessions. Start a session in the "Today's Sessions" tab first.
-        </div>
-      )}
+      {phase === "lookup" ? (
+        <form onSubmit={handleLookup} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-navy">Patient Phone *</label>
+            <input
+              type="text"
+              placeholder="01XXXXXXXXX"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="numeric"
+              className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </div>
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <button
+            type="submit"
+            disabled={lookingUp}
+            className="h-11 w-full rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+          >
+            {lookingUp ? "Searching…" : "Find Patient →"}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleWalkIn} className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-navy-mid">Phone: <span className="font-medium text-navy">{phone}</span></p>
+            <button type="button" onClick={handleReset} className="text-xs text-navy-mid hover:text-navy">
+              ← Change Phone
+            </button>
+          </div>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+          <div>
+            <label className="block text-sm font-medium text-navy">
+              Patient Name *
+              {foundPatient && (
+                <span className="ml-2 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+                  Existing patient
+                </span>
+              )}
+            </label>
+            <input
+              type="text"
+              placeholder="Full name"
+              value={patientName}
+              onChange={(e) => setPatientName(e.target.value)}
+              className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </div>
 
-      {foundPatient !== null && sessions.length > 0 && (
-        <button
-          onClick={handleWalkIn}
-          disabled={adding}
-          className="h-11 w-full rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
-        >
-          {adding ? "Adding…" : "Add to Queue →"}
-        </button>
+          {sessions.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-navy">Active Session</label>
+              <select
+                value={selectedSession}
+                onChange={(e) => setSelectedSession(e.target.value)}
+                className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              >
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.doctorName || "Doctor"} · {s.startTime}–{s.endTime}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {sessions.length === 0 && (
+            <div className="rounded-lg border border-border bg-offwhite px-4 py-3 text-sm text-navy-mid">
+              No active sessions. Start a session in the "Today's Sessions" tab first.
+            </div>
+          )}
+
+          {error && <p className="text-sm text-danger">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={adding || sessions.length === 0}
+            className="h-11 w-full rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+          >
+            {adding ? "Adding…" : "Add to Queue →"}
+          </button>
+        </form>
       )}
     </div>
   );
@@ -371,46 +386,58 @@ function WalkInTab({ branchId }: { branchId: string }) {
 
 // ── Check-In Tab ──────────────────────────────────────────────────────────────
 
-function CheckInTab({ branchId }: { branchId: string }) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+function CheckInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
+  const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
-  const [queues, setQueues] = useState<Record<string, QueueEntry[]>>({});
+  const [queues, setQueues] = useState<Record<string, BackendAppointment[]>>({});
 
   const today = new Date().toISOString().split("T")[0];
 
   const load = useCallback(async () => {
+    if (!orgId || !branchId) return;
     setLoading(true);
-    const all = await fetchSessionsForBranch(branchId, today);
-    const active = all.filter((s) => s.status === "active");
-    setSessions(active);
+    try {
+      const all = await sessionService.getSessions(orgId, branchId, { date: today });
+      const active = all.filter((s) => s.status === "active");
+      setSessions(active);
 
-    const queueMap: Record<string, QueueEntry[]> = {};
-    await Promise.all(
-      active.map(async (s) => {
-        const q = await fetchDoctorQueue(s.doctorId, s.id);
-        queueMap[s.id] = q as QueueEntry[];
-      })
-    );
-    setQueues(queueMap);
-    setLoading(false);
-  }, [branchId, today]);
+      const queueMap: Record<string, BackendAppointment[]> = {};
+      await Promise.all(
+        active.map(async (s) => {
+          const q = await sessionService.getQueue(orgId, branchId, s.id);
+          queueMap[s.id] = q.appointments.filter((a) => a.status === "booked");
+        })
+      );
+      setQueues(queueMap);
+    } catch {
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, branchId, today]);
 
   useEffect(() => { void load(); }, [load]);
 
-  async function handleCheckIn(patientId: string, sessionId: string) {
-    setCheckingIn(patientId);
-    await checkInPatient(patientId, sessionId);
-    await load();
+  async function handleCheckIn(apptId: string, sessionId: string) {
+    setCheckingIn(apptId);
+    try {
+      await sessionService.updateAppointmentStatus(orgId, branchId, sessionId, apptId, "called");
+      await load();
+    } catch {
+      // ignore
+    }
     setCheckingIn(null);
   }
 
   if (loading) return <Skeleton />;
 
   const calledPatients = sessions.flatMap((s) =>
-    (queues[s.id] ?? [])
-      .filter((p) => p.status === "waiting")
-      .map((p) => ({ ...p, sessionId: s.id, doctorName: s.doctorName }))
+    (queues[s.id] ?? []).map((p) => ({
+      ...p,
+      sessionId: s.id,
+      doctorName: s.doctorName || "Doctor",
+    }))
   );
 
   return (
@@ -427,7 +454,7 @@ function CheckInTab({ branchId }: { branchId: string }) {
             <div key={p.id} className="flex items-center justify-between px-5 py-4">
               <div>
                 <p className="font-medium text-navy">
-                  #{p.queueNumber} · {p.name}
+                  #{p.queueNumber} · {p.patientProfile.fullName || "Patient"}
                 </p>
                 <p className="text-xs text-navy-mid">{p.doctorName}</p>
               </div>
@@ -448,42 +475,72 @@ function CheckInTab({ branchId }: { branchId: string }) {
 
 // ── Session Queue Panel ───────────────────────────────────────────────────────
 
-function SessionQueuePanel({ doctorId, sessionId }: { doctorId: string; sessionId: string }) {
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [skipping, setSkipping] = useState<string | null>(null);
-  const [noShowing, setNoShowing] = useState<string | null>(null);
+function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; branchId: string; sessionId: string }) {
+  const [queue, setQueue] = useState<BackendAppointment[]>([]);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [delayMin, setDelayMin] = useState("0");
+  const [savingDelay, setSavingDelay] = useState(false);
 
   const load = useCallback(async () => {
-    const q = await fetchDoctorQueue(doctorId, sessionId);
-    setQueue(q as QueueEntry[]);
-  }, [doctorId, sessionId]);
+    try {
+      const q = await sessionService.getQueue(orgId, branchId, sessionId);
+      setQueue(q.appointments);
+    } catch {
+      setQueue([]);
+    }
+  }, [orgId, branchId, sessionId]);
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => { void load(); }, 5000);
+    const id = window.setInterval(() => { void load(); }, 3000);
     return () => window.clearInterval(id);
   }, [load]);
 
-  async function handleSkip(patientId: string) {
-    setSkipping(patientId);
-    await skipPatient(patientId, doctorId);
-    await load();
-    setSkipping(null);
+  async function handleAction(apptId: string, status: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.updateAppointmentStatus(orgId, branchId, sessionId, apptId, status);
+      await load();
+    } catch {
+      // ignore
+    }
+    setActionInProgress(null);
   }
 
-  async function handleNoShow(patientId: string) {
-    setNoShowing(patientId);
-    await markNoShow(patientId, doctorId);
-    await load();
-    setNoShowing(null);
+  async function handleHold(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.holdPatient(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleReinsert(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.reinsertPatient(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleUpdateDelay() {
+    setSavingDelay(true);
+    try {
+      await sessionService.updateSessionDelay(orgId, branchId, sessionId, Number(delayMin));
+    } catch { /* ignore */ }
+    setSavingDelay(false);
   }
 
   const statusColor: Record<string, string> = {
-    waiting: "bg-gold-tint text-gold",
-    serving: "bg-success/10 text-success",
-    done:    "bg-border text-navy-mid",
-    skipped: "bg-orange-50 text-orange-600",
-    no_show: "bg-danger/10 text-danger",
+    booked:      "bg-gold-tint text-gold",
+    called:      "bg-success/10 text-success",
+    held:        "bg-orange-50 text-orange-600",
+    in_progress: "bg-success/20 text-success",
+    completed:   "bg-border text-navy-mid",
+    no_show:     "bg-danger/10 text-danger",
+    cancelled:   "bg-danger/10 text-danger",
   };
 
   if (queue.length === 0) {
@@ -492,9 +549,26 @@ function SessionQueuePanel({ doctorId, sessionId }: { doctorId: string; sessionI
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
-        Live Queue · {queue.length} entries
-      </p>
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">
+          Live Queue · {queue.length} entries
+        </p>
+        <label className="text-xs text-navy-mid">Global Delay (min):</label>
+        <input
+          type="number"
+          min="0"
+          value={delayMin}
+          onChange={(e) => setDelayMin(e.target.value)}
+          className="h-7 w-16 rounded border border-border px-2 text-xs text-navy outline-none focus:border-gold"
+        />
+        <button
+          onClick={handleUpdateDelay}
+          disabled={savingDelay}
+          className="rounded border border-gold px-2 py-1 text-xs text-gold transition hover:bg-gold-tint"
+        >
+          {savingDelay ? "…" : "Update"}
+        </button>
+      </div>
       {queue.map((p) => (
         <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
           <div className="flex items-center gap-3">
@@ -502,31 +576,53 @@ function SessionQueuePanel({ doctorId, sessionId }: { doctorId: string; sessionI
               {p.queueNumber}
             </span>
             <div>
-              <p className="text-sm font-medium text-navy">{p.name}</p>
-              <p className="text-xs text-navy-mid">~{p.estimatedWaitMin} min</p>
+              <p className="text-sm font-medium text-navy">
+                {p.patientProfile.fullName || "Patient"}
+              </p>
+              {p.patientProfile.phone && (
+                <p className="text-xs text-navy-mid">{p.patientProfile.phone}</p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[p.status] ?? ""}`}>
               {p.status.replace("_", " ")}
             </span>
-            {p.status === "waiting" && (
+            {p.status === "booked" && (
               <>
                 <button
-                  onClick={() => handleSkip(p.id)}
-                  disabled={skipping === p.id}
+                  onClick={() => handleAction(p.id, "cancelled")}
+                  disabled={actionInProgress === p.id}
                   className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
                 >
-                  Skip
+                  Cancel
                 </button>
                 <button
-                  onClick={() => handleNoShow(p.id)}
-                  disabled={noShowing === p.id}
+                  onClick={() => handleAction(p.id, "no_show")}
+                  disabled={actionInProgress === p.id}
                   className="rounded border border-danger/30 px-2 py-1 text-xs text-danger transition hover:bg-danger/5"
                 >
                   No-Show
                 </button>
               </>
+            )}
+            {p.status === "called" && (
+              <button
+                onClick={() => handleHold(p.id)}
+                disabled={actionInProgress === p.id}
+                className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-600 transition hover:bg-orange-50"
+              >
+                Hold
+              </button>
+            )}
+            {p.status === "held" && (
+              <button
+                onClick={() => handleReinsert(p.id)}
+                disabled={actionInProgress === p.id}
+                className="rounded border border-success/30 px-2 py-1 text-xs text-success transition hover:bg-success/5"
+              >
+                Re-Insert
+              </button>
             )}
           </div>
         </div>

@@ -1,25 +1,34 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchMembershipByToken, acceptInvite } from "../../services/mockApi";
 import { useAuth } from "../../context/AuthContext";
-import type { Membership } from "../../types/index";
+import { api } from "../../services/api";
+import { saveTokens } from "../../services/authService";
+import { toE164 } from "../../utils/phone";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+type InviteInfo = {
+  organization: { name?: string; _id?: string };
+  kind: "admin" | "doctor" | "receptionist";
+  inviteEmail: string;
+};
 
 export function AcceptInvitePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { loginWithCredentials } = useAuth();
+  const { loginWithCredentials, logout, authUser } = useAuth();
 
   const token = searchParams.get("token") ?? "";
 
-  const [membership, setMembership] = useState<Membership | null>(null);
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [tokenLoading, setTokenLoading] = useState(true);
   const [tokenInvalid, setTokenInvalid] = useState(false);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState("");
+  const [languagesSpoken, setLanguagesSpoken] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -30,14 +39,20 @@ export function AcceptInvitePage() {
       setTokenLoading(false);
       return;
     }
-    fetchMembershipByToken(token).then((m) => {
-      if (!m || m.status !== "pending") {
+    api
+      .get<{ organization: InviteInfo["organization"]; kind: InviteInfo["kind"]; inviteEmail: string }>(
+        `/memberships/invites/${token}`,
+      )
+      .then((res) => {
+        // Clear any existing session so the invite flow starts clean
+        if (authUser !== null) logout();
+        setInvite(res.data);
+        setTokenLoading(false);
+      })
+      .catch(() => {
         setTokenInvalid(true);
-      } else {
-        setMembership(m);
-      }
-      setTokenLoading(false);
-    });
+        setTokenLoading(false);
+      });
   }, [token]);
 
   function validate(): boolean {
@@ -51,25 +66,47 @@ export function AcceptInvitePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || !invite) return;
     setIsLoading(true);
     setApiError(null);
 
-    const result = await acceptInvite({ token, name: name.trim(), phone: phone.trim(), password });
-    if (!result.success) {
-      setApiError(result.error ?? "Failed to accept invitation.");
+    try {
+      // Accept with new account — backend creates the account and activates membership
+      const isDoctor = invite.kind === "doctor";
+      const langs = languagesSpoken.trim()
+        ? languagesSpoken.split(",").map((l) => l.trim()).filter(Boolean)
+        : undefined;
+      const res = await api.post<{ accessToken: string; refreshToken: string }>(
+        "/memberships/invites/accept/new",
+        {
+          token,
+          fullName: name.trim(),
+          password,
+          phone: toE164(phone.trim()),
+          ...(isDoctor && yearsOfExperience ? { yearsOfExperience: Number(yearsOfExperience) } : {}),
+          ...(isDoctor && langs?.length ? { languagesSpoken: langs } : {}),
+        },
+      );
+
+      const { accessToken, refreshToken } = res.data;
+      saveTokens(accessToken, refreshToken);
+
+      // Log in via context so AuthContext picks up the new user
+      const email = invite.inviteEmail;
+      await loginWithCredentials(email || name.trim(), password);
+
+      const role = invite.kind;
+      if (role === "admin") navigate("/admin");
+      else if (role === "receptionist") navigate("/reception");
+      else navigate("/doctor-dashboard");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? "Failed to accept invitation.";
+      setApiError(msg);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    // Log in with the new credentials
-    await loginWithCredentials(phone.trim(), password);
-    setIsLoading(false);
-
-    const role = result.user?.role;
-    if (role === "admin") navigate("/admin");
-    else if (role === "receptionist") navigate("/reception");
-    else navigate("/doctor-dashboard");
   }
 
   const roleLabel: Record<string, string> = {
@@ -131,11 +168,14 @@ export function AcceptInvitePage() {
           <h1 className="mt-1 font-heading text-2xl font-bold text-white">
             You've been invited to join
           </h1>
-          {membership && (
+          {invite && (
             <div className="mt-3 flex items-center gap-2">
               <span className="rounded-full bg-gold/20 px-2.5 py-1 text-xs font-semibold text-gold">
-                {roleLabel[membership.userRole] ?? membership.userRole}
+                {roleLabel[invite.kind] ?? invite.kind}
               </span>
+              {invite.organization?.name && (
+                <span className="text-sm text-white/60">{invite.organization.name}</span>
+              )}
             </div>
           )}
         </div>
@@ -150,6 +190,13 @@ export function AcceptInvitePage() {
           <p className="mb-5 text-sm text-navy-mid">
             Create your account to accept this invitation and access the portal.
           </p>
+
+          {invite?.inviteEmail && (
+            <div className="mb-4 rounded-md border border-border bg-offwhite px-4 py-3 text-sm text-navy">
+              Invited as:{" "}
+              <span className="font-medium">{invite.inviteEmail}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field
@@ -175,6 +222,23 @@ export function AcceptInvitePage() {
               error={errors.password}
               type="password"
             />
+            {invite?.kind === "doctor" && (
+              <>
+                <Field
+                  label="Years of Experience"
+                  placeholder="e.g. 5"
+                  value={yearsOfExperience}
+                  onChange={setYearsOfExperience}
+                  inputMode="numeric"
+                />
+                <Field
+                  label="Languages Spoken (comma-separated)"
+                  placeholder="Arabic, English"
+                  value={languagesSpoken}
+                  onChange={setLanguagesSpoken}
+                />
+              </>
+            )}
 
             <button
               type="submit"

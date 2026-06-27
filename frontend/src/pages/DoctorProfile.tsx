@@ -1,23 +1,31 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { MOCK_REVIEWS } from "../data/mockData";
-import type { Review } from "../data/mockData";
-import { fetchDoctorProfile, fetchSessions } from "../services/mockApi";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import {
+  searchOrgs,
+  getOrgDoctors,
+  getOrgSessions,
+  getMarketplaceOrg,
+  getDoctorReviews,
+  membershipToDoctor,
+  type MarketplaceReview,
+} from "../services/marketplaceService";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
-import type { Doctor, Session, ClinicLocation } from "../context/AppContext";
+import type { Doctor, Session, ClinicLocation } from "../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function DoctorProfile() {
   const { doctorId } = useParams<{ doctorId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setBookingIntent } = useApp();
   const { authUser } = useAuth();
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [reviews, setReviews] = useState<MarketplaceReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
@@ -26,17 +34,55 @@ export function DoctorProfile() {
     setIsLoading(true);
     setDoctor(null);
     setSessions([]);
+    setReviews([]);
     setSelectedSession(null);
-    Promise.all([fetchDoctorProfile(doctorId), fetchSessions(doctorId)]).then(
-      ([doc, sess]) => {
-        setDoctor(doc);
-        setSessions(sess);
-        setIsLoading(false);
-      },
-    );
-  }, [doctorId]);
 
-  const reviews = MOCK_REVIEWS.filter((r) => r.doctorId === doctorId);
+    const stateOrgId = (location.state as { orgId?: string } | null)?.orgId ?? "";
+
+    async function loadProfile(orgId: string) {
+      const [members, sess, fullOrg] = await Promise.all([
+        getOrgDoctors(orgId),
+        getOrgSessions(orgId, doctorId),
+        getMarketplaceOrg(orgId),
+      ]);
+      const member = members.find((m) => m.id === doctorId);
+      if (!member) return;
+      setDoctor(membershipToDoctor(member, fullOrg));
+      setSessions(sess);
+      const rev = await getDoctorReviews(orgId, doctorId!);
+      setReviews(rev);
+    }
+
+    async function load() {
+      try {
+        if (stateOrgId) {
+          await loadProfile(stateOrgId);
+        } else {
+          const orgs = await searchOrgs();
+          for (const org of orgs) {
+            const members = await getOrgDoctors(org.id);
+            const member = members.find((m) => m.id === doctorId);
+            if (member) {
+              const [sess, fullOrg, rev] = await Promise.all([
+                getOrgSessions(org.id, doctorId),
+                getMarketplaceOrg(org.id),
+                getDoctorReviews(org.id, doctorId!),
+              ]);
+              setDoctor(membershipToDoctor(member, fullOrg));
+              setSessions(sess);
+              setReviews(rev);
+              return;
+            }
+          }
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctorId]);
 
   if (isLoading && !doctor) {
     return (
@@ -99,6 +145,7 @@ export function DoctorProfile() {
           reviews={reviews}
           overallRating={doctor.rating}
           reviewCount={doctor.reviewCount}
+          authUser={authUser}
         />
       ),
     },
@@ -402,12 +449,60 @@ function ReviewsTab({
   reviews,
   overallRating,
   reviewCount,
+  authUser,
 }: {
-  reviews: Review[];
+  reviews: MarketplaceReview[];
   overallRating: number;
   reviewCount: number;
+  authUser: import("../types/index").AuthUser;
 }) {
   const breakdown = getRatingBreakdown(overallRating, reviewCount);
+  const isPatient = authUser?.role === "patient";
+
+  const [tokenInput, setTokenInput] = useState("");
+  const [reviewCtx, setReviewCtx] = useState<{ doctorName: string; appointmentDate: string } | null>(null);
+  const [tokenError, setTokenError] = useState("");
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  async function handleVerifyToken(e: React.FormEvent) {
+    e.preventDefault();
+    setTokenError("");
+    try {
+      const { api } = await import("../services/api");
+      const res = await api.get<{ data: Record<string, unknown> }>(
+        `/reviews/submit?token=${encodeURIComponent(tokenInput.trim())}`,
+      );
+      const d = res.data.data as Record<string, unknown>;
+      if (d.alreadyReviewed) {
+        setTokenError("You have already submitted a review for this appointment.");
+        return;
+      }
+      setReviewCtx({
+        doctorName: String(d.doctorName ?? ""),
+        appointmentDate: String(d.appointmentDate ?? "").slice(0, 10),
+      });
+    } catch {
+      setTokenError("Invalid or expired token. Check your appointment confirmation.");
+    }
+  }
+
+  async function handleSubmitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (rating === 0) return;
+    setSubmitting(true);
+    try {
+      const { api } = await import("../services/api");
+      await api.post("/reviews/submit", { token: tokenInput.trim(), rating, comment });
+      setSubmitted(true);
+    } catch {
+      setTokenError("Failed to submit review. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -450,6 +545,73 @@ function ReviewsTab({
           ))}
         </div>
       )}
+
+      {/* Patient review submission — only visible to patients */}
+      {isPatient && (
+        <div className="rounded-xl border border-border p-5">
+          <h4 className="font-heading text-base font-bold text-navy">Share Your Experience</h4>
+          {submitted ? (
+            <p className="mt-3 text-sm text-success">Thank you — your review has been submitted!</p>
+          ) : reviewCtx ? (
+            <form onSubmit={handleSubmitReview} className="mt-3 space-y-3">
+              <p className="text-xs text-navy-mid">
+                Appointment with {reviewCtx.doctorName} on {reviewCtx.appointmentDate}
+              </p>
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    className={`text-2xl transition ${star <= rating ? "text-gold" : "text-border"}`}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="Tell us about your visit (optional)..."
+                className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+              {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
+              <button
+                type="submit"
+                disabled={rating === 0 || submitting}
+                className="w-full rounded-md bg-gold py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+              >
+                {submitting ? "Submitting…" : "Submit Review"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyToken} className="mt-3 space-y-2">
+              <p className="text-xs text-navy-mid">
+                Enter the access token from your appointment confirmation to leave a review.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Appointment access token"
+                  className="flex-1 h-10 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <button
+                  type="submit"
+                  disabled={!tokenInput.trim()}
+                  className="rounded-md bg-navy px-4 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+                >
+                  Verify
+                </button>
+              </div>
+              {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -465,13 +627,14 @@ function SessionCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const isClosed = session.status === "closed";
+  const isUnavailable = session.status !== "scheduled";
+  const unavailableLabel = session.status === "active" ? "In Progress" : "Closed";
   return (
     <button
-      onClick={isClosed ? undefined : onSelect}
-      disabled={isClosed}
+      onClick={isUnavailable ? undefined : onSelect}
+      disabled={isUnavailable}
       className={`w-full rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-        isClosed
+        isUnavailable
           ? "border-border bg-offwhite"
           : selected
             ? "border-gold bg-gold-tint"
@@ -488,14 +651,14 @@ function SessionCard({
         </div>
         <span
           className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            isClosed
+            isUnavailable
               ? "bg-danger/10 text-danger"
               : selected
                 ? "bg-gold text-navy"
                 : "bg-green-50 text-success"
           }`}
         >
-          {isClosed ? "Closed" : selected ? "Selected ✓" : `${session.availableSlots} slots`}
+          {isUnavailable ? unavailableLabel : selected ? "Selected ✓" : `${session.availableSlots} slots`}
         </span>
       </div>
     </button>
@@ -529,7 +692,7 @@ function StatCard({
   );
 }
 
-function ReviewCard({ review }: { review: Review }) {
+function ReviewCard({ review }: { review: MarketplaceReview }) {
   return (
     <div className="rounded-xl border border-border bg-white p-4">
       <div className="flex items-start justify-between gap-2">
@@ -538,9 +701,7 @@ function ReviewCard({ review }: { review: Review }) {
             {review.patientName.charAt(0)}
           </div>
           <div>
-            <p className="text-sm font-semibold text-navy">
-              {review.patientName}
-            </p>
+            <p className="text-sm font-semibold text-navy">{review.patientName}</p>
             <p className="text-xs text-navy-mid">{review.date}</p>
           </div>
         </div>

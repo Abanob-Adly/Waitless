@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { updateBookingNotes } from "../services/mockApi";
+import { getOwnProfile, updateOwnProfile } from "../services/patientService";
+import type { PatientRecord } from "../services/patientService";
 import type { HistoryRecord, ActiveBooking } from "../context/AppContext";
 import type { PatientProfile } from "../types/index";
 
@@ -126,71 +127,187 @@ export function PatientDashboard() {
 // ── Profile Card ──────────────────────────────────────────────────────────────
 
 function ProfileCard({ patient }: { patient: PatientProfile | null }) {
-  const initials = patient
-    ? patient.name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
-    : "?";
+  const [ownProfile, setOwnProfile] = useState<PatientRecord | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ fullName: "", phone: "", dateOfBirth: "", avatarUrl: "" });
+  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const birthdateLabel = patient?.birthdate
-    ? new Date(patient.birthdate).toLocaleDateString("en-GB", {
+  useEffect(() => {
+    getOwnProfile().then((p) => {
+      if (p) {
+        setOwnProfile(p);
+        setForm({
+          fullName: p.fullName,
+          phone: p.phone,
+          dateOfBirth: p.dateOfBirth ? p.dateOfBirth.slice(0, 10) : "",
+          avatarUrl: p.avatarUrl ?? "",
+        });
+      }
+    });
+  }, []);
+
+  const displayName = ownProfile?.fullName ?? patient?.name ?? "Guest";
+  const displayPhone = ownProfile?.phone ?? patient?.phone ?? "";
+  const displayAvatar = ownProfile?.avatarUrl ?? "";
+
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "?";
+
+  const birthdateLabel = ownProfile?.dateOfBirth
+    ? new Date(ownProfile.dateOfBirth).toLocaleDateString("en-GB", {
         day: "numeric",
         month: "long",
         year: "numeric",
       })
-    : null;
+    : patient?.birthdate
+      ? new Date(patient.birthdate).toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : null;
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveResult(null);
+    const result = await updateOwnProfile({
+      fullName: form.fullName.trim() || undefined,
+      phone: form.phone.trim() || undefined,
+      dateOfBirth: form.dateOfBirth || undefined,
+      avatarUrl: form.avatarUrl.trim() || null,
+    });
+    setSaving(false);
+    if (result) {
+      setOwnProfile(result);
+      setSaveResult({ ok: true, msg: "Profile updated successfully." });
+      setEditing(false);
+    } else {
+      setSaveResult({ ok: false, msg: "Failed to save. Check your phone number and try again." });
+    }
+  }
 
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
       <div className="bg-navy px-6 py-5">
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold font-heading text-2xl font-bold text-navy">
-            {initials}
-          </div>
+          {displayAvatar ? (
+            <img
+              src={displayAvatar}
+              alt={displayName}
+              className="h-16 w-16 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gold font-heading text-2xl font-bold text-navy">
+              {initials}
+            </div>
+          )}
 
           {patient ? (
-            <div>
-              <p className="font-heading text-xl font-bold text-white">
-                {patient.name}
-              </p>
-              <p className="mt-0.5 text-sm text-white/60">{patient.phone}</p>
-              <p className="mt-0.5 text-xs text-white/40">
-                Registered Patient
-              </p>
+            <div className="flex-1 min-w-0">
+              <p className="font-heading text-xl font-bold text-white">{displayName}</p>
+              <p className="mt-0.5 text-sm text-white/60">{displayPhone}</p>
+              <p className="mt-0.5 text-xs text-white/40">Registered Patient</p>
             </div>
           ) : (
             <div>
-              <p className="font-heading text-xl font-bold text-white">
-                Guest
-              </p>
-              <p className="mt-0.5 text-sm text-white/60">
-                Please sign in to view your profile.
-              </p>
+              <p className="font-heading text-xl font-bold text-white">Guest</p>
+              <p className="mt-0.5 text-sm text-white/60">Please sign in to view your profile.</p>
             </div>
+          )}
+
+          {patient && (
+            <button
+              onClick={() => { setEditing((v) => !v); setSaveResult(null); }}
+              className="shrink-0 rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-white/50 hover:text-white"
+            >
+              {editing ? "Cancel" : "Edit"}
+            </button>
           )}
         </div>
       </div>
 
-      {patient && (
+      {saveResult && (
+        <div className={`px-6 pt-4 text-sm ${saveResult.ok ? "text-success" : "text-danger"}`}>
+          {saveResult.msg}
+        </div>
+      )}
+
+      {patient && editing ? (
+        <form onSubmit={handleSave} className="px-6 py-4 space-y-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">Edit Profile</h3>
+          <label className="block">
+            <span className="text-sm font-medium text-navy">Full Name</span>
+            <input
+              type="text"
+              value={form.fullName}
+              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-navy">Phone</span>
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-navy">Date of Birth</span>
+            <input
+              type="date"
+              value={form.dateOfBirth}
+              onChange={(e) => setForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-navy">Avatar URL</span>
+            <input
+              type="url"
+              value={form.avatarUrl}
+              onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
+              placeholder="https://..."
+              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </label>
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="flex-1 rounded-md border border-border py-2 text-sm text-navy-mid transition hover:border-navy hover:text-navy"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 rounded-md bg-gold py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      ) : patient ? (
         <div className="px-6 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">
             Profile Information
           </h3>
           <dl className="divide-y divide-border">
-            <InfoRow label="Full Name" value={patient.name} />
-            <InfoRow label="Phone Number" value={patient.phone} />
-            {birthdateLabel && (
-              <InfoRow label="Date of Birth" value={birthdateLabel} />
-            )}
-            {patient.email && (
-              <InfoRow label="Email" value={patient.email} />
-            )}
+            <InfoRow label="Full Name" value={displayName} />
+            <InfoRow label="Phone Number" value={displayPhone} />
+            {birthdateLabel && <InfoRow label="Date of Birth" value={birthdateLabel} />}
+            {patient.email && <InfoRow label="Email" value={patient.email} />}
           </dl>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -260,9 +377,9 @@ function BookingCard({
   const [notesText, setNotesText] = useState(booking.patientNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
 
-  // Live queue position per booking
+  // Live queue position per booking — use tracking token if available
   const { position, currentServing, etaMinutes } = useQueueSubscription(
-    booking.id,
+    booking.accessToken ?? booking.id,
     booking.queueNumber,
     booking.session.avgConsultationMin,
   );
@@ -274,7 +391,6 @@ function BookingCard({
 
   async function handleSaveNotes() {
     setSavingNotes(true);
-    await updateBookingNotes(booking.id, notesText);
     updateNotes(booking.id, notesText);
     setSavingNotes(false);
     setShowNotesModal(false);

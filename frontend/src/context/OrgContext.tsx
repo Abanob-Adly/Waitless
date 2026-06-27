@@ -1,18 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
-import {
-  fetchOrgById,
-  fetchBranches,
-  fetchMemberships,
-  fetchSchedules,
-  fetchSubscription,
-  fetchSubscriptionPlans,
-  addBranch as apiAddBranch,
-  inviteStaff as apiInviteStaff,
-  createDoctorSchedule,
-  addScheduleException,
-  updateSubscription as apiUpdateSubscription,
-} from "../services/mockApi";
+import * as orgService from "../services/orgService";
 import type {
   Organization,
   Branch,
@@ -33,20 +21,31 @@ type OrgCtx = {
   plans: SubscriptionPlan[];
   isLoading: boolean;
   refresh: () => Promise<void>;
-  addBranch: (data: Omit<Branch, "id" | "orgId">) => Promise<boolean>;
+  addBranch: (data: Omit<Branch, "id" | "orgId">) => Promise<{ ok: boolean; error?: string }>;
   inviteStaff: (
     branchId: string,
     email: string,
     role: Membership["userRole"],
-    name: string,
+    specialties?: string[],
+    permissions?: string[],
   ) => Promise<string | null>;
-  createSchedule: (data: Omit<DoctorBranchSchedule, "id">) => Promise<{ ok: boolean; sessionsGenerated?: number }>;
+  removeMember: (memberId: string) => Promise<boolean>;
+  updateMember: (memberId: string, data: { specialties?: string[]; bio?: string; permissions?: string[] }) => Promise<boolean>;
+  createSchedule: (
+    data: Omit<DoctorBranchSchedule, "id">,
+  ) => Promise<{ ok: boolean; sessionsGenerated?: number }>;
+  updateSchedule: (
+    scheduleId: string,
+    data: Omit<DoctorBranchSchedule, "id" | "doctorId" | "branchId" | "doctorName" | "specialty" | "isActive">,
+  ) => Promise<boolean>;
   addException: (
     scheduleId: string,
     date: string,
     reason: string,
   ) => Promise<boolean>;
   upgradePlan: (planId: string) => Promise<boolean>;
+  toggleVisibility: (isPublic: boolean) => Promise<{ ok: boolean; error?: string }>;
+  updateOrg: (data: { whatsappNumber?: string | null }) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const OrgContext = createContext<OrgCtx | null>(null);
@@ -57,8 +56,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const { authUser } = useAuth();
 
   const orgId =
-    authUser?.role === "admin" || authUser?.role === "receptionist"
-      ? authUser.profile.orgId
+    authUser?.role === "admin" || authUser?.role === "receptionist" || authUser?.role === "doctor"
+      ? (authUser.profile as { orgId?: string }).orgId ?? null
       : null;
 
   const [org, setOrg] = useState<Organization | null>(null);
@@ -75,21 +74,31 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setIsLoading(true);
-    const [o, b, m, s, sub, p] = await Promise.all([
-      fetchOrgById(orgId),
-      fetchBranches(orgId),
-      fetchMemberships(orgId),
-      fetchSchedules(orgId),
-      fetchSubscription(orgId),
-      fetchSubscriptionPlans(),
-    ]);
-    setOrg(o);
-    setBranches(b);
-    setMemberships(m);
-    setSchedules(s);
-    setSubscription(sub);
-    setPlans(p);
-    setIsLoading(false);
+    try {
+      const [o, b, m, s, p] = await Promise.all([
+        orgService.getOrg(orgId),
+        orgService.getBranches(orgId),
+        orgService.getMembers(orgId),
+        orgService.getSchedules(orgId),
+        orgService.getPlans(),
+      ]);
+      setOrg(o);
+      setBranches(b);
+      setMemberships(m);
+      setSchedules(s);
+      setPlans(p);
+      // Subscription is optional — 404 means no active plan yet
+      try {
+        const sub = await orgService.getSubscription(orgId);
+        setSubscription(sub);
+      } catch {
+        setSubscription(null);
+      }
+    } catch (err) {
+      console.error("OrgContext refresh error:", err);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -97,38 +106,88 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
-  async function addBranch(data: Omit<Branch, "id" | "orgId">): Promise<boolean> {
-    if (!orgId) return false;
-    const result = await apiAddBranch(orgId, data);
-    if (result.success && result.branch) {
-      setBranches((prev) => [...prev, result.branch!]);
+  async function addBranch(
+    data: Omit<Branch, "id" | "orgId">,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!orgId) return { ok: false, error: "No organization loaded" };
+    try {
+      const branch = await orgService.createBranch(orgId, {
+        name: data.name,
+        address: data.address ? { street: data.address, city: data.city } : undefined,
+        phone: data.phone,
+      });
+      setBranches((prev) => [...prev, branch]);
+      return { ok: true };
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Failed to add branch.";
+      console.error("addBranch error:", err);
+      return { ok: false, error: msg };
     }
-    return result.success;
   }
 
   async function inviteStaff(
     branchId: string,
     email: string,
     role: Membership["userRole"],
-    name: string,
+    specialties?: string[],
+    permissions?: string[],
   ): Promise<string | null> {
     if (!orgId) return null;
-    const result = await apiInviteStaff(orgId, branchId, email, role, name);
-    if (result.success && result.token) {
+    try {
+      const result = await orgService.inviteMember(orgId, {
+        email,
+        kind:        role as "admin" | "doctor" | "receptionist",
+        branches:    role === "receptionist" ? [branchId] : undefined,
+        specialties: role === "doctor"       ? specialties : undefined,
+        permissions: role === "admin"        ? permissions  : undefined,
+      });
       await refresh();
       return result.token;
+    } catch (err) {
+      console.error("inviteStaff error:", err);
+      return null;
     }
-    return null;
   }
 
   async function createSchedule(
     data: Omit<DoctorBranchSchedule, "id">,
   ): Promise<{ ok: boolean; sessionsGenerated?: number }> {
-    const result = await createDoctorSchedule(data);
-    if (result.success && result.schedule) {
-      setSchedules((prev) => [...prev, result.schedule!]);
+    if (!orgId) return { ok: false };
+    try {
+      const result = await orgService.createSchedule(orgId, {
+        doctorMembershipId: data.doctorId,
+        branchId:           data.branchId,
+        schedule:           data.weeklySlots,
+        avgConsultationMin: data.avgConsultationMin,
+        consultationFee:    data.fee,
+      });
+      setSchedules((prev) => [...prev, result.schedule]);
+      return { ok: true, sessionsGenerated: result.sessionsGenerated };
+    } catch (err) {
+      console.error("createSchedule error:", err);
+      return { ok: false };
     }
-    return { ok: result.success, sessionsGenerated: result.sessionsGenerated };
+  }
+
+  async function updateSchedule(
+    scheduleId: string,
+    data: Omit<DoctorBranchSchedule, "id" | "doctorId" | "branchId" | "doctorName" | "specialty" | "isActive">,
+  ): Promise<boolean> {
+    if (!orgId) return false;
+    try {
+      const updated = await orgService.updateSchedule(orgId, scheduleId, {
+        schedule:           data.weeklySlots,
+        avgConsultationMin: data.avgConsultationMin,
+        consultationFee:    data.fee,
+      });
+      setSchedules((prev) => prev.map((s) => s.id === scheduleId ? { ...s, ...updated } : s));
+      return true;
+    } catch (err) {
+      console.error("updateSchedule error:", err);
+      return false;
+    }
   }
 
   async function addException(
@@ -136,17 +195,79 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     date: string,
     reason: string,
   ): Promise<boolean> {
-    const result = await addScheduleException(scheduleId, date, reason);
-    return result.success;
+    if (!orgId) return false;
+    try {
+      await orgService.addException(orgId, scheduleId, { date, reason });
+      return true;
+    } catch (err) {
+      console.error("addException error:", err);
+      return false;
+    }
   }
 
   async function upgradePlan(planId: string): Promise<boolean> {
     if (!orgId) return false;
-    const result = await apiUpdateSubscription(orgId, planId);
-    if (result.success && result.subscription) {
-      setSubscription(result.subscription);
+    try {
+      const sub = await orgService.upgradePlan(orgId, planId);
+      if (sub) {
+        setSubscription(sub);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("upgradePlan error:", err);
+      return false;
     }
-    return result.success;
+  }
+
+  async function toggleVisibility(isPublic: boolean): Promise<{ ok: boolean; error?: string }> {
+    if (!orgId) return { ok: false, error: "No organization loaded" };
+    const result = await orgService.toggleVisibility(orgId, isPublic);
+    if (result.ok) {
+      setOrg((prev) => prev ? { ...prev, isPublic } : prev);
+    }
+    return result;
+  }
+
+  async function removeMember(memberId: string): Promise<boolean> {
+    if (!orgId) return false;
+    try {
+      await orgService.revokeMember(orgId, memberId);
+      setMemberships((prev) => prev.filter((m) => m.id !== memberId));
+      return true;
+    } catch (err) {
+      console.error("removeMember error:", err);
+      return false;
+    }
+  }
+
+  async function updateMember(
+    memberId: string,
+    data: { specialties?: string[]; bio?: string; permissions?: string[] },
+  ): Promise<boolean> {
+    if (!orgId) return false;
+    try {
+      await orgService.updateMember(orgId, memberId, data);
+      await refresh();
+      return true;
+    } catch (err) {
+      console.error("updateMember error:", err);
+      return false;
+    }
+  }
+
+  async function updateOrg(data: { whatsappNumber?: string | null }): Promise<{ ok: boolean; error?: string }> {
+    if (!orgId) return { ok: false, error: "No organization loaded" };
+    try {
+      const updated = await orgService.updateOrg(orgId, data);
+      setOrg(updated);
+      return { ok: true };
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Failed to update organization.";
+      return { ok: false, error: msg };
+    }
   }
 
   return (
@@ -162,9 +283,14 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         refresh,
         addBranch,
         inviteStaff,
+        removeMember,
+        updateMember,
         createSchedule,
+        updateSchedule,
         addException,
         upgradePlan,
+        toggleVisibility,
+        updateOrg,
       }}
     >
       {children}

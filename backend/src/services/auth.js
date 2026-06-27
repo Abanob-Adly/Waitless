@@ -1,31 +1,47 @@
-import Account from '../models/account.js';
-import PatientProfile from '../models/patientProfile.js';
+import Account from '../models/Account.js';
+import PatientProfile from '../models/PatientProfile.js';
+import { Membership } from '../models/Membership.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { AppError, Conflict, NotFound, Unauthorized } from '../utils/errors.js';
 import { tokenService } from './token.js';
 import { verificationService } from './verification.js';
 
+// Normalises phone/email identifier for login lookups.
+// 01XXXXXXXXX → +201XXXXXXXXX; otherwise treated as email.
+function normalizeIdentifier(input = '') {
+  const str = input.trim();
+  const digits = str.replace(/\D/g, '');
+  if (digits.length >= 10) {
+    if (digits.startsWith('20')) return { field: 'phone', value: `+${digits}` };
+    if (digits.startsWith('0'))  return { field: 'phone', value: `+2${digits}` };
+    if (digits.length >= 10)     return { field: 'phone', value: `+${digits}` };
+  }
+  return { field: 'email', value: str.toLowerCase() };
+}
+
 export const authService = {
   // Patient Registration
-  async registerPatient({ email, phone, password, fullName }) {
+  async registerPatient({ email, phone, password, fullName, dateOfBirth }) {
     if (await Account.findOne({ email })) throw Conflict('Email already in use');
 
     const account = await Account.create({
       email, phone, fullName,
       passwordHash: await hashPassword(password),
       role: 'patient',
-      status: 'pending_verification',
+      // Auto-activate so the frontend works without email verification in development.
+      // A real production deploy can re-enable verification by changing this to
+      // 'pending_verification' and un-commenting the verificationService.issue call.
+      status: 'active',
+      isEmailVerified: true,
     });
 
     await PatientProfile.create({
       accountId: account._id,
       fullName, phone,
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
     });
 
-    // Fire-and-forget verification
-    await verificationService.issue({
-      account, purpose: 'email_verify', sendTo: email,
-    });
+    // try { await verificationService.issue({ account, purpose: 'email_verify', sendTo: email }); } catch {}
 
     return account;
   },
@@ -39,26 +55,26 @@ export const authService = {
       email, phone, fullName,
       passwordHash: await hashPassword(password),
       role: 'staff',
-      status: 'pending_verification',
+      status: 'active',
+      isEmailVerified: true,
     });
 
-    await verificationService.issue({
-      account, purpose: 'email_verify', sendTo: email,
-    });
+    // try { await verificationService.issue({ account, purpose: 'email_verify', sendTo: email }); } catch {}
 
     return account;
   },
 
-  // Login
-  async loginPatient({ email, password, ip, userAgent }) {
+  // Login — accepts phone number OR email as identifier
+  async loginPatient({ identifier, password, ip, userAgent }) {
+    const { field, value } = normalizeIdentifier(identifier);
     const account = await Account.findOne({
-      email: email,
-      role: 'Patient'
+      [field]: value,
+      role: 'patient',
     }).select('+passwordHash');
     if (!account) throw Unauthorized('Invalid credentials');
     if (account.status === 'deleted') throw Unauthorized('Account deleted');
     if (account.status === 'deactivated') throw Unauthorized('Account deactivated');
-    if (account.status === 'pending_verification') throw Unauthorized('Account is not verified');
+    if (account.status === 'pending_verification') throw Unauthorized('Please verify your email first');
 
     const ok = await verifyPassword(password, account.passwordHash);
     if (!ok) throw Unauthorized('Invalid credentials');
@@ -71,15 +87,17 @@ export const authService = {
 
     return { account, accessToken, refreshToken };
   },
-  async loginWorker({ email, password, ip, userAgent }) {
+
+  async loginWorker({ identifier, password, ip, userAgent }) {
+    const { field, value } = normalizeIdentifier(identifier);
     const account = await Account.findOne({
-      email: email,
-      role: 'Worker'
+      [field]: value,
+      role: 'staff',
     }).select('+passwordHash');
     if (!account) throw Unauthorized('Invalid credentials');
     if (account.status === 'deleted') throw Unauthorized('Account deleted');
     if (account.status === 'deactivated') throw Unauthorized('Account deactivated');
-    if (account.status === 'pending_verification') throw Unauthorized('Account is not verified');
+    if (account.status === 'pending_verification') throw Unauthorized('Please verify your email first');
 
     const ok = await verifyPassword(password, account.passwordHash);
     if (!ok) throw Unauthorized('Invalid credentials');
@@ -87,10 +105,17 @@ export const authService = {
     account.lastLoginAt = new Date();
     await account.save();
 
-    const accessToken = tokenService.signAccessToken(account);
+    // Find the worker's primary active membership to scope the token to their org.
+    const membership = await Membership.findOne({
+      account: account._id,
+      status: 'active',
+    });
+
+    const activeOrgId = membership?.organization || null;
+    const accessToken = tokenService.signAccessToken(account, activeOrgId);
     const refreshToken = await tokenService.issueRefreshToken(account._id, { ip, userAgent });
 
-    return { account, accessToken, refreshToken };
+    return { account, accessToken, refreshToken, membership };
   },
 
   // Refresh

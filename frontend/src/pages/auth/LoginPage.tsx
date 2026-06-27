@@ -30,7 +30,7 @@ export function LoginPage() {
       // Use the hook result isn't available synchronously — navigate based on
       // localStorage which was just written by loginWithCredentials
       try {
-        const stored = localStorage.getItem("waitless_auth");
+        const stored = localStorage.getItem("waitless_user");
         if (stored) {
           const user = JSON.parse(stored) as { role: string };
           if (user.role === "doctor") {
@@ -70,22 +70,9 @@ export function LoginPage() {
         <div className="px-8 py-7">
           {/* Demo credentials hint */}
           <div className="mb-5 rounded-lg border border-border bg-offwhite px-4 py-3 text-xs text-navy-mid">
-            <p className="font-semibold text-navy">Demo accounts</p>
-            <p className="mt-1">
-              Patient: <span className="font-mono text-navy">01012345678</span>{" "}
-              / <span className="font-mono text-navy">Ahmed1234</span>
-            </p>
-            <p className="mt-0.5">
-              Doctor: <span className="font-mono text-navy">01198765432</span> /{" "}
-              <span className="font-mono text-navy">Doctor1234</span>
-            </p>
-            <p className="mt-0.5">
-              Admin: <span className="font-mono text-navy">01011112222</span> /{" "}
-              <span className="font-mono text-navy">Admin1234</span>
-            </p>
-            <p className="mt-0.5">
-              Reception: <span className="font-mono text-navy">01033334444</span> /{" "}
-              <span className="font-mono text-navy">Recept1234</span>
+            <p className="font-semibold text-navy">Sign in with phone or email</p>
+            <p className="mt-1 text-navy-mid">
+              Use the phone number or email you registered with, along with your password.
             </p>
           </div>
 

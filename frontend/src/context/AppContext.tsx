@@ -21,28 +21,7 @@ export type {
   PaymentRecord,
 } from "../types/index";
 
-// ── Seed history ──────────────────────────────────────────────────────────────
-
-const SEED_HISTORY: HistoryRecord[] = [
-  {
-    id: "h-001",
-    doctorName: "Dr. Omar Farouk",
-    doctorInitials: "OF",
-    specialty: "Dermatology",
-    date: "Fri, Jun 20, 2026",
-    fee: 250,
-    status: "completed",
-  },
-  {
-    id: "h-002",
-    doctorName: "Dr. Sara Mostafa",
-    doctorInitials: "SM",
-    specialty: "Pediatrics",
-    date: "Mon, Jun 16, 2026",
-    fee: 200,
-    status: "cancelled",
-  },
-];
+// Seed history removed — real history is loaded from API per user session.
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
@@ -63,7 +42,7 @@ const Ctx = createContext<AppCtx | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<ActiveBooking[]>([]);
-  const [history, setHistory] = useState<HistoryRecord[]>(SEED_HISTORY);
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [bookingIntent, setBookingIntent] = useState<BookingIntent | null>(null);
 
   function addBooking(b: ActiveBooking) {

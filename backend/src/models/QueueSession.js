@@ -33,6 +33,10 @@ const sessionSchema = new Schema(
     bookingsCount:  { type: Number, default: 0, min: 0 },
     // The queueNumber currently being served (0 = nobody yet).
     currentServing: { type: Number, default: 0, min: 0 },
+    // Fixed extra delay added by receptionist (doctor running late). Added to all ETAs.
+    globalDelayMin: { type: Number, default: 0, min: 0 },
+    // Maximum bookings allowed. null = unlimited.
+    maxBookings:    { type: Number, default: null, min: 1 },
   },
   { timestamps: true }
 );

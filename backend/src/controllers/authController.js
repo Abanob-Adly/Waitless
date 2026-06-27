@@ -11,7 +11,8 @@ export const schemas = {
         fullName: z.string().min(2).max(100),
         phone: Phone.optional(),
     }),
-    login: z.object({ email: Email, password: Password }),
+    // identifier accepts either email or phone number
+    login: z.object({ identifier: z.string().min(1), password: Password }),
     refresh: z.object({ refreshToken: z.string() }),
     verifyEmail: z.object({ code: z.string().length(6) }),
     verifyPhone: z.object({ code: z.string().length(6) }),
@@ -36,17 +37,28 @@ export const authController = {
             await authService.loginPatient({ ...req.body, ip: req.ip, userAgent: req.get('user-agent') });
 
         res.json({
-            account: pickPublic(account),
-            accessToken, refreshToken,
+            data: { account: pickPublic(account), accessToken, refreshToken },
         });
     },
 
     async loginWorker(req, res) {
-        const { account, accessToken, refreshToken } = await authService.loginWorker({ ...req.body, ip: req.ip, userAgent: req.get('user-agent') });
+        const { account, accessToken, refreshToken, membership } =
+            await authService.loginWorker({ ...req.body, ip: req.ip, userAgent: req.get('user-agent') });
 
         res.json({
-            account: pickPublic(account),
-            accessToken, refreshToken,
+            data: {
+                account: pickPublic(account),
+                accessToken, refreshToken,
+                membership: membership
+                    ? {
+                        kind: membership.kind,
+                        orgId: String(membership.organization),
+                        branchId: membership.branches?.[0]
+                            ? String(membership.branches[0])
+                            : undefined,
+                      }
+                    : null,
+            },
         });
     },
 
@@ -68,7 +80,16 @@ export const authController = {
     },
 
     async me(req, res) {
-        res.json({ account: pickPublic(req.actor.account) });
+        const account = req.actor.account;
+        const membership = req.actor.activeMembership;
+        res.json({
+            data: {
+                account: pickPublic(account),
+                membership: membership
+                    ? { kind: membership.kind, orgId: membership.organization }
+                    : null,
+            },
+        });
     },
 
     async confirmEmailVerification(req, res) {

@@ -14,17 +14,19 @@ const branchSchema = new Schema({
     zip:           String,
   },
 
-  // GeoJSON for "find clinics near me"
+  // GeoJSON for "find clinics near me" — omit entirely when not provided.
+  // default: undefined prevents Mongoose from creating location: { coordinates: [] }
+  // which would fail the 2dsphere index even with sparse: true.
   location: {
-    type:        { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: { type: [Number], default: undefined }, // [lng, lat]
+    type:        { type: String, enum: ['Point'] },
+    coordinates: { type: [Number], default: undefined },
   },
 
   phone:    { type: String },
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
-branchSchema.index({ location: '2dsphere' });
+branchSchema.index({ location: '2dsphere' }, { sparse: true });
 branchSchema.index({ organization: 1, isActive: 1 });
 
 export default mongoose.model('Branch', branchSchema);

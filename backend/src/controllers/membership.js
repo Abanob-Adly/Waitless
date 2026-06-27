@@ -4,10 +4,12 @@ import { tokenService } from '../services/token.js';
 
 export const inviteSchemas = {
     acceptNew: z.object({
-        token: z.string(),
-        fullName: z.string().min(2),
-        password: z.string().min(8),
-        phone: z.string().optional(),
+        token:             z.string(),
+        fullName:          z.string().min(2),
+        password:          z.string().min(8),
+        phone:             z.string().optional(),
+        yearsOfExperience: z.number().int().min(0).optional(),
+        languagesSpoken:   z.array(z.string()).optional(),
     }),
     acceptExisting: z.object({ token: z.string() }),
 };

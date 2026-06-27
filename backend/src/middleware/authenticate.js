@@ -1,5 +1,6 @@
-import Account from '../models/account.js';
-import { Membership } from '../models/membership.js';
+import mongoose from 'mongoose';
+import Account from '../models/Account.js';
+import { Membership } from '../models/Membership.js';
 import { tokenService } from '../services/token.js';
 import { Unauthorized } from '../utils/errors.js';
 
@@ -35,7 +36,10 @@ export async function authenticate(req, _res, next) {
 
         req.actor = {
             account,
-            activeOrgId: payload.activeOrg || null,
+            // Must be an ObjectId so policies can call .equals() on it
+            activeOrgId: payload.activeOrg
+                ? new mongoose.Types.ObjectId(payload.activeOrg)
+                : null,
             activeMembership,
             isPlatformAdmin: account.role === 'super_admin',
         };

@@ -15,6 +15,7 @@ const patientProfileSchema = new Schema(
         },
         gender:    { type: String, enum: ['male', 'female'] },
         dateOfBirth: { type: Date },
+        avatarUrl: { type: String, default: null },
 
         // Which org/branch registered this walk-in (for analytics/ownership of walk-ins)
         organizationId: { type: Schema.Types.ObjectId, ref: 'Organization' },

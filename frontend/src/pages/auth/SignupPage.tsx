@@ -21,6 +21,7 @@ export function SignupPage() {
 
   // Shared fields
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
 
@@ -30,10 +31,14 @@ export function SignupPage() {
   // Doctor-only
   const [specialty, setSpecialty] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
+  const [yearsOfExperience, setYearsOfExperience] = useState("");
+  const [languagesSpoken, setLanguagesSpoken] = useState("");
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = "Full name is required.";
+    if (!email.trim()) errs.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address.";
     const ph = validatePhone(phone.trim());
     if (!ph.valid) errs.phone = ph.error;
     const pw = validatePassword(password);
@@ -62,6 +67,7 @@ export function SignupPage() {
     if (role === "patient") {
       ok = await registerPatient({
         name: name.trim(),
+        email: email.trim(),
         phone: phone.trim(),
         birthdate,
         password,
@@ -70,6 +76,7 @@ export function SignupPage() {
     } else {
       ok = await registerDoctor({
         name: name.trim(),
+        email: email.trim(),
         phone: phone.trim(),
         specialty,
         licenseNumber: licenseNumber.trim(),
@@ -135,6 +142,16 @@ export function SignupPage() {
               error={errors.name}
             />
 
+            {/* Email */}
+            <Field
+              label="Email Address *"
+              placeholder="you@example.com"
+              type="email"
+              value={email}
+              onChange={setEmail}
+              error={errors.email}
+            />
+
             {/* Phone */}
             <Field
               label="Phone Number *"
@@ -163,24 +180,22 @@ export function SignupPage() {
                 <label className="block text-sm font-medium text-navy">
                   Specialty *
                 </label>
-                <select
+                <input
+                  list="specialty-options"
                   value={specialty}
                   onChange={(e) => setSpecialty(e.target.value)}
+                  placeholder="Select or type your specialty…"
                   className={`mt-1.5 h-12 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none transition focus:ring-2 ${
                     errors.specialty
                       ? "border-danger focus:ring-danger/20"
                       : "border-border focus:border-gold focus:ring-gold/20"
                   }`}
-                >
-                  <option value="">Select your specialty…</option>
-                  {SPECIALTIES.filter((s) => s !== "All Specialties").map(
-                    (s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ),
-                  )}
-                </select>
+                />
+                <datalist id="specialty-options">
+                  {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
                 {errors.specialty && (
                   <p className="mt-1 text-xs text-danger">{errors.specialty}</p>
                 )}
@@ -195,6 +210,27 @@ export function SignupPage() {
                 value={licenseNumber}
                 onChange={setLicenseNumber}
                 error={errors.licenseNumber}
+              />
+            )}
+
+            {/* Doctor — Years of Experience */}
+            {role === "doctor" && (
+              <Field
+                label="Years of Experience"
+                placeholder="e.g. 5"
+                value={yearsOfExperience}
+                onChange={setYearsOfExperience}
+                inputMode="numeric"
+              />
+            )}
+
+            {/* Doctor — Languages Spoken */}
+            {role === "doctor" && (
+              <Field
+                label="Languages Spoken (comma-separated)"
+                placeholder="Arabic, English"
+                value={languagesSpoken}
+                onChange={setLanguagesSpoken}
               />
             )}
 

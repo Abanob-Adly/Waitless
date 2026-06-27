@@ -70,8 +70,13 @@ const DoctorMembership = Membership.discriminator(
     specialties: [{ type: String, lowercase: true, trim: true, index: true }],
     services:    [{ type: String, lowercase: true, trim: true }],
 
-    licenseNumber: { type: String, trim: true },
-    bio:           { type: String, maxlength: 2000 },
+    licenseNumber:     { type: String, trim: true },
+    bio:               { type: String, maxlength: 2000 },
+    yearsOfExperience: { type: Number, min: 0, default: null },
+    languagesSpoken:   [{ type: String, trim: true }],
+
+    websiteUrl:         { type: String, trim: true, default: null },
+    acceptedInsurances: [{ type: String, trim: true }],
 
     ratingStats: {
       avg:   { type: Number, default: 0, min: 0, max: 5 },

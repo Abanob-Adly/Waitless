@@ -1,5 +1,6 @@
-import { createContext, useContext, useState } from "react";
-import { signupPatient, signupDoctor, loginUser } from "../services/mockApi";
+import { createContext, useContext, useState, useEffect } from "react";
+import { authService, readStoredUser, clearTokens } from "../services/authService";
+import { toE164 } from "../utils/phone";
 import type {
   AuthUser,
   PatientSignupPayload,
@@ -12,95 +13,107 @@ type AuthCtx = {
   authUser: AuthUser;
   isAuthLoading: boolean;
   authError: string | null;
-  loginWithCredentials: (phone: string, password: string) => Promise<boolean>;
-  registerPatient: (data: PatientSignupPayload) => Promise<boolean>;
-  registerDoctor: (data: DoctorSignupPayload) => Promise<boolean>;
+  loginWithCredentials: (identifier: string, password: string) => Promise<boolean>;
+  registerPatient: (data: PatientSignupPayload & { email: string }) => Promise<boolean>;
+  registerDoctor: (data: DoctorSignupPayload & { email: string }) => Promise<boolean>;
   logout: () => void;
   clearAuthError: () => void;
 };
 
 const AuthContext = createContext<AuthCtx | null>(null);
 
-// ── LocalStorage key ──────────────────────────────────────────────────────────
-
-const LS_KEY = "waitless_auth";
-
-function readStoredAuth(): AuthUser {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw) as AuthUser;
-  } catch {
-    // corrupted storage — ignore
-  }
-  return null;
-}
-
-function writeStoredAuth(user: AuthUser) {
-  if (user) {
-    localStorage.setItem(LS_KEY, JSON.stringify(user));
-  } else {
-    localStorage.removeItem(LS_KEY);
-  }
-}
-
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [authUser, setAuthUser] = useState<AuthUser>(readStoredAuth);
+  const [authUser, setAuthUser] = useState<AuthUser>(readStoredUser);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Listen for token refresh failures (fired by api.ts interceptor).
+  useEffect(() => {
+    function handleForceLogout() {
+      setAuthUser(null);
+    }
+    window.addEventListener("auth:logout", handleForceLogout);
+    return () => window.removeEventListener("auth:logout", handleForceLogout);
+  }, []);
 
   function clearAuthError() {
     setAuthError(null);
   }
 
-  async function loginWithCredentials(phone: string, password: string) {
+  async function loginWithCredentials(identifier: string, password: string) {
     setIsAuthLoading(true);
     setAuthError(null);
-    const result = await loginUser(phone, password);
-    setIsAuthLoading(false);
-    if (result.success && result.user) {
-      setAuthUser(result.user);
-      writeStoredAuth(result.user);
-      return true;
-    }
-    setAuthError(result.error ?? "Login failed. Please try again.");
-    return false;
-  }
-
-  async function registerPatient(data: PatientSignupPayload) {
-    setIsAuthLoading(true);
-    setAuthError(null);
-    const result = await signupPatient(data);
-    setIsAuthLoading(false);
-    if (result.success && result.profile) {
-      const user: AuthUser = { role: "patient", profile: result.profile };
+    try {
+      const user = await authService.login(identifier, password);
       setAuthUser(user);
-      writeStoredAuth(user);
       return true;
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? "Invalid credentials. Please try again.";
+      setAuthError(msg);
+      return false;
+    } finally {
+      setIsAuthLoading(false);
     }
-    setAuthError(result.error ?? "Sign up failed. Please try again.");
-    return false;
   }
 
-  async function registerDoctor(data: DoctorSignupPayload) {
+  async function registerPatient(data: PatientSignupPayload & { email: string }) {
     setIsAuthLoading(true);
     setAuthError(null);
-    const result = await signupDoctor(data);
-    setIsAuthLoading(false);
-    if (result.success && result.profile) {
-      const user: AuthUser = { role: "doctor", profile: result.profile };
+    try {
+      await authService.registerPatient({
+        fullName: data.name,
+        email: data.email,
+        phone: toE164(data.phone),
+        password: data.password,
+        dateOfBirth: data.birthdate,
+      });
+      // Auto-login after successful registration
+      const user = await authService.loginPatient(data.email, data.password);
       setAuthUser(user);
-      writeStoredAuth(user);
       return true;
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? "Sign up failed. Please try again.";
+      setAuthError(msg);
+      return false;
+    } finally {
+      setIsAuthLoading(false);
     }
-    setAuthError(result.error ?? "Sign up failed. Please try again.");
-    return false;
   }
 
-  function logout() {
+  async function registerDoctor(data: DoctorSignupPayload & { email: string }) {
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      await authService.registerWorker({
+        fullName: data.name,
+        email: data.email,
+        phone: toE164(data.phone),
+        password: data.password,
+      });
+      // Auto-login after registration — role will be 'staff', no org yet
+      const user = await authService.loginWorker(data.email, data.password);
+      setAuthUser(user);
+      return true;
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? "Sign up failed. Please try again.";
+      setAuthError(msg);
+      return false;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function logout() {
+    await authService.logout();
     setAuthUser(null);
-    writeStoredAuth(null);
   }
 
   return (

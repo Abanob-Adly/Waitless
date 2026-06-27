@@ -18,9 +18,11 @@ export type DoctorAccount = {
   id: string;
   name: string;
   phone: string;
+  email: string;
   specialty: string;
   licenseNumber: string;
   password: string;
+  orgId: string;
 };
 
 export type AdminAccount = {
@@ -127,6 +129,7 @@ export type Session = {
   endTime: string;
   availableSlots: number;
   avgConsultationMin: number;
+  fee?: number;
   status: "scheduled" | "active" | "closed";
   queueToken: string;
   scheduleId?: string;
@@ -144,6 +147,8 @@ export type ActiveBooking = {
   transactionId?: string;
   patientNotes?: string;
   last4?: string;
+  /** accessToken returned by the backend — used for public queue tracking */
+  accessToken?: string;
 };
 
 export type HistoryRecord = {
@@ -201,6 +206,7 @@ export type Organization = {
   isPublic: boolean;
   createdAt: string;
   trialEndsAt: string;
+  whatsappNumber?: string | null;
 };
 
 export type Branch = {
@@ -223,6 +229,13 @@ export type Membership = {
   invitedEmail: string;
   memberName: string;
   createdAt: string;
+  // Doctor-specific (populated when userRole === "doctor")
+  bio?: string;
+  specialties?: string[];
+  websiteUrl?: string | null;
+  acceptedInsurances?: string[];
+  yearsOfExperience?: number | null;
+  languagesSpoken?: string[];
 };
 
 // ── Schedule domain ───────────────────────────────────────────────────────────
@@ -264,6 +277,8 @@ export type SubscriptionPlan = {
   maxDoctors: number;
   maxBranches: number;
   features: string[];
+  marketplaceListing?: boolean;
+  whatsappNotifications?: boolean;
 };
 
 export type Subscription = {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchQueueStatus } from "../services/mockApi";
+import { api } from "../services/api";
 
 type QueueSubscriptionResult = {
   position: number;
@@ -9,23 +9,46 @@ type QueueSubscriptionResult = {
   isConnected: boolean;
 };
 
+/**
+ * Polls the public queue tracking endpoint every 3 seconds.
+ * `trackingToken` is the accessToken returned when an appointment is booked.
+ * Falls back to appointmentId-based polling if no token is provided.
+ */
 export function useQueueSubscription(
-  appointmentId: string,
+  trackingToken: string,
   queueNumber: number,
   avgConsultationMin: number,
 ): QueueSubscriptionResult {
-  // Server controls the initial value; start at 0 until first poll returns
   const [currentServing, setCurrentServing] = useState(0);
+  const [etaMinutes, setEtaMinutes] = useState(0);
+  const [appointmentStatus, setAppointmentStatus] = useState("");
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    if (!trackingToken) return;
     let alive = true;
 
     async function tick() {
-      const data = await fetchQueueStatus(appointmentId, queueNumber);
-      if (!alive) return;
-      setCurrentServing(data.currentServing);
-      setIsConnected(true);
+      try {
+        const res = await api.get<{
+          data: {
+            queueNumber: number;
+            currentlyServing: number;
+            estimatedWaitMin: number;
+            status: string;
+          };
+        }>(`/appointments/track/${trackingToken}`);
+
+        if (!alive) return;
+        const d = res.data.data;
+        setCurrentServing(d.currentlyServing ?? 0);
+        setEtaMinutes(d.estimatedWaitMin ?? 0);
+        setAppointmentStatus(d.status ?? "");
+        setIsConnected(true);
+      } catch {
+        if (!alive) return;
+        setIsConnected(false);
+      }
     }
 
     tick();
@@ -34,13 +57,25 @@ export function useQueueSubscription(
       alive = false;
       clearInterval(id);
     };
-  }, [appointmentId, queueNumber]);
+  }, [trackingToken]);
 
   const position = Math.max(1, queueNumber - currentServing);
-  const isCalled = currentServing >= queueNumber;
-  // ETA: (position - 1) slots ahead × avg minutes per slot
-  // position=1 → ETA=0 ("you're next"), position=3 → ETA=2*avg
-  const etaMinutes = Math.max(0, (position - 1) * avgConsultationMin);
+  const isCalled =
+    currentServing >= queueNumber ||
+    appointmentStatus === "called" ||
+    appointmentStatus === "in_progress";
 
-  return { position, currentServing, etaMinutes, isCalled, isConnected };
+  // Use server-provided ETA when available, otherwise compute locally
+  const computedEta =
+    etaMinutes > 0
+      ? etaMinutes
+      : Math.max(0, (position - 1) * avgConsultationMin);
+
+  return {
+    position,
+    currentServing,
+    etaMinutes: computedEta,
+    isCalled,
+    isConnected,
+  };
 }

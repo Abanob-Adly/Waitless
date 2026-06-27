@@ -68,7 +68,7 @@ export function Navbar() {
         <nav className="hidden items-center gap-8 text-sm md:flex">
           <NavLink to="/" label="Home" active={isActive("/")} />
 
-          {!isDoctor && (
+          {isPatient && (
             <NavLink
               to="/search"
               label="Find Doctors"

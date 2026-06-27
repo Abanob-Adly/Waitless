@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { processPayment } from "../services/mockApi";
 import type { Doctor, Session, ActiveBooking } from "../context/AppContext";
-import type { PaymentPayload } from "../types/index";
 
 // ── State shape passed from PaymentPage via navigate ──────────────────────────
 
@@ -20,6 +18,7 @@ type PaymentResultState = {
   patientPhone: string;
   appointmentId: string;
   queueNumber: number;
+  accessToken?: string;
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -50,6 +49,7 @@ export function PaymentResult() {
             paymentStatus: "success",
             transactionId: state.transactionId,
             last4: state.last4,
+            accessToken: state.accessToken,
           };
           addBooking(booking);
           navigate("/ticket");
@@ -154,12 +154,6 @@ function FailureView({ state }: { state: PaymentResultState }) {
 
   async function handlePayAtClinic() {
     setRetrying(true);
-    const clinicPayload: PaymentPayload = {
-      method: "clinic",
-      appointmentId: state.appointmentId,
-      amount: state.amount,
-    };
-    await processPayment(clinicPayload);
     const booking: ActiveBooking = {
       id: state.appointmentId,
       doctor: state.doctor,

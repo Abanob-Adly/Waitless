@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { fetchDoctorQueue, fetchSessions, markPatientServed, skipPatient, markNoShow } from "../services/mockApi";
-import type { QueuePatient } from "../services/mockApi";
+import { useOrg } from "../context/OrgContext";
 import { Tabs } from "../components/ui/Tabs";
-import type { Session } from "../context/AppContext";
+import * as sessionService from "../services/sessionService";
+import { updateMember } from "../services/orgService";
+import type { BackendSession, BackendAppointment } from "../services/sessionService";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -18,23 +19,28 @@ export function DoctorDashboard() {
   }
 
   const doctor = authUser.profile;
+  const orgId = doctor.orgId;
 
   const tabs = [
     {
       id: "queue",
       label: "Today's Queue",
-      content: <QueueTab doctorId={doctor.id} />,
+      content: <QueueTab orgId={orgId} doctorAccountId={doctor.id} />,
     },
     {
       id: "sessions",
       label: "My Sessions",
-      content: <SessionsTab doctorId={doctor.id} />,
+      content: <SessionsTab orgId={orgId} doctorAccountId={doctor.id} />,
+    },
+    {
+      id: "profile",
+      label: "My Profile",
+      content: <ProfileTab orgId={orgId} doctorAccountId={doctor.id} doctorName={doctor.name} />,
     },
   ];
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      {/* Page heading */}
       <div className="mb-8 flex animate-fade-up items-start justify-between">
         <div>
           <p className="text-sm font-medium text-gold">Doctor Portal</p>
@@ -42,14 +48,11 @@ export function DoctorDashboard() {
             Welcome, {doctor.name}
           </h1>
           <p className="mt-1 text-sm text-navy-mid">
-            {doctor.specialty} · License {doctor.licenseNumber}
+            {doctor.specialty || "Physician"} · {orgId ? "Clinic Portal" : "No clinic assigned"}
           </p>
         </div>
         <button
-          onClick={() => {
-            logout();
-            navigate("/");
-          }}
+          onClick={() => { logout(); navigate("/"); }}
           className="rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
         >
           Sign Out
@@ -65,64 +68,75 @@ export function DoctorDashboard() {
 
 // ── Today's Queue tab ─────────────────────────────────────────────────────────
 
-function QueueTab({ doctorId, avgConsultationMin = 10 }: { doctorId: string; avgConsultationMin?: number }) {
-  const [queue, setQueue] = useState<QueuePatient[]>([]);
+function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
+  const { branches, memberships } = useOrg();
+  const [activeSession, setActiveSession] = useState<BackendSession | null>(null);
+  const [activeBranchId, setActiveBranchId] = useState<string>("");
+  const [queue, setQueue] = useState<BackendAppointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const today = new Date().toISOString().split("T")[0];
 
-    async function poll() {
-      const data = await fetchDoctorQueue(doctorId);
-      if (!alive) return;
-      setQueue(data);
+  // Find the doctor's membership ID from OrgContext
+  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+
+  const load = useCallback(async () => {
+    if (!orgId || branches.length === 0) return;
+    setIsLoading(true);
+    try {
+      // Search all branches for the doctor's active session today
+      for (const branch of branches) {
+        const sessions = await sessionService.getSessions(orgId, branch.id, { date: today });
+        const myActive = sessions.find(
+          (s) => s.status === "active" && (s.doctorId === myMembershipId || s.doctorId === doctorAccountId),
+        );
+        if (myActive) {
+          setActiveSession(myActive);
+          setActiveBranchId(branch.id);
+          const q = await sessionService.getQueue(orgId, branch.id, myActive.id);
+          setQueue(q.appointments);
+          return;
+        }
+      }
+      setActiveSession(null);
+      setQueue([]);
+    } finally {
       setIsLoading(false);
     }
+  }, [orgId, branches, today, myMembershipId, doctorAccountId]);
 
-    poll();
-    // Refresh every 8 seconds so doctor queue reflects patient-side advances
-    const id = setInterval(poll, 8_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [doctorId]);
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => { void load(); }, 4000);
+    return () => clearInterval(id);
+  }, [load]);
 
-  async function handleMarkServed(patient: QueuePatient) {
-    await markPatientServed(patient.id, doctorId, avgConsultationMin);
-    setQueue((prev) =>
-      prev.map((p) =>
-        p.id === patient.id ? { ...p, status: "done" } : p,
-      ),
-    );
+  async function handleAction(apptId: string, status: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try {
+      await sessionService.updateAppointmentStatus(orgId, activeBranchId, activeSession.id, apptId, status);
+      await load();
+    } catch {
+      // ignore
+    }
+    setActionInProgress(null);
   }
 
   async function handleCallNext() {
-    const waiting = queue.find((p) => p.status === "waiting");
-    if (!waiting) return;
-    await markPatientServed(waiting.id, doctorId, avgConsultationMin);
-    setQueue((prev) =>
-      prev.map((p) => {
-        if (p.id === waiting.id) return { ...p, status: "serving" };
-        if (p.status === "serving") return { ...p, status: "done" };
-        return p;
-      }),
-    );
+    if (!activeBranchId || !activeSession) return;
+    try {
+      await sessionService.callNext(orgId, activeBranchId, activeSession.id);
+      await load();
+    } catch {
+      // ignore
+    }
   }
 
-  async function handleSkip(patient: QueuePatient) {
-    await skipPatient(patient.id, doctorId);
-    setQueue((prev) => prev.map((p) => p.id === patient.id ? { ...p, status: "skipped" } : p));
-  }
-
-  async function handleNoShow(patient: QueuePatient) {
-    await markNoShow(patient.id, doctorId);
-    setQueue((prev) => prev.map((p) => p.id === patient.id ? { ...p, status: "no_show" } : p));
-  }
-
-  const serving = queue.find((p) => p.status === "serving");
-  const waitingCount = queue.filter((p) => p.status === "waiting").length;
-  const doneCount = queue.filter((p) => p.status === "done").length;
+  const serving = queue.find((p) => p.status === "called" || p.status === "in_progress");
+  const waitingCount = queue.filter((p) => p.status === "booked").length;
+  const doneCount = queue.filter((p) => p.status === "completed").length;
 
   if (isLoading) {
     return (
@@ -134,9 +148,20 @@ function QueueTab({ doctorId, avgConsultationMin = 10 }: { doctorId: string; avg
     );
   }
 
+  if (!activeSession) {
+    return (
+      <div className="rounded-xl bg-offwhite py-12 text-center">
+        <p className="text-4xl">📋</p>
+        <p className="mt-3 font-heading text-lg font-bold text-navy">No active session today</p>
+        <p className="mt-1 text-sm text-navy-mid">
+          Ask the receptionist to start your session or check the Sessions tab.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      {/* Stats row */}
       <div className="grid grid-cols-3 gap-3">
         {[
           <StatBox key="total" label="Total Patients" value={queue.length.toString()} />,
@@ -149,30 +174,36 @@ function QueueTab({ doctorId, avgConsultationMin = 10 }: { doctorId: string; avg
         ))}
       </div>
 
-      {/* Currently serving banner */}
       {serving && (
         <div className="flex items-center justify-between rounded-xl border border-gold bg-gold-tint px-5 py-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gold">
-              Now Serving
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gold">Now Serving</p>
             <p className="mt-0.5 font-heading text-xl font-bold text-navy">
-              #{serving.queueNumber} — {serving.displayName}
+              #{serving.queueNumber} — {serving.patientProfile.fullName || "Patient"}
             </p>
-            <p className="text-xs text-navy-mid">
-              Arrived at {serving.arrivalTime}
-            </p>
+            <p className="text-xs text-navy-mid">{serving.patientProfile.phone}</p>
           </div>
-          <button
-            onClick={() => handleMarkServed(serving)}
-            className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid"
-          >
-            Mark Served ✓
-          </button>
+          {serving.status === "called" && (
+            <button
+              onClick={() => handleAction(serving.id, "in_progress")}
+              disabled={actionInProgress === serving.id}
+              className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+            >
+              Start Consultation →
+            </button>
+          )}
+          {serving.status === "in_progress" && (
+            <button
+              onClick={() => handleAction(serving.id, "completed")}
+              disabled={actionInProgress === serving.id}
+              className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+            >
+              Mark Complete ✓
+            </button>
+          )}
         </div>
       )}
 
-      {/* Call next button */}
       {waitingCount > 0 && !serving && (
         <button
           onClick={handleCallNext}
@@ -182,34 +213,53 @@ function QueueTab({ doctorId, avgConsultationMin = 10 }: { doctorId: string; avg
         </button>
       )}
 
-      {/* Queue list */}
-      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-        {queue.map((patient) => (
-          <QueueRow
-            key={patient.id}
-            patient={patient}
-            onMarkServed={() => handleMarkServed(patient)}
-            onSkip={() => handleSkip(patient)}
-            onNoShow={() => handleNoShow(patient)}
-          />
-        ))}
-      </div>
+      {queue.length === 0 ? (
+        <div className="rounded-xl bg-offwhite py-8 text-center">
+          <p className="text-3xl">👥</p>
+          <p className="mt-2 text-sm text-navy-mid">Queue is empty</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {queue.map((appt) => (
+            <QueueRow
+              key={appt.id}
+              appt={appt}
+              onSkip={() => handleAction(appt.id, "skipped")}
+              onNoShow={() => handleAction(appt.id, "no_show")}
+              actionInProgress={actionInProgress === appt.id}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Sessions tab ──────────────────────────────────────────────────────────────
 
-function SessionsTab({ doctorId }: { doctorId: string }) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
+  const { branches, memberships } = useOrg();
+  const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+
   useEffect(() => {
-    fetchSessions(doctorId).then((data) => {
-      setSessions(data);
-      setIsLoading(false);
-    });
-  }, [doctorId]);
+    if (!orgId || branches.length === 0) return;
+    const today = new Date().toISOString().split("T")[0];
+
+    Promise.all(
+      branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today }))
+    )
+      .then((perBranch) => {
+        const all = perBranch.flat().filter(
+          (s) => s.doctorId === myMembershipId || s.doctorId === doctorAccountId,
+        );
+        setSessions(all);
+      })
+      .catch(() => setSessions([]))
+      .finally(() => setIsLoading(false));
+  }, [orgId, branches, myMembershipId, doctorAccountId]);
 
   if (isLoading) {
     return (
@@ -225,9 +275,7 @@ function SessionsTab({ doctorId }: { doctorId: string }) {
     return (
       <div className="rounded-xl bg-offwhite py-12 text-center">
         <p className="text-4xl">📅</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">
-          No sessions scheduled
-        </p>
+        <p className="mt-3 font-heading text-lg font-bold text-navy">No sessions scheduled today</p>
         <p className="mt-1 text-sm text-navy-mid">
           Contact your clinic administrator to schedule sessions.
         </p>
@@ -235,21 +283,26 @@ function SessionsTab({ doctorId }: { doctorId: string }) {
     );
   }
 
+  const statusBadge: Record<string, string> = {
+    scheduled: "bg-gold-tint text-gold",
+    active:    "bg-success/10 text-success",
+    ended:     "bg-border text-navy-mid",
+    cancelled: "bg-danger/10 text-danger",
+  };
+
   return (
     <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
       {sessions.map((session) => (
-        <div
-          key={session.id}
-          className="flex items-center justify-between px-5 py-4"
-        >
+        <div key={session.id} className="flex items-center justify-between px-5 py-4">
           <div>
             <p className="font-medium text-navy">{session.date}</p>
             <p className="mt-0.5 text-sm text-navy-mid">
-              {session.startTime} – {session.endTime} · {session.clinicName}
+              {session.startTime} – {session.endTime}
             </p>
+            <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
           </div>
-          <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-success">
-            {session.availableSlots} slots open
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
+            {session.status}
           </span>
         </div>
       ))}
@@ -260,76 +313,75 @@ function SessionsTab({ doctorId }: { doctorId: string }) {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function QueueRow({
-  patient,
-  onMarkServed,
+  appt,
   onSkip,
   onNoShow,
+  actionInProgress,
 }: {
-  patient: QueuePatient;
-  onMarkServed: () => void;
+  appt: BackendAppointment;
   onSkip: () => void;
   onNoShow: () => void;
+  actionInProgress: boolean;
 }) {
-  const statusStyles: Record<QueuePatient["status"], string> = {
-    waiting:  "bg-gold-tint text-navy",
-    serving:  "bg-success/10 text-success",
-    done:     "bg-border/50 text-navy-mid",
-    skipped:  "bg-orange-50 text-orange-600",
-    no_show:  "bg-danger/10 text-danger",
+  const statusStyles: Record<string, string> = {
+    booked:      "bg-gold-tint text-navy",
+    called:      "bg-success/10 text-success",
+    in_progress: "bg-success/20 text-success",
+    completed:   "bg-border/50 text-navy-mid",
+    no_show:     "bg-danger/10 text-danger",
+    skipped:     "bg-orange-50 text-orange-600",
+    cancelled:   "bg-border/50 text-navy-mid",
   };
-  const statusLabel: Record<QueuePatient["status"], string> = {
-    waiting:  "Waiting",
-    serving:  "Serving",
-    done:     "Done ✓",
-    skipped:  "Skipped",
-    no_show:  "No-Show",
+  const statusLabel: Record<string, string> = {
+    booked:      "Waiting",
+    called:      "Called ↑",
+    in_progress: "In Progress",
+    completed:   "Done ✓",
+    no_show:     "No-Show",
+    skipped:     "Skipped ↩",
+    cancelled:   "Cancelled",
   };
 
-  const isDone = patient.status === "done" || patient.status === "skipped" || patient.status === "no_show";
+  const isDone =
+    appt.status === "completed" ||
+    appt.status === "no_show" ||
+    appt.status === "cancelled";
 
   return (
-    <div
-      className={`flex items-center justify-between px-5 py-3.5 ${
-        isDone ? "opacity-50" : ""
-      }`}
-    >
+    <div className={`flex items-center justify-between px-5 py-3.5 ${isDone ? "opacity-50" : ""}`}>
       <div className="flex items-center gap-4">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-sm font-bold text-white">
-          {patient.queueNumber}
+          {appt.queueNumber}
         </span>
         <div>
-          <p className="text-sm font-medium text-navy">{patient.displayName}</p>
-          <p className="text-xs text-navy-mid">
-            Arrived {patient.arrivalTime}
+          <p className="text-sm font-medium text-navy">
+            {appt.patientProfile.fullName || "Patient"}
           </p>
+          {appt.patientProfile.phone && (
+            <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+          )}
         </div>
       </div>
 
       <div className="flex items-center gap-2">
-        <span
-          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyles[patient.status]}`}
-        >
-          {statusLabel[patient.status]}
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyles[appt.status] ?? ""}`}>
+          {statusLabel[appt.status] ?? appt.status}
         </span>
-        {patient.status === "waiting" && (
+        {appt.status === "called" && (
           <>
             <button
               onClick={onSkip}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy"
+              disabled={actionInProgress}
+              className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
             >
               Skip
             </button>
             <button
               onClick={onNoShow}
-              className="rounded-md border border-danger/30 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/5"
+              disabled={actionInProgress}
+              className="rounded-md border border-danger/30 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
             >
               No-Show
-            </button>
-            <button
-              onClick={onMarkServed}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-success hover:bg-success/5 hover:text-success"
-            >
-              Mark Served
             </button>
           </>
         )}
@@ -337,6 +389,218 @@ function QueueRow({
     </div>
   );
 }
+
+// ── Profile Tab ───────────────────────────────────────────────────────────────
+
+const INSURANCE_OPTIONS = [
+  "Bupa Egypt", "AXA Egypt", "MetLife Egypt", "Allianz Egypt",
+  "GIG Insurance", "Solidarity Insurance", "Salama Insurance", "Cash / Self-Pay",
+];
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function ProfileTab({
+  orgId,
+  doctorAccountId,
+  doctorName,
+}: {
+  orgId: string;
+  doctorAccountId: string;
+  doctorName: string;
+}) {
+  const { memberships, schedules, branches } = useOrg();
+  const myMembership = memberships.find((m) => m.userId === doctorAccountId);
+
+  const [form, setForm] = useState({
+    bio: "",
+    specialties: "",
+    avatarUrl: "",
+    websiteUrl: "",
+    insurances: [] as string[],
+  });
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Populate form from membership once it loads
+  useEffect(() => {
+    if (!myMembership) return;
+    setForm({
+      bio: myMembership.bio ?? "",
+      specialties: (myMembership.specialties ?? []).join(", "),
+      avatarUrl: "",
+      websiteUrl: myMembership.websiteUrl ?? "",
+      insurances: myMembership.acceptedInsurances ?? [],
+    });
+  }, [myMembership?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!myMembership) {
+    return (
+      <div className="rounded-xl bg-offwhite py-10 text-center">
+        <p className="text-sm text-navy-mid">Profile not found — membership may still be loading.</p>
+      </div>
+    );
+  }
+
+  function toggleInsurance(ins: string) {
+    setForm((f) => ({
+      ...f,
+      insurances: f.insurances.includes(ins)
+        ? f.insurances.filter((i) => i !== ins)
+        : [...f.insurances, ins],
+    }));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!myMembership) return;
+    setSaving(true);
+    setResult(null);
+    const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
+    const ok = await updateMember(orgId, myMembership.id, {
+      bio: form.bio.trim() || undefined,
+      specialties: specialtiesList.length ? specialtiesList : undefined,
+      avatarUrl: form.avatarUrl.trim() || undefined,
+      websiteUrl: form.websiteUrl.trim() || null,
+      acceptedInsurances: form.insurances,
+    });
+    setSaving(false);
+    setResult({ ok, msg: ok ? "Profile updated successfully." : "Failed to save. Please try again." });
+  }
+
+  const initials = doctorName
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase();
+
+  // Read-only schedule: filter org schedules for this doctor
+  const mySchedules = schedules.filter((s) => s.doctorId === myMembership.id);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-4 rounded-xl border border-border bg-offwhite p-4">
+        {form.avatarUrl ? (
+          <img src={form.avatarUrl} alt={doctorName} className="h-14 w-14 rounded-full object-cover" />
+        ) : (
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gold font-heading text-xl font-bold text-navy">
+            {initials}
+          </div>
+        )}
+        <div>
+          <p className="font-heading text-lg font-bold text-navy">{doctorName}</p>
+          <p className="text-sm text-navy-mid">{myMembership.memberName || "Doctor"}</p>
+        </div>
+      </div>
+
+      {result && (
+        <div className={`rounded-xl border px-4 py-3 text-sm ${result.ok ? "border-success/30 bg-success/5 text-success" : "border-danger/30 bg-danger/5 text-danger"}`}>
+          {result.msg}
+        </div>
+      )}
+
+      <form onSubmit={handleSave} className="space-y-4">
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Bio</span>
+          <textarea
+            value={form.bio}
+            onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
+            rows={3}
+            placeholder="A short description about your background and expertise..."
+            className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Specialties</span>
+          <input
+            type="text"
+            value={form.specialties}
+            onChange={(e) => setForm((f) => ({ ...f, specialties: e.target.value }))}
+            placeholder="e.g. Cardiology, Internal Medicine (comma-separated)"
+            className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Website URL</span>
+          <input
+            type="url"
+            value={form.websiteUrl}
+            onChange={(e) => setForm((f) => ({ ...f, websiteUrl: e.target.value }))}
+            placeholder="https://drsmith.com"
+            className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Avatar URL</span>
+          <input
+            type="url"
+            value={form.avatarUrl}
+            onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
+            placeholder="https://..."
+            className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <div>
+          <span className="text-sm font-medium text-navy">Accepted Insurance</span>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {INSURANCE_OPTIONS.map((ins) => (
+              <label key={ins} className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-navy-mid transition hover:border-gold/50">
+                <input
+                  type="checkbox"
+                  checked={form.insurances.includes(ins)}
+                  onChange={() => toggleInsurance(ins)}
+                  className="rounded border-border"
+                />
+                {ins}
+              </label>
+            ))}
+          </div>
+        </div>
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-md bg-gold py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save Profile"}
+        </button>
+      </form>
+
+      {/* Read-only Weekly Schedule */}
+      {mySchedules.length > 0 && (
+        <div className="space-y-3 border-t border-border pt-5">
+          <div>
+            <h3 className="font-heading text-base font-bold text-navy">My Weekly Schedule</h3>
+            <p className="mt-0.5 text-xs text-navy-mid">Managed by your clinic administrator.</p>
+          </div>
+          {mySchedules.map((sched) => {
+            const branch = branches.find((b) => b.id === sched.branchId);
+            return (
+              <div key={sched.id} className="rounded-xl border border-border bg-offwhite p-4">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-navy">{branch?.name ?? "Branch"}</p>
+                  <span className="text-sm font-medium text-gold">{sched.fee} EGP / visit</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {sched.weeklySlots.map((slot) => (
+                    <span
+                      key={slot.dayOfWeek}
+                      className="rounded-md bg-white px-2.5 py-1 text-xs text-navy-mid border border-border"
+                    >
+                      {DAY_LABELS[slot.dayOfWeek]} {slot.startTime}–{slot.endTime}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-navy-mid">{sched.avgConsultationMin} min avg. consultation</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Stat Box ─────────────────────────────────────────────────────────────────
 
 function StatBox({
   label,
@@ -351,11 +615,7 @@ function StatBox({
 }) {
   return (
     <div className="rounded-xl border border-border bg-white p-4 text-center">
-      <p
-        className={`font-heading text-3xl font-bold ${
-          accent ? "text-gold" : success ? "text-success" : "text-navy"
-        }`}
-      >
+      <p className={`font-heading text-3xl font-bold ${accent ? "text-gold" : success ? "text-success" : "text-navy"}`}>
         {value}
       </p>
       <p className="mt-1 text-xs text-navy-mid">{label}</p>

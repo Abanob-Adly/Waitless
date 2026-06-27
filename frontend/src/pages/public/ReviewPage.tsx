@@ -1,6 +1,32 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { fetchReviewByToken, submitReview } from "../../services/mockApi";
+import { api } from "../../services/api";
+
+async function fetchReviewByToken(token: string): Promise<{ doctorName: string } | null> {
+  try {
+    const res = await api.get<{ data: { reviewable: boolean; doctorName?: string; reason?: string } }>(
+      `/reviews/submit?token=${token}`,
+    );
+    const d = res.data.data;
+    if (!d.reviewable) {
+      if (d.reason === "already_reviewed") throw Object.assign(new Error("already_reviewed"), { code: "already_reviewed" });
+      return null;
+    }
+    return { doctorName: d.doctorName ?? "" };
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === "already_reviewed") throw err;
+    return null;
+  }
+}
+
+async function submitReview(token: string, rating: number, comment: string): Promise<{ ok: boolean }> {
+  try {
+    await api.post("/reviews/submit", { token, rating, comment: comment || undefined });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
 
 type ReviewContext = {
   appointmentId: string;
@@ -32,18 +58,20 @@ export function ReviewPage() {
       setTokenLoading(false);
       return;
     }
-    fetchReviewByToken(token).then((ctx) => {
-      if (!ctx) {
-        if (token.startsWith("rev-")) {
+    fetchReviewByToken(token)
+      .then((ctx) => {
+        if (!ctx) setTokenInvalid(true);
+        else setContext(ctx);
+        setTokenLoading(false);
+      })
+      .catch((err: unknown) => {
+        if ((err as { code?: string }).code === "already_reviewed") {
           setAlreadyReviewed(true);
         } else {
           setTokenInvalid(true);
         }
-      } else {
-        setContext(ctx);
-      }
-      setTokenLoading(false);
-    });
+        setTokenLoading(false);
+      });
   }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -52,7 +80,7 @@ export function ReviewPage() {
     setSubmitting(true);
     setError(null);
     const result = await submitReview(token, rating, comment.trim());
-    if (result.success) {
+    if (result.ok) {
       setSubmitted(true);
     } else {
       setError("Failed to submit review. Please try again.");

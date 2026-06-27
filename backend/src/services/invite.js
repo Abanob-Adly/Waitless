@@ -1,5 +1,5 @@
-import  { Membership } from '../models/membership.js';
-import  Account    from '../models/account.js';
+import  { Membership } from '../models/Membership.js';
+import  Account    from '../models/Account.js';
 import { hashPassword } from '../utils/password.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
 
@@ -23,7 +23,7 @@ export const inviteService = {
   /**
    * Step 2a: Invitee has no account → sign up + accept atomically.
    */
-  async acceptWithNewAccount({ token, fullName, password, phone, preferredLanguage = 'ar' }) {
+  async acceptWithNewAccount({ token, fullName, password, phone, preferredLanguage = 'ar', yearsOfExperience, languagesSpoken }) {
     const membership = await this.lookup({ token });
 
     if (await Account.findOne({ email: membership.inviteEmail })) {
@@ -36,11 +36,11 @@ export const inviteService = {
       passwordHash: await hashPassword(password),
       role:         'staff',
       preferredLanguage,
-      status:       'active',         // accepting an invite implicitly verifies email
+      status:       'active',
       isEmailVerified: true,
     });
 
-    return this._finalizeAccept({ membership, account });
+    return this._finalizeAccept({ membership, account, yearsOfExperience, languagesSpoken });
   },
 
   /**
@@ -58,14 +58,19 @@ export const inviteService = {
     return this._finalizeAccept({ membership, account });
   },
 
-  async _finalizeAccept({ membership, account }) {
+  async _finalizeAccept({ membership, account, yearsOfExperience, languagesSpoken }) {
     membership.account         = account._id;
     membership.status          = 'active';
     membership.acceptedAt      = new Date();
     membership.inviteToken     = null;
     membership.inviteExpiresAt = null;
-    await membership.save();
 
+    if (membership.kind === 'doctor') {
+      if (yearsOfExperience != null) membership.yearsOfExperience = yearsOfExperience;
+      if (languagesSpoken?.length)   membership.languagesSpoken   = languagesSpoken;
+    }
+
+    await membership.save();
     return { membership, account };
   },
 };

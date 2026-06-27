@@ -41,4 +41,17 @@ export const env = {
   invite: {
     ttlDays: 7,
   },
+
+  whatsapp: {
+    accessToken:   process.env.WHATSAPP_ACCESS_TOKEN   || null,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || null,
+  },
+
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+  },
+
+  queue: {
+    gracePeriodMin: Number(process.env.QUEUE_GRACE_PERIOD_MIN) || 5,
+  },
 };

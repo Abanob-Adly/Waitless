@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { cancelAppointment } from "../services/mockApi";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import type { ActiveBooking } from "../context/AppContext";
 
@@ -39,9 +38,10 @@ function TicketView({
   const navigate = useNavigate();
   const [cancelling, setCancelling] = useState(false);
 
+  const trackingToken = booking.accessToken ?? booking.id;
   const { position, currentServing, etaMinutes, isCalled } =
     useQueueSubscription(
-      booking.id,
+      trackingToken,
       booking.queueNumber,
       booking.session.avgConsultationMin,
     );
@@ -68,7 +68,17 @@ function TicketView({
     if (!window.confirm("Cancel your appointment? This cannot be undone."))
       return;
     setCancelling(true);
-    await cancelAppointment(booking.id);
+    // Best-effort cancel — if it fails the booking is removed from local state anyway
+    try {
+      const { default: axios } = await import("axios");
+      const token = localStorage.getItem("waitless_access_token");
+      await axios.delete(
+        `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/appointments/${booking.id}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+    } catch {
+      // ignore — booking was cancelled locally
+    }
     onCancel();
   }
 

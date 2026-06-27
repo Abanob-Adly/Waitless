@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { onboardOrg, loginUser } from "../../services/mockApi";
+import { authService, saveTokens } from "../../services/authService";
+import { createOrg } from "../../services/orgService";
+import { toE164 } from "../../utils/phone";
 import type { OrgType } from "../../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -59,28 +61,56 @@ export function OrgOnboardingPage() {
     setIsLoading(true);
     setError(null);
 
-    const result = await onboardOrg({
-      adminName: adminName.trim(),
-      adminPhone: adminPhone.trim(),
-      adminEmail: adminEmail.trim(),
-      adminPassword,
-      orgName: orgName.trim(),
-      orgType,
-      country,
-      timezone,
-      isPublic,
-    });
+    try {
+      // Step 1: Register the admin worker account (if not already logged in)
+      let workerEmail = adminEmail.trim().toLowerCase();
+      let workerPassword = adminPassword;
 
-    if (!result.success) {
-      setError(result.error ?? "Setup failed. Please try again.");
+      // Register worker account first
+      await authService.registerWorker({
+        fullName: adminName.trim(),
+        email: workerEmail,
+        phone: toE164(adminPhone.trim()),
+        password: workerPassword,
+      });
+
+      // Step 2: Log in to get tokens
+      await authService.loginWorker(workerEmail, workerPassword);
+      // Update auth context
+      await loginWithCredentials(workerEmail, workerPassword);
+
+      // Step 3: Generate slug from org name
+      const slug = orgName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60);
+
+      // Step 4: Create the org — response includes a new accessToken scoped to this org
+      const { org: _org, accessToken: orgToken } = await createOrg({
+        name: orgName.trim(),
+        slug,
+        type: orgType as "clinic" | "hospital" | "polyclinic",
+        isPublic,
+      });
+
+      // Step 5: Store the new org-scoped access token so OrgContext can use it
+      const currentRefresh = localStorage.getItem("waitless_refresh_token") ?? "";
+      saveTokens(orgToken, currentRefresh);
+
+      // Update user profile with new orgId from the token
+      await loginWithCredentials(workerEmail, workerPassword);
+
       setIsLoading(false);
-      return;
+      setStep(3);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? "Setup failed. Please try again.";
+      setError(msg);
+      setIsLoading(false);
     }
-
-    // Auto-login as admin
-    await loginWithCredentials(adminPhone.trim(), adminPassword);
-    setIsLoading(false);
-    setStep(3);
   }
 
   return (
@@ -288,13 +318,18 @@ export function OrgOnboardingPage() {
               </h2>
               <p className="mt-2 text-sm text-navy-mid">
                 <span className="font-medium text-navy">{orgName}</span> is ready.
-                You can now add branches, invite staff, and manage sessions.
               </p>
+              <div className="mt-4 rounded-xl border border-gold bg-gold-tint px-4 py-3 text-left">
+                <p className="text-sm font-semibold text-navy">Next Step: Add your first branch</p>
+                <p className="mt-0.5 text-xs text-navy-mid">
+                  Branches are required before you can assign doctors, create sessions, or accept patients.
+                </p>
+              </div>
               <button
                 onClick={() => navigate("/admin")}
                 className="mt-6 flex h-12 w-full items-center justify-center rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light"
               >
-                Go to Admin Portal →
+                Go to Admin Dashboard →
               </button>
             </div>
           )}

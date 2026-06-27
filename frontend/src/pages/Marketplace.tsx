@@ -1,8 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { SPECIALTIES, AREAS } from "../data/mockData";
-import { fetchDoctors } from "../services/mockApi";
-import type { Doctor } from "../context/AppContext";
+import {
+  searchOrgs,
+  getOrgDoctors,
+  membershipToDoctor,
+} from "../services/marketplaceService";
+import type { Doctor } from "../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -18,17 +22,44 @@ export function Marketplace() {
   );
 
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [orgIdByDoctor, setOrgIdByDoctor] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setIsLoading(true);
-    fetchDoctors({
-      specialty: specialty !== "All Specialties" ? specialty : undefined,
-      area: area !== "All Areas" ? area : undefined,
-    }).then((results) => {
-      setDoctors(results);
-      setIsLoading(false);
-    });
+    let cancelled = false;
+    const areaFilter = area !== "All Areas" ? area : undefined;
+
+    searchOrgs({ city: areaFilter })
+      .then(async (orgs) => {
+        const perOrg = await Promise.all(
+          orgs.map(async (org) => {
+            const members = await getOrgDoctors(org.id);
+            return members.map((m) => ({
+              doctor: membershipToDoctor(m, org),
+              orgId: org.id,
+            }));
+          }),
+        );
+        if (cancelled) return;
+        let flat = perOrg.flat();
+        if (specialty !== "All Specialties") {
+          flat = flat.filter(({ doctor: d }) =>
+            d.specialty.toLowerCase().includes(specialty.toLowerCase()),
+          );
+        }
+        const idMap: Record<string, string> = {};
+        flat.forEach(({ doctor, orgId }) => { idMap[doctor.id] = orgId; });
+        setOrgIdByDoctor(idMap);
+        setDoctors(flat.map(({ doctor }) => doctor));
+      })
+      .catch(() => {
+        if (!cancelled) setDoctors([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [specialty, area]);
 
   const filterLabel =
@@ -120,7 +151,11 @@ export function Marketplace() {
               >
                 <DoctorCard
                   doctor={doctor}
-                  onViewProfile={() => navigate(`/doctors/${doctor.id}`)}
+                  onViewProfile={() =>
+                    navigate(`/doctors/${doctor.id}`, {
+                      state: { orgId: orgIdByDoctor[doctor.id] ?? "" },
+                    })
+                  }
                 />
               </div>
             ))}

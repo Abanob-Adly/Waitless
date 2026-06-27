@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const APPOINTMENT_STATUSES = [
-  'booked', 'called', 'skipped', 'in_progress',
+  'booked', 'called', 'held', 'skipped', 'in_progress',
   'completed', 'cancelled', 'no_show',
 ];
-const APPOINTMENT_SOURCES = ['walk_in', 'marketplace'];
+const APPOINTMENT_SOURCES = ['walk_in', 'marketplace', 'override'];
 
 const appointmentSchema = new Schema({
   // ── Anchors ──
@@ -30,6 +30,7 @@ const appointmentSchema = new Schema({
   source: { type: String, enum: APPOINTMENT_SOURCES, required: true },
 
   calledAt:        { type: Date, default: null },
+  heldAt:          { type: Date, default: null },
   skippedAt:       { type: Date, default: null },  // for grace-list ordering
   checkedInAt:     { type: Date, default: null },
   completedAt:     { type: Date, default: null },
@@ -56,7 +57,7 @@ appointmentSchema.index(
   { session: 1, patientProfile: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['booked', 'called', 'skipped', 'in_progress'] } }
+    partialFilterExpression: { status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } }
   }
 );
 

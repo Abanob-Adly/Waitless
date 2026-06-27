@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
+import { api } from "../../services/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,13 +13,14 @@ type AppointmentStatus =
   | "cancelled";
 
 type QueueStatus = {
-  appointmentId: string;
+  token: string;
   patientName: string;
   queueNumber: number;
-  position: number;       // live rank among non-cancelled patients
-  totalInQueue: number;   // used to calculate the SVG arc progress
+  position: number;
+  totalInQueue: number;
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
+  sessionDate: string;
   sessionStatus: "scheduled" | "active" | "ended";
   doctor: {
     name: string;
@@ -28,73 +30,64 @@ type QueueStatus = {
   };
 };
 
-// ── Mock API ─────────────────────────────────────────────────────────────────
-// Simulates: GET /api/appointments/:id/queue-status  (Flow 15)
-// Replace with: axios.get(`/api/appointments/${id}/queue-status`)
-
-async function fetchQueueStatus(
-  appointmentId: string,
-): Promise<QueueStatus | null> {
-  await new Promise((r) => setTimeout(r, 400));
-  if (appointmentId !== "booking-001") return null;
-  return {
-    appointmentId: "booking-001",
-    patientName: "Ahmed Mohamed",
-    queueNumber: 3,
-    position: 3,
-    totalInQueue: 7,
-    estimatedWaitMinutes: 36,
-    status: "booked",
-    sessionStatus: "active",
-    doctor: {
-      name: "Dr. Layla Hassan",
-      specialty: "Cardiology",
-      area: "Maadi Clinic",
-      consultationFee: 350,
-    },
-  };
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export function LiveTicket() {
-  const { appointmentId } = useParams();
+  const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    if (!appointmentId) return;
+    if (!token) return;
     let alive = true;
 
     async function poll() {
-      const data = await fetchQueueStatus(appointmentId!);
-      if (!alive) return;
-      setQueueStatus(data);
-      setLoading(false);
+      try {
+        const res = await api.get<{ data: Record<string, unknown> }>(
+          `/appointments/track/${token}`,
+        );
+        const d = res.data.data;
+        if (!alive) return;
+        const queueNumber = Number(d.queueNumber ?? 0);
+        const currentlyServing = Number(d.currentlyServing ?? 0);
+        const position = Math.max(0, queueNumber - currentlyServing);
+        setQueueStatus({
+          token: token,
+          patientName:         String(d.patientName ?? ""),
+          queueNumber,
+          position,
+          totalInQueue:        queueNumber,
+          estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
+          status:              String(d.status ?? "booked") as AppointmentStatus,
+          sessionDate:         String(d.sessionDate ?? ""),
+          sessionStatus:       "active",
+          doctor: {
+            name:            String(d.doctorName ?? ""),
+            specialty:       "",
+            area:            "",
+            consultationFee: Number(d.consultationFee ?? 0),
+          },
+        });
+      } catch {
+        if (alive) setQueueStatus(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
     }
 
     poll();
-    // Poll every 15 s — replace with WebSocket subscription when backend is ready
-    const id = setInterval(poll, 15_000);
+    const id = setInterval(poll, 5_000);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, [appointmentId]);
+  }, [token]);
 
-  // Flow 14 — Patient Cancellation
   async function handleCancel() {
-    if (
-      !window.confirm(
-        "Are you sure you want to cancel? This cannot be undone.",
-      )
-    )
-      return;
+    if (!window.confirm("Are you sure you want to cancel? This cannot be undone.")) return;
     setCancelling(true);
-    // Simulates: DELETE /api/appointments/:id
-    await new Promise((r) => setTimeout(r, 800));
     navigate("/");
   }
 
@@ -131,6 +124,8 @@ export function LiveTicket() {
   }
 
   const canCancel = queueStatus.status === "booked";
+  const today = new Date().toISOString().slice(0, 10);
+  const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= today;
 
   // ── Main render ──
   return (
@@ -142,7 +137,7 @@ export function LiveTicket() {
         <div className="mb-6 flex items-center justify-center gap-2">
           <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
           <span className="text-sm text-navy-mid">
-            Live queue · syncing in real-time
+            {isSessionDay ? "Live queue · syncing in real-time" : "Appointment confirmed · checking in…"}
           </span>
         </div>
 
@@ -158,7 +153,7 @@ export function LiveTicket() {
               </p>
             </div>
 
-            {queueStatus.sessionStatus === "active" && (
+            {isSessionDay && queueStatus.sessionStatus === "active" && (
               <span className="flex items-center gap-1.5 rounded-full bg-success px-3 py-1 text-xs font-medium text-white">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                 Live
@@ -168,13 +163,19 @@ export function LiveTicket() {
 
           {/* Status content */}
           <div className="px-5 pb-8 pt-6">
-            {queueStatus.status === "booked" && (
-              <WaitingView queueStatus={queueStatus} />
+            {!isSessionDay ? (
+              <CountdownView sessionDate={queueStatus.sessionDate} />
+            ) : (
+              <>
+                {queueStatus.status === "booked" && (
+                  <WaitingView queueStatus={queueStatus} />
+                )}
+                {queueStatus.status === "called" && <CalledView />}
+                {queueStatus.status === "in_progress" && <InProgressView />}
+                {queueStatus.status === "completed" && <CompletedView token={queueStatus.token} />}
+                {queueStatus.status === "cancelled" && <CancelledView />}
+              </>
             )}
-            {queueStatus.status === "called" && <CalledView />}
-            {queueStatus.status === "in_progress" && <InProgressView />}
-            {queueStatus.status === "completed" && <CompletedView />}
-            {queueStatus.status === "cancelled" && <CancelledView />}
           </div>
 
           {/* Cancel button — Flow 14 */}
@@ -195,6 +196,41 @@ export function LiveTicket() {
           Keep this page open to track your position in real-time.
         </p>
       </main>
+    </div>
+  );
+}
+
+// ── Countdown view (session is in the future) ────────────────────────────────
+
+function CountdownView({ sessionDate }: { sessionDate: string }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const session = new Date(sessionDate);
+  session.setHours(0, 0, 0, 0);
+  const daysLeft = Math.round((session.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  const formatted = session.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+        📅
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        {daysLeft === 1 ? "Tomorrow!" : `${daysLeft} days to go`}
+      </h2>
+      <p className="mt-3 text-sm text-navy-mid">
+        Your appointment is scheduled for{" "}
+        <span className="font-semibold text-navy">{formatted}</span>.
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        Come back on the day of your appointment to track your queue position live.
+      </p>
     </div>
   );
 }
@@ -314,7 +350,7 @@ function InProgressView() {
 
 // ── Completed view (status: "completed") ────────────────────────────────────
 
-function CompletedView() {
+function CompletedView({ token }: { token: string }) {
   return (
     <div className="py-2 text-center">
       <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 text-4xl">
@@ -327,8 +363,14 @@ function CompletedView() {
         Thank you for visiting. We hope you feel better soon!
       </p>
       <Link
+        to={`/review?token=${token}`}
+        className="mt-4 inline-flex h-10 items-center justify-center rounded-sm border border-gold px-6 text-sm font-medium text-gold transition hover:bg-gold-tint"
+      >
+        Rate Your Visit ★
+      </Link>
+      <Link
         to="/"
-        className="mt-6 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
+        className="mt-3 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
         Book Another Appointment
       </Link>

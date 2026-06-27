@@ -6,6 +6,7 @@ import { DoctorProfile } from "../pages/DoctorProfile";
 import { PaymentPage } from "../pages/PaymentPage";
 import { PaymentResult } from "../pages/PaymentResult";
 import { LiveTicket } from "../pages/LiveTicket";
+import { LiveTicket as LiveTicketByToken } from "../pages/queue/LiveTicket";
 import { PatientDashboard } from "../pages/PatientDashboard";
 import { DoctorDashboard } from "../pages/DoctorDashboard";
 import { LoginPage } from "../pages/auth/LoginPage";
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "org/signup", element: <OrgOnboardingPage /> },
       { path: "accept-invite", element: <AcceptInvitePage /> },
       { path: "q/:token", element: <LiveQueuePage /> },
+      { path: "ticket/:token", element: <LiveTicketByToken /> },
       { path: "review", element: <ReviewPage /> },
       {
         path: "checkout",
@@ -62,7 +64,9 @@ export const router = createBrowserRouter([
         path: "doctor-dashboard",
         element: (
           <ProtectedRoute role="doctor">
-            <DoctorDashboard />
+            <OrgProvider>
+              <DoctorDashboard />
+            </OrgProvider>
           </ProtectedRoute>
         ),
       },
