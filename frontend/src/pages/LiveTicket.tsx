@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
+import { api } from "../services/api";
 import type { ActiveBooking } from "../context/AppContext";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -80,12 +81,7 @@ function TicketView({
     setCancelling(true);
     // Best-effort cancel — if it fails the booking is removed from local state anyway
     try {
-      const { default: axios } = await import("axios");
-      const token = localStorage.getItem("waitless_access_token");
-      await axios.delete(
-        `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/appointments/${booking.id}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-      );
+      await api.delete(`/appointments/${booking.id}`);
     } catch {
       // ignore — booking was cancelled locally
     }

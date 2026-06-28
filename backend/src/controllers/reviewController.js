@@ -17,7 +17,7 @@ export const reviewController = {
     const { token } = req.query;
     if (!token) throw new AppError('token query param required', 400);
 
-    const appointment = await Appointment.findOne({ accessToken: token });
+    const appointment = await Appointment.findOne({ reviewToken: token });
     if (!appointment) throw NotFound('Appointment not found');
 
     if (appointment.status !== 'completed') {
@@ -44,7 +44,7 @@ export const reviewController = {
   async submitReview(req, res) {
     const { token, rating, comment } = req.body;
 
-    const appointment = await Appointment.findOne({ accessToken: token });
+    const appointment = await Appointment.findOne({ reviewToken: token });
     if (!appointment) throw NotFound('Appointment not found');
     if (appointment.status !== 'completed') throw new AppError('Appointment is not completed', 422);
 
@@ -54,7 +54,7 @@ export const reviewController = {
     await Review.create({
       appointment:      appointment._id,
       doctorMembership: appointment.doctorMembership,
-      reviewToken:      token,
+      reviewToken:      appointment.reviewToken, // store the canonical token from DB
       rating,
       comment: comment || undefined,
     });

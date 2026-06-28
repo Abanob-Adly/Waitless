@@ -23,7 +23,7 @@ export const inviteService = {
   /**
    * Step 2a: Invitee has no account → sign up + accept atomically.
    */
-  async acceptWithNewAccount({ token, fullName, password, phone, preferredLanguage = 'ar', yearsOfExperience, languagesSpoken }) {
+  async acceptWithNewAccount({ token, fullName, password, phone, yearsOfExperience, languagesSpoken }) {
     const membership = await this.lookup({ token });
 
     if (await Account.findOne({ email: membership.inviteEmail })) {
@@ -35,7 +35,6 @@ export const inviteService = {
       phone, fullName,
       passwordHash: await hashPassword(password),
       role:         'staff',
-      preferredLanguage,
       status:       'active',
       isEmailVerified: true,
     });

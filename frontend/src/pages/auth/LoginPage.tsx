@@ -49,7 +49,7 @@ export function LoginPage() {
       } catch {
         // ignore parse errors
       }
-      navigate(next ?? "/");
+      navigate(next && next.startsWith('/') ? next : '/');
     }
   }
 

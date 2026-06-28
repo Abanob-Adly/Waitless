@@ -59,7 +59,8 @@ export function SignupPage() {
     clearAuthError();
     if (!validate()) return;
 
-    const nextPath = searchParams.get("next") ?? "/";
+    const raw = searchParams.get("next");
+    const nextPath = raw && raw.startsWith('/') ? raw : '/';
     let ok = false;
 
     if (role === "patient") {

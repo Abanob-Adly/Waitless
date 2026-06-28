@@ -1,5 +1,5 @@
 import { Membership, AdminMembership, DoctorMembership, ReceptionistMembership } from '../models/Membership.js';
-import Subscription from '../models/Subscription.js';
+import { getActiveSubscription } from '../utils/subscription.js';
 import { generateToken } from '../utils/otp.js';
 import { emailProvider } from './providers/email.js';
 import { tokenService } from './token.js';
@@ -13,10 +13,7 @@ const DISCRIMINATOR_MAP = {
 };
 
 async function checkMemberLimit(orgId, kind) {
-  const sub = await Subscription.findOne({
-    organization: orgId,
-    state: { $in: ['trial', 'active', 'past_due'] },
-  }).populate('plan');
+  const sub = await getActiveSubscription(orgId);
 
   if (!sub?.plan) return;
 
@@ -73,13 +70,9 @@ export const memberService = {
 
     const membership = await MemberModel.create(memberData);
 
-    // Email is best-effort — a failed delivery does not roll back the invite
     const acceptLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/accept-invite?token=${inviteToken}`;
-    emailProvider.send({
-      to:      data.email,
-      subject: `You've been invited to join as ${data.kind}`,
-      body:    `Click to accept your invite: ${acceptLink}\n\nThis link expires in ${env.invite.ttlDays} days.`,
-    }).catch((err) => console.warn(`[invite] email delivery failed for ${data.email}:`, err.message));
+    // MOCK EMAIL — swap back to emailProvider.send() when RESEND_API_KEY is configured
+    console.log(`[MOCK EMAIL] Invite sent to ${data.email} | role: ${data.kind}`);
 
     return { membershipId: membership._id, inviteEmail: data.email, inviteToken };
   },

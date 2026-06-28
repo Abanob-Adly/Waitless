@@ -18,6 +18,9 @@ const subscriptionPlanSchema = new Schema({
     whatsappNotifications: { type: Boolean, default: true },
   },
 
+  // Platform cut from each consultation fee (percentage)
+  platformCutPercent: { type: Number, default: 15, min: 0, max: 100 },
+
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 

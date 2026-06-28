@@ -24,8 +24,8 @@ export const patientService = {
 
   async listProfiles({ orgId, filters }) {
     const query = { organizationId: orgId };
-    if (filters.phone) query.phone = { $regex: filters.phone };
-    if (filters.name)  query.fullName = { $regex: filters.name, $options: 'i' };
+    if (filters.phone) query.phone = { $regex: filters.phone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') };
+    if (filters.name)  query.fullName = { $regex: filters.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
 
     const page  = Math.max(1, parseInt(filters.page  || 1));
     const limit = Math.min(100, parseInt(filters.limit || 20));

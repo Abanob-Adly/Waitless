@@ -13,18 +13,32 @@ import { patientController, patientSchemas } from "./controllers/patientControll
 import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 
 connectDB();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    : true,
+  credentials: true,
+}));
 app.use(express.json());
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests, please try again later.' },
+});
 
 // Health check
 app.get("/", (_req, res) => res.send("OK"));
 
 // Auth
-app.use("/auth", authRoutes);
+app.use("/auth", authLimiter, authRoutes);
 
 // Invites (accept flow)
 app.use("/memberships", membershipRoutes);

@@ -22,7 +22,7 @@ export function PatientDashboard() {
 
   useEffect(() => {
     if (authUser?.role === "patient") {
-      getOwnAppointmentHistory().then(setAppointmentHistory);
+      getOwnAppointmentHistory().then(setAppointmentHistory).catch(console.error);
     }
   }, [authUser]);
 

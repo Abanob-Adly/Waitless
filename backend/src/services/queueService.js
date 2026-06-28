@@ -1,10 +1,12 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
+import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import redis from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
+import { generateToken } from '../utils/otp.js';
 
 const VALID_TRANSITIONS = {
   booked:      ['called', 'cancelled'],
@@ -28,7 +30,7 @@ async function getQueueState(sessionId) {
         status:             raw.status,
       };
     }
-  } catch { /* Redis unavailable */ }
+  } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
 
   const session = await Session.findById(sessionId).lean();
   if (!session) return null;
@@ -43,7 +45,7 @@ async function getQueueState(sessionId) {
 async function publishUpdate(sessionId, payload) {
   try {
     await redis.publish(redisPubChan(sessionId), JSON.stringify(payload));
-  } catch { /* non-fatal */ }
+  } catch (err) { console.warn('[queue] Redis publish failed:', err.message); }
 }
 
 export const queueService = {
@@ -119,7 +121,7 @@ export const queueService = {
     await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
-    } catch { /* non-fatal */ }
+    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
     await publishUpdate(session._id, { type: 'updated', currentServing: next.queueNumber });
 
     return { appointment: next };
@@ -150,7 +152,7 @@ export const queueService = {
     });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-    } catch { /* non-fatal */ }
+    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
     await publishUpdate(session._id, {
       type: 'updated',
       currentServing: appointment.queueNumber,
@@ -171,7 +173,7 @@ export const queueService = {
     if (data.globalDelayMin     != null) patch.globalDelayMin     = String(data.globalDelayMin);
     try {
       await redis.hmset(redisKey(session._id), patch);
-    } catch { /* non-fatal */ }
+    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
 
     const state = await getQueueState(session._id);
     await publishUpdate(session._id, { type: 'delay_updated', ...state });
@@ -188,14 +190,24 @@ export const queueService = {
       );
     }
 
+    const now = new Date();
     appointment.status = newStatus;
-    if (newStatus === 'called')      appointment.calledAt    = new Date();
-    if (newStatus === 'held')        appointment.heldAt      = new Date();
-    if (newStatus === 'in_progress') appointment.checkedInAt = new Date();
-    if (newStatus === 'completed')   appointment.completedAt = new Date();
-    if (newStatus === 'cancelled')   appointment.cancelledAt = new Date();
-    if (newStatus === 'skipped')     appointment.skippedAt   = new Date();
+    if (newStatus === 'called')      appointment.calledAt              = now;
+    if (newStatus === 'held')        appointment.heldAt                = now;
+    if (newStatus === 'in_progress') {
+      appointment.checkedInAt           = now;
+      appointment.consultationStartedAt = now; // tracks actual start for EWT overrun calc
+    }
+    if (newStatus === 'completed') {
+      appointment.completedAt = now;
+      appointment.reviewToken = generateToken(24); // one-time review link token
+    }
+    if (newStatus === 'cancelled')   appointment.cancelledAt = now;
+    if (newStatus === 'skipped')     appointment.skippedAt   = now;
+
     await appointment.save();
+
+    // ── Post-save side-effects ────────────────────────────────────────────────
 
     if (newStatus === 'called') {
       await Session.findByIdAndUpdate(session._id, {
@@ -203,11 +215,47 @@ export const queueService = {
       });
       try {
         await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-      } catch { /* non-fatal */ }
+      } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
       await publishUpdate(session._id, {
         type: 'updated',
         currentServing: appointment.queueNumber,
       });
+    }
+
+    if (newStatus === 'completed') {
+      // Auto-accumulate EWT delay from consultation overrun
+      if (appointment.consultationStartedAt) {
+        const actualMin  = (now.getTime() - appointment.consultationStartedAt.getTime()) / 60_000;
+        const overrunMin = Math.max(0, actualMin - session.avgConsultationMin);
+        if (overrunMin > 0.5) { // ignore sub-30-second noise
+          const rounded = Math.round(overrunMin * 10) / 10;
+          await Session.findByIdAndUpdate(session._id, { $inc: { globalDelayMin: rounded } });
+          try {
+            const prev    = Number(await redis.hget(redisKey(session._id), 'globalDelayMin') || 0);
+            const updated = Math.round((prev + rounded) * 10) / 10;
+            await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
+          } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+          await publishUpdate(session._id, { type: 'delay_updated', overrunMin: rounded });
+        }
+      }
+
+      // Mock financial split (replace with real payment ledger later)
+      try {
+        const [scheduleDoc, sub] = await Promise.all([
+          DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
+          getActiveSubscription(appointment.organization),
+        ]);
+        const fee         = scheduleDoc?.consultationFee?.amount ?? 0;
+        const platformPct = sub?.plan?.platformCutPercent ?? 15;
+        const platformCut = Math.round(fee * platformPct / 100);
+        const orgCut      = Math.round((fee - platformCut) * 0.7);
+        const doctorCut   = fee - platformCut - orgCut;
+        console.log('[MOCK PAYMENT] Fee split for appointment', String(appointment._id), {
+          consultationFee: fee, platformCut, orgCut, doctorCut, currency: 'EGP',
+        });
+      } catch (err) {
+        console.warn('[MOCK PAYMENT] Split calculation failed:', err.message);
+      }
     }
 
     return appointment;

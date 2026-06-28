@@ -2,6 +2,7 @@ import Organization from '../models/Organization.js';
 import { AdminMembership } from '../models/Membership.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import { getActiveSubscription } from '../utils/subscription.js';
 import { tokenService } from './token.js';
 import { Conflict, Forbidden } from '../utils/errors.js';
 
@@ -39,19 +40,13 @@ export const orgService = {
   },
 
   async getOrg({ org }) {
-    const subscription = await Subscription.findOne({
-      organization: org._id,
-      state: { $in: ['trial', 'active', 'past_due'] },
-    }).populate('plan');
+    const subscription = await getActiveSubscription(org._id);
     return { org, subscription };
   },
 
   async updateOrg({ org, data }) {
     if (data.whatsappNumber !== undefined) {
-      const sub = await Subscription.findOne({
-        organization: org._id,
-        state: { $in: ['trial', 'active', 'past_due'] },
-      }).populate('plan');
+      const sub = await getActiveSubscription(org._id);
       if (!sub?.plan?.limits?.whatsappNotifications) {
         throw Forbidden('Your plan does not include WhatsApp notifications');
       }
@@ -63,10 +58,7 @@ export const orgService = {
 
   async toggleVisibility({ org, isPublic }) {
     if (isPublic) {
-      const sub = await Subscription.findOne({
-        organization: org._id,
-        state: { $in: ['trial', 'active', 'past_due'] },
-      }).populate('plan');
+      const sub = await getActiveSubscription(org._id);
       if (!sub?.plan?.limits?.marketplaceListing) {
         throw Forbidden('Your plan does not include marketplace listing');
       }
@@ -77,11 +69,7 @@ export const orgService = {
   },
 
   async getSubscription({ org }) {
-    const sub = await Subscription.findOne({
-      organization: org._id,
-      state: { $in: ['trial', 'active', 'past_due'] },
-    }).populate('plan');
-    return sub ?? null;
+    return getActiveSubscription(org._id);
   },
 
   async listPlans() {

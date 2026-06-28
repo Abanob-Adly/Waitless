@@ -1,6 +1,7 @@
-  import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
-  import * as orgService from "../services/orgService";
+import * as orgService from "../services/orgService";
+import { UpgradeModal } from "../components/ui/UpgradeModal";
 import type {
   Organization,
   Branch,
@@ -12,6 +13,8 @@ import type {
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
+type LimitType = "doctor" | "receptionist" | "branch";
+
 type OrgCtx = {
   org: Organization | null;
   branches: Branch[];
@@ -20,6 +23,8 @@ type OrgCtx = {
   subscription: Subscription | null;
   plans: SubscriptionPlan[];
   isLoading: boolean;
+  upgradeModal: { limitType: LimitType } | null;
+  clearUpgradeModal: () => void;
   refresh: () => Promise<void>;
   addBranch: (data: Omit<Branch, "id" | "orgId">) => Promise<{ ok: boolean; error?: string }>;
   inviteStaff: (
@@ -30,7 +35,16 @@ type OrgCtx = {
     permissions?: string[],
   ) => Promise<string | null>;
   removeMember: (memberId: string) => Promise<boolean>;
-  updateMember: (memberId: string, data: { specialties?: string[]; bio?: string; permissions?: string[] }) => Promise<boolean>;
+  updateMember: (memberId: string, data: {
+    specialties?: string[];
+    bio?: string;
+    permissions?: string[];
+    websiteUrl?: string | null;
+    acceptedInsurances?: string[];
+    licenseNumber?: string;
+    yearsOfExperience?: number | null;
+    languagesSpoken?: string[];
+  }) => Promise<boolean>;
   createSchedule: (
     data: Omit<DoctorBranchSchedule, "id">,
   ) => Promise<{ ok: boolean; sessionsGenerated?: number }>;
@@ -67,6 +81,18 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [upgradeModal, setUpgradeModal] = useState<{ limitType: LimitType } | null>(null);
+
+  function clearUpgradeModal() { setUpgradeModal(null); }
+
+  function detectLimitError(err: unknown): LimitType | null {
+    const msg: string =
+      (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "";
+    if (/doctor limit/i.test(msg))       return "doctor";
+    if (/receptionist limit/i.test(msg)) return "receptionist";
+    if (/branch limit/i.test(msg))       return "branch";
+    return null;
+  }
 
   async function refresh() {
     if (!orgId) {
@@ -119,6 +145,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       setBranches((prev) => [...prev, branch]);
       return { ok: true };
     } catch (err) {
+      const limitType = detectLimitError(err);
+      if (limitType) { setUpgradeModal({ limitType }); return { ok: false }; }
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? "Failed to add branch.";
@@ -146,6 +174,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       await refresh();
       return result.token;
     } catch (err) {
+      const limitType = detectLimitError(err);
+      if (limitType) { setUpgradeModal({ limitType }); return null; }
       console.error("inviteStaff error:", err);
       return null;
     }
@@ -280,6 +310,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         subscription,
         plans,
         isLoading,
+        upgradeModal,
+        clearUpgradeModal,
         refresh,
         addBranch,
         inviteStaff,
@@ -294,6 +326,13 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      <UpgradeModal
+        open={upgradeModal !== null}
+        onClose={clearUpgradeModal}
+        limitType={upgradeModal?.limitType ?? null}
+        subscription={subscription}
+        plans={plans}
+      />
     </OrgContext.Provider>
   );
 }

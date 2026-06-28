@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrgContext";
 import { Tabs } from "../components/ui/Tabs";
 import * as sessionService from "../services/sessionService";
-import { updateMember } from "../services/orgService";
+import * as appointmentService from "../services/appointmentService";
+import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -28,6 +30,11 @@ export function DoctorDashboard() {
       content: <QueueTab orgId={orgId} doctorAccountId={doctor.id} />,
     },
     {
+      id: "manage",
+      label: "Manage Queue",
+      content: <ManageQueueTab orgId={orgId} doctorAccountId={doctor.id} />,
+    },
+    {
       id: "sessions",
       label: "My Sessions",
       content: <SessionsTab orgId={orgId} doctorAccountId={doctor.id} />,
@@ -35,7 +42,7 @@ export function DoctorDashboard() {
     {
       id: "profile",
       label: "My Profile",
-      content: <ProfileTab orgId={orgId} doctorAccountId={doctor.id} doctorName={doctor.name} />,
+      content: <ProfileTab doctorAccountId={doctor.id} doctorName={doctor.name} />,
     },
   ];
 
@@ -70,64 +77,13 @@ export function DoctorDashboard() {
 
 function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
   const { branches, memberships } = useOrg();
-  const [activeSession, setActiveSession] = useState<BackendSession | null>(null);
-  const [activeBranchId, setActiveBranchId] = useState<string>("");
-  const [queue, setQueue] = useState<BackendAppointment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  // Use local date to avoid UTC midnight mismatches in non-UTC timezones
-  const now = new Date();
-  const today = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  // Find the doctor's membership ID from OrgContext
   const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
+    useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 
-  const load = useCallback(async () => {
-    if (!orgId || branches.length === 0) return;
-    setIsLoading(true);
-    try {
-      // Search all branches for the doctor's active session today
-      for (const branch of branches) {
-        const sessions = await sessionService.getSessions(orgId, branch.id, { date: today });
-        // Match by membership ID (primary) or account ID fallback; also accept "active" or "scheduled" so
-        // the doctor can see their queue even before reception starts the session
-        const myActive = sessions.find(
-          (s) =>
-            (s.status === "active" || s.status === "scheduled") &&
-            (s.doctorId === myMembershipId || s.doctorId === doctorAccountId),
-        );
-        if (myActive) {
-          setActiveSession(myActive);
-          setActiveBranchId(branch.id);
-          try {
-            const q = await sessionService.getQueue(orgId, branch.id, myActive.id);
-            setQueue(q.appointments);
-          } catch {
-            setQueue([]);
-          }
-          return;
-        }
-      }
-      setActiveSession(null);
-      setQueue([]);
-    } catch {
-      setActiveSession(null);
-      setQueue([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orgId, branches, today, myMembershipId, doctorAccountId]);
-
-  useEffect(() => {
-    void load();
-    const id = setInterval(() => { void load(); }, 4000);
-    return () => clearInterval(id);
-  }, [load]);
+  usePolling(() => { void load(); }, 4000);
 
   async function handleAction(apptId: string, status: string) {
     if (!activeBranchId || !activeSession) return;
@@ -422,15 +378,13 @@ const INSURANCE_OPTIONS = [
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function ProfileTab({
-  orgId,
   doctorAccountId,
   doctorName,
 }: {
-  orgId: string;
   doctorAccountId: string;
   doctorName: string;
 }) {
-  const { memberships, schedules, branches } = useOrg();
+  const { memberships, schedules, branches, updateMember } = useOrg();
   const myMembership = memberships.find((m) => m.userId === doctorAccountId);
 
   const [form, setForm] = useState({
@@ -449,7 +403,7 @@ function ProfileTab({
     setForm({
       bio: myMembership.bio ?? "",
       specialties: (myMembership.specialties ?? []).join(", "),
-      avatarUrl: myMembership.avatarUrl ?? "",
+      avatarUrl: "",
       websiteUrl: myMembership.websiteUrl ?? "",
       insurances: myMembership.acceptedInsurances ?? [],
     });
@@ -479,13 +433,11 @@ async function handleSave(e: React.FormEvent) {
     setResult(null);
     const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
     
-    // Notice we dropped 'orgId' here, and we are using the context's updateMember
     const ok = await updateMember(myMembership.id, {
       bio: form.bio.trim() || undefined,
       specialties: specialtiesList.length ? specialtiesList : undefined,
-      avatarUrl: form.avatarUrl.trim() || undefined,
       websiteUrl: form.websiteUrl.trim() || null,
-      acceptedInsurances: form.insurances, // Ensure this matches what your backend/context expects
+      acceptedInsurances: form.insurances,
     });
 
     // We don't even need a manual refresh here because your OrgContext does it for us!
@@ -591,7 +543,7 @@ async function handleSave(e: React.FormEvent) {
         </button>
       </form>
 
-      {/* Read-only Weekly Schedule */}
+      {/* Read-only Weekly Schedule + Earnings Breakdown */}
       {mySchedules.length > 0 && (
         <div className="space-y-3 border-t border-border pt-5">
           <div>
@@ -600,6 +552,10 @@ async function handleSave(e: React.FormEvent) {
           </div>
           {mySchedules.map((sched) => {
             const branch = branches.find((b) => b.id === sched.branchId);
+            const fee = sched.fee ?? 0;
+            const platformCut = Math.round(fee * 0.15);
+            const orgCut = Math.round((fee - platformCut) * 0.7);
+            const doctorNet = fee - platformCut - orgCut;
             return (
               <div key={sched.id} className="rounded-xl border border-border bg-offwhite p-4">
                 <div className="flex items-center justify-between">
@@ -617,11 +573,250 @@ async function handleSave(e: React.FormEvent) {
                   ))}
                 </div>
                 <p className="mt-1.5 text-xs text-navy-mid">{sched.avgConsultationMin} min avg. consultation</p>
+                {fee > 0 && (
+                  <div className="mt-3 rounded-lg border border-border bg-white px-3 py-2">
+                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-navy-mid">
+                      Earnings per Consultation
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-xs text-navy-mid">Platform (15%)</p>
+                        <p className="font-medium text-navy">−{platformCut} EGP</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-navy-mid">Clinic (21%)</p>
+                        <p className="font-medium text-navy">−{orgCut} EGP</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gold">Your Net</p>
+                        <p className="font-bold text-gold">{doctorNet} EGP</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Manage Queue Tab (doctor-as-receptionist fallback) ───────────────────────
+
+function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
+  const { branches, memberships } = useOrg();
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [walkIn, setWalkIn] = useState({ phone: "", name: "" });
+  const [walkInMsg, setWalkInMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [walkInLoading, setWalkInLoading] = useState(false);
+
+  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
+    useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
+
+  useEffect(() => {
+    const id = setInterval(() => { void load(); }, 4000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  async function handleCheckIn(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try {
+      await sessionService.updateAppointmentStatus(orgId, activeBranchId, activeSession.id, apptId, "called");
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleHold(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try {
+      await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleReinsert(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try {
+      await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleWalkIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activeBranchId || !activeSession || !walkIn.phone.trim() || !walkIn.name.trim()) return;
+    setWalkInLoading(true);
+    setWalkInMsg(null);
+    try {
+      const result = await appointmentService.bookWalkIn(orgId, activeBranchId, activeSession.id, {
+        patientPhone: walkIn.phone.trim(),
+        patientName: walkIn.name.trim(),
+      });
+      setWalkInMsg({ ok: true, text: `Walk-in added — Queue #${result.queueNumber}` });
+      setWalkIn({ phone: "", name: "" });
+      await load();
+    } catch {
+      setWalkInMsg({ ok: false, text: "Failed to add walk-in. Check phone format (+20…)." });
+    }
+    setWalkInLoading(false);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 py-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!activeSession) {
+    return (
+      <div className="rounded-xl bg-offwhite py-12 text-center">
+        <p className="text-4xl">🏥</p>
+        <p className="mt-3 font-heading text-lg font-bold text-navy">No active session today</p>
+        <p className="mt-1 text-sm text-navy-mid">
+          Start a session first (via the Sessions tab or ask reception).
+        </p>
+      </div>
+    );
+  }
+
+  const booked = queue.filter((a) => a.status === "booked");
+  const called = queue.filter((a) => a.status === "called");
+  const held   = queue.filter((a) => a.status === "held");
+
+  return (
+    <div className="space-y-6">
+      {/* Banner */}
+      <div className="rounded-xl border border-gold/40 bg-gold-tint px-4 py-3 text-sm text-navy">
+        <strong>Receptionist mode</strong> — Use this tab when operating without reception staff.
+      </div>
+
+      {/* Check-In Section */}
+      <div>
+        <h3 className="mb-2 font-heading text-base font-bold text-navy">
+          Waiting to Check-In ({booked.length})
+        </h3>
+        {booked.length === 0 ? (
+          <p className="rounded-xl bg-offwhite py-6 text-center text-sm text-navy-mid">
+            No patients waiting for check-in
+          </p>
+        ) : (
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {booked.map((appt) => (
+              <div key={appt.id} className="flex items-center justify-between px-5 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
+                    {appt.queueNumber}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
+                    <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleCheckIn(appt.id)}
+                  disabled={actionInProgress === appt.id}
+                  className="rounded-md bg-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+                >
+                  Check In →
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Called / Held Section */}
+      {(called.length > 0 || held.length > 0) && (
+        <div>
+          <h3 className="mb-2 font-heading text-base font-bold text-navy">
+            Called &amp; Held ({called.length + held.length})
+          </h3>
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {[...called, ...held].map((appt) => (
+              <div key={appt.id} className="flex items-center justify-between px-5 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
+                    {appt.queueNumber}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
+                    <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${appt.status === "called" ? "bg-success/10 text-success" : "bg-orange-50 text-orange-600"}`}>
+                    {appt.status === "called" ? "Called" : "Held"}
+                  </span>
+                  {appt.status === "called" && (
+                    <button
+                      onClick={() => handleHold(appt.id)}
+                      disabled={actionInProgress === appt.id}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
+                    >
+                      Hold
+                    </button>
+                  )}
+                  {appt.status === "held" && (
+                    <button
+                      onClick={() => handleReinsert(appt.id)}
+                      disabled={actionInProgress === appt.id}
+                      className="rounded-md bg-navy px-3 py-1.5 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
+                    >
+                      Re-insert
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Walk-In Form */}
+      <div>
+        <h3 className="mb-2 font-heading text-base font-bold text-navy">Add Walk-In Patient</h3>
+        <form onSubmit={handleWalkIn} className="space-y-3 rounded-xl border border-border bg-offwhite p-4">
+          <input
+            type="tel"
+            value={walkIn.phone}
+            onChange={(e) => setWalkIn((w) => ({ ...w, phone: e.target.value }))}
+            placeholder="Phone (+201012345678)"
+            required
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+          <input
+            type="text"
+            value={walkIn.name}
+            onChange={(e) => setWalkIn((w) => ({ ...w, name: e.target.value }))}
+            placeholder="Patient full name"
+            required
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+          {walkInMsg && (
+            <p className={`text-xs ${walkInMsg.ok ? "text-success" : "text-danger"}`}>{walkInMsg.text}</p>
+          )}
+          <button
+            type="submit"
+            disabled={walkInLoading}
+            className="w-full rounded-md bg-navy py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+          >
+            {walkInLoading ? "Adding…" : "Add to Queue"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

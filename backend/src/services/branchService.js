@@ -1,13 +1,10 @@
 import Branch from '../models/Branch.js';
-import Subscription from '../models/Subscription.js';
+import { getActiveSubscription } from '../utils/subscription.js';
 import { Forbidden, NotFound } from '../utils/errors.js';
 
 export const branchService = {
   async createBranch({ orgId, actor, data }) {
-    const sub = await Subscription.findOne({
-      organization: orgId,
-      state: { $in: ['trial', 'active', 'past_due'] },
-    }).populate('plan');
+    const sub = await getActiveSubscription(orgId);
 
     if (sub?.plan?.limits?.maxBranches != null) {
       const count = await Branch.countDocuments({ organization: orgId, isActive: true });

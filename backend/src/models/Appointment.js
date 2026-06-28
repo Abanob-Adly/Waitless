@@ -29,19 +29,23 @@ const appointmentSchema = new Schema({
   },
   source: { type: String, enum: APPOINTMENT_SOURCES, required: true },
 
-  calledAt:        { type: Date, default: null },
-  heldAt:          { type: Date, default: null },
-  skippedAt:       { type: Date, default: null },  // for grace-list ordering
-  checkedInAt:     { type: Date, default: null },
-  completedAt:     { type: Date, default: null },
-  cancelledAt:     { type: Date, default: null },
-  cancelledReason: { type: String, default: null },
+  calledAt:             { type: Date, default: null },
+  heldAt:               { type: Date, default: null },
+  skippedAt:            { type: Date, default: null },  // for grace-list ordering
+  checkedInAt:          { type: Date, default: null },
+  consultationStartedAt:{ type: Date, default: null },  // set when status → in_progress
+  completedAt:          { type: Date, default: null },
+  cancelledAt:          { type: Date, default: null },
+  cancelledReason:      { type: String, default: null },
 
   // ── Origin ──
   bookedBy: { type: Schema.Types.ObjectId, ref: 'Membership', default: null }, // walk-in only
 
   // ── Live queue page access (for walk-ins via WhatsApp link) ──
   accessToken: { type: String, default: null, index: true, sparse: true },
+
+  // ── One-time review token (generated on completion, separate from accessToken) ──
+  reviewToken: { type: String, default: null, index: true, sparse: true },
 
   notes: { type: String },
 }, { timestamps: true });

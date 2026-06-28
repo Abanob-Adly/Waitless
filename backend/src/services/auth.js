@@ -41,8 +41,6 @@ export const authService = {
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
     });
 
-    // try { await verificationService.issue({ account, purpose: 'email_verify', sendTo: email }); } catch {}
-
     return account;
   },
 
@@ -58,8 +56,6 @@ export const authService = {
       status: 'active',
       isEmailVerified: true,
     });
-
-    // try { await verificationService.issue({ account, purpose: 'email_verify', sendTo: email }); } catch {}
 
     return account;
   },
