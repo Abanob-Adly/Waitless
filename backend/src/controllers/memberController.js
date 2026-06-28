@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { memberService } from '../services/memberService.js';
+import { AdminMembership, DoctorMembership, Membership } from '../models/Membership.js';
+import { NotFound } from '../utils/errors.js';
 
 export const memberSchemas = {
   invite: z.object({
@@ -61,5 +63,75 @@ export const memberController = {
   async revoke(req, res) {
     await memberService.revokeMember({ membership: req.resource });
     res.json({ ok: true });
+  },
+
+  // POST /orgs/:orgId/members/:memberId/grant-admin
+  // Promotes a doctor/receptionist to also be an admin (multi-role)
+  async grantAdmin(req, res) {
+    const { orgId } = req.params;
+    const sourceMembership = req.resource;
+    if (!sourceMembership?.account) throw NotFound('Member not found');
+
+    const existing = await Membership.findOne({
+      account:      sourceMembership.account,
+      organization: orgId,
+      kind:         'admin',
+      status:       { $ne: 'revoked' },
+    });
+    if (existing) return res.json({ data: existing }); // idempotent
+
+    const adminMembership = await AdminMembership.create({
+      account:      sourceMembership.account,
+      organization: orgId,
+      status:       'active',
+      acceptedAt:   new Date(),
+      permissions:  ['*'],
+    });
+    res.status(201).json({ data: adminMembership });
+  },
+
+  // DELETE /orgs/:orgId/members/:memberId/grant-admin
+  // Revokes admin role while keeping doctor/receptionist role
+  async revokeAdmin(req, res) {
+    const { orgId } = req.params;
+    const sourceMembership = req.resource;
+    if (!sourceMembership?.account) throw NotFound('Member not found');
+
+    const adminMembership = await Membership.findOne({
+      account:      sourceMembership.account,
+      organization: orgId,
+      kind:         'admin',
+    });
+    if (!adminMembership) return res.json({ ok: true }); // idempotent
+
+    adminMembership.status = 'revoked';
+    await adminMembership.save();
+    res.json({ ok: true });
+  },
+
+  // POST /orgs/:orgId/members/self/doctor
+  // Allows an authenticated admin to also enrol as a doctor in their own org
+  async selfJoinAsDoctor(req, res) {
+    const { orgId } = req.params;
+    const accountId = req.actor.account._id;
+
+    const existing = await Membership.findOne({
+      account:      accountId,
+      organization: orgId,
+      kind:         'doctor',
+      status:       { $ne: 'revoked' },
+    });
+    if (existing) return res.json({ data: existing }); // idempotent
+
+    const doctorMembership = await DoctorMembership.create({
+      account:       accountId,
+      organization:  orgId,
+      status:        'active',
+      acceptedAt:    new Date(),
+      specialties:   Array.isArray(req.body.specialties) ? req.body.specialties : [],
+      bio:           req.body.bio ?? '',
+      licenseNumber: req.body.licenseNumber ?? '',
+    });
+    res.status(201).json({ data: doctorMembership });
   },
 };

@@ -44,13 +44,21 @@ export type ReceptionistAccount = {
   branchId: string;
 };
 
-export type AuthRole = "patient" | "doctor" | "admin" | "receptionist";
+export type StaffAccount = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+};
+
+export type AuthRole = "patient" | "doctor" | "admin" | "receptionist" | "staff";
 
 export type AuthUser =
   | { role: "patient"; profile: PatientProfile }
   | { role: "doctor"; profile: DoctorAccount }
   | { role: "admin"; profile: AdminAccount }
   | { role: "receptionist"; profile: ReceptionistAccount }
+  | { role: "staff"; profile: StaffAccount } // Worker with no active membership yet
   | null;
 
 // ── Signup payloads ───────────────────────────────────────────────────────────
@@ -216,6 +224,7 @@ export type Branch = {
   address: string;
   city: string;
   phone: string;
+  commissionPct?: number;
 };
 
 export type Membership = {

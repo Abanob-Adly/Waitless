@@ -42,6 +42,7 @@ function adaptBranch(b: Record<string, unknown>): Branch {
     ),
     city: String((b.address as Record<string, unknown>)?.city ?? ""),
     phone: String(b.phone ?? ""),
+    commissionPct: b.commissionPct != null ? Number(b.commissionPct) : 70,
   };
 }
 
@@ -244,7 +245,7 @@ export async function createBranch(
 export async function updateBranch(
   orgId: string,
   branchId: string,
-  data: Partial<{ name: string; phone: string; isActive: boolean }>,
+  data: Partial<{ name: string; phone: string; isActive: boolean; commissionPct: number }>,
 ): Promise<Branch> {
   const res = await api.put<{ data: Record<string, unknown> }>(
     `/orgs/${orgId}/branches/${branchId}`,
@@ -302,6 +303,7 @@ export async function updateMember(
   orgId: string,
   memberId: string,
   data: {
+    kind?: "admin" | "doctor" | "receptionist";
     bio?: string;
     specialties?: string[];
     avatarUrl?: string;
@@ -318,6 +320,31 @@ export async function updateMember(
   } catch {
     return false;
   }
+}
+
+export async function grantMemberAdmin(orgId: string, memberId: string): Promise<boolean> {
+  try {
+    await api.post(`/orgs/${orgId}/members/${memberId}/grant-admin`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function revokeMemberAdmin(orgId: string, memberId: string): Promise<boolean> {
+  try {
+    await api.delete(`/orgs/${orgId}/members/${memberId}/grant-admin`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function selfJoinAsDoctor(
+  orgId: string,
+  data?: { specialties?: string[]; licenseNumber?: string; bio?: string },
+): Promise<void> {
+  await api.post(`/orgs/${orgId}/members/self/doctor`, data ?? {});
 }
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
@@ -394,3 +421,58 @@ export async function addException(
 }
 
 export { saveTokens };
+
+// ── Wallet ────────────────────────────────────────────────────────────────────
+
+export type WalletTransaction = {
+  id: string;
+  patientName: string;
+  branchName: string;
+  branchId: string;
+  grossAmount: number;
+  platformCut: number;
+  commissionAmount: number;
+  doctorNet: number;
+  currency: string;
+  status: "settled" | "pending" | "refunded";
+  createdAt: string;
+};
+
+export type WalletSummary = {
+  totalEarnings: number;
+  pendingAmount: number;
+  thisMonthEarnings: number;
+  currency: string;
+};
+
+export async function getWalletSummary(orgId: string): Promise<WalletSummary> {
+  const res = await api.get<{ data: WalletSummary }>(`/orgs/${orgId}/transactions/summary`);
+  return res.data.data;
+}
+
+export async function getTransactions(
+  orgId: string,
+  filters?: { branchId?: string; status?: string; from?: string; to?: string; page?: number; limit?: number },
+): Promise<{ transactions: WalletTransaction[]; total: number }> {
+  const res = await api.get<{ data: { transactions: Record<string, unknown>[]; total: number } }>(
+    `/orgs/${orgId}/transactions`,
+    { params: filters },
+  );
+  const { transactions, total } = res.data.data;
+  return {
+    total,
+    transactions: transactions.map((tx) => ({
+      id: String(tx._id ?? tx.id),
+      patientName: String(tx.patientName ?? ""),
+      branchName: String((tx.branch as Record<string, unknown>)?.name ?? ""),
+      branchId: String((tx.branch as Record<string, unknown>)?._id ?? tx.branch ?? ""),
+      grossAmount: Number(tx.grossAmount ?? 0),
+      platformCut: Number(tx.platformCut ?? 0),
+      commissionAmount: Number(tx.commissionAmount ?? 0),
+      doctorNet: Number(tx.doctorNet ?? 0),
+      currency: String(tx.currency ?? "EGP"),
+      status: (tx.status as WalletTransaction["status"]) ?? "settled",
+      createdAt: String(tx.createdAt ?? ""),
+    })),
+  };
+}

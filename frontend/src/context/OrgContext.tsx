@@ -23,6 +23,7 @@ type OrgCtx = {
   subscription: Subscription | null;
   plans: SubscriptionPlan[];
   isLoading: boolean;
+  myRoles: Array<Membership["userRole"]>;
   upgradeModal: { limitType: LimitType } | null;
   clearUpgradeModal: () => void;
   refresh: () => Promise<void>;
@@ -36,6 +37,7 @@ type OrgCtx = {
   ) => Promise<string | null>;
   removeMember: (memberId: string) => Promise<boolean>;
   updateMember: (memberId: string, data: {
+    kind?: Membership["userRole"];
     specialties?: string[];
     bio?: string;
     permissions?: string[];
@@ -59,7 +61,9 @@ type OrgCtx = {
   ) => Promise<boolean>;
   upgradePlan: (planId: string) => Promise<boolean>;
   toggleVisibility: (isPublic: boolean) => Promise<{ ok: boolean; error?: string }>;
-  updateOrg: (data: { whatsappNumber?: string | null }) => Promise<{ ok: boolean; error?: string }>;
+  updateOrg: (data: { name?: string; whatsappNumber?: string | null }) => Promise<{ ok: boolean; error?: string }>;
+  grantAdmin: (memberId: string) => Promise<boolean>;
+  revokeAdmin: (memberId: string) => Promise<boolean>;
 };
 
 const OrgContext = createContext<OrgCtx | null>(null);
@@ -82,6 +86,11 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [upgradeModal, setUpgradeModal] = useState<{ limitType: LimitType } | null>(null);
+
+  const myAccountId = (authUser?.profile as { id?: string } | undefined)?.id ?? "";
+  const myRoles = memberships
+    .filter((m) => m.userId === myAccountId && m.status === "active")
+    .map((m) => m.userRole);
 
   function clearUpgradeModal() { setUpgradeModal(null); }
 
@@ -273,7 +282,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
   async function updateMember(
     memberId: string,
-    data: { specialties?: string[]; bio?: string; permissions?: string[] },
+    data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[] },
   ): Promise<boolean> {
     if (!orgId) return false;
     try {
@@ -286,7 +295,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function updateOrg(data: { whatsappNumber?: string | null }): Promise<{ ok: boolean; error?: string }> {
+  async function updateOrg(data: { name?: string; whatsappNumber?: string | null }): Promise<{ ok: boolean; error?: string }> {
     if (!orgId) return { ok: false, error: "No organization loaded" };
     try {
       const updated = await orgService.updateOrg(orgId, data);
@@ -300,6 +309,20 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function grantAdmin(memberId: string): Promise<boolean> {
+    if (!orgId) return false;
+    const ok = await orgService.grantMemberAdmin(orgId, memberId);
+    if (ok) await refresh();
+    return ok;
+  }
+
+  async function revokeAdmin(memberId: string): Promise<boolean> {
+    if (!orgId) return false;
+    const ok = await orgService.revokeMemberAdmin(orgId, memberId);
+    if (ok) await refresh();
+    return ok;
+  }
+
   return (
     <OrgContext.Provider
       value={{
@@ -310,6 +333,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         subscription,
         plans,
         isLoading,
+        myRoles,
         upgradeModal,
         clearUpgradeModal,
         refresh,
@@ -323,6 +347,8 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         upgradePlan,
         toggleVisibility,
         updateOrg,
+        grantAdmin,
+        revokeAdmin,
       }}
     >
       {children}

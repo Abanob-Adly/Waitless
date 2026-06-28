@@ -1,5 +1,7 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
+import Transaction from '../models/Transaction.js';
+import Branch from '../models/Branch.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
@@ -239,22 +241,40 @@ export const queueService = {
         }
       }
 
-      // Mock financial split (replace with real payment ledger later)
+      // Persist financial split as a Transaction document
       try {
-        const [scheduleDoc, sub] = await Promise.all([
+        const [scheduleDoc, sub, branchDoc, patientDoc] = await Promise.all([
           DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
           getActiveSubscription(appointment.organization),
+          Branch.findById(appointment.branch).select('commissionPct').lean(),
+          appointment.populate('patientProfile', 'fullName').then(() => appointment.patientProfile).catch(() => null),
         ]);
-        const fee         = scheduleDoc?.consultationFee?.amount ?? 0;
-        const platformPct = sub?.plan?.platformCutPercent ?? 15;
-        const platformCut = Math.round(fee * platformPct / 100);
-        const orgCut      = Math.round((fee - platformCut) * 0.7);
-        const doctorCut   = fee - platformCut - orgCut;
-        console.log('[MOCK PAYMENT] Fee split for appointment', String(appointment._id), {
-          consultationFee: fee, platformCut, orgCut, doctorCut, currency: 'EGP',
+
+        const fee            = scheduleDoc?.consultationFee?.amount ?? 0;
+        const platformPct    = sub?.plan?.platformCutPercent ?? 15;
+        const commissionPct  = branchDoc?.commissionPct ?? 70;
+        const platformCut    = Math.round(fee * platformPct / 100);
+        const commissionAmt  = Math.round((fee - platformCut) * commissionPct / 100);
+        const doctorNet      = fee - platformCut - commissionAmt;
+
+        await Transaction.create({
+          org:              appointment.organization,
+          branch:           appointment.branch,
+          appointment:      appointment._id,
+          doctorMembership: session.doctor,
+          session:          session._id,
+          patientName:      (typeof patientDoc === 'object' && patientDoc?.fullName) ? patientDoc.fullName : '',
+          grossAmount:      fee,
+          currency:         'EGP',
+          platformCutPct:   platformPct,
+          platformCut,
+          commissionPct,
+          commissionAmount: commissionAmt,
+          doctorNet,
+          status:           'settled',
         });
       } catch (err) {
-        console.warn('[MOCK PAYMENT] Split calculation failed:', err.message);
+        console.warn('[PAYMENT] Transaction save failed:', err.message);
       }
     }
 

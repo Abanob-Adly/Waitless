@@ -75,6 +75,12 @@ export function LandingPage() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!authUser) return;
+    if (authUser.role === "admin") { navigate("/admin", { replace: true }); return; }
+    if (authUser.role === "doctor") { navigate("/doctor-dashboard", { replace: true }); return; }
+  }, [authUser, navigate]);
+
   const isPatient = authUser?.role === "patient";
   const activeBooking: ActiveBooking | null =
     isPatient && bookings.length > 0 ? bookings[0] : null;

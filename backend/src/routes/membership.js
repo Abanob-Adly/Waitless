@@ -9,5 +9,7 @@ router.get('/invites/:token', membershipController.lookupInvite);
 router.post('/invites/accept/new', validate(inviteSchemas.acceptNew), membershipController.acceptInviteNew);
 router.post('/invites/accept/existing', authenticate, validate(inviteSchemas.acceptExisting),
     membershipController.acceptInviteExisting);
+// List pending invitations sent to the current user's email
+router.get('/invites/pending/me', authenticate, membershipController.listMyInvitations);
 
 export default router;

@@ -8,6 +8,8 @@ import branchRoutes from './branchRoutes.js';
 import memberRoutes from './memberRoutes.js';
 import scheduleRoutes from './scheduleRoutes.js';
 import patientRoutes from './patientRoutes.js';
+import transactionRoutes from './transactionRoutes.js';
+import joinRequestRoutes from './joinRequestRoutes.js';
 
 const router = Router();
 
@@ -68,5 +70,7 @@ router.use('/:orgId/branches', branchRoutes);
 router.use('/:orgId/members', memberRoutes);
 router.use('/:orgId/schedules', scheduleRoutes);
 router.use('/:orgId/patients', patientRoutes);
+router.use('/:orgId/transactions', transactionRoutes);
+router.use('/:orgId/join-requests', joinRequestRoutes);
 
 export default router;

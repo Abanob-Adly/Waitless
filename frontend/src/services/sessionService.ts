@@ -16,6 +16,7 @@ export type BackendSession = {
   bookingsCount: number;
   currentServing: number;
   avgConsultationMin: number;
+  maxBookings: number | null;
 };
 
 export type QueueStatus = {
@@ -78,6 +79,7 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     bookingsCount: Number(s.bookingsCount ?? 0),
     currentServing: Number(s.currentServing ?? 0),
     avgConsultationMin: Number(s.avgConsultationMin ?? 15),
+    maxBookings: s.maxBookings != null ? Number(s.maxBookings) : null,
   };
 }
 

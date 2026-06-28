@@ -47,4 +47,27 @@ router.delete(
   memberController.revoke
 );
 
+// Promote a staff member to also hold admin role (multi-role)
+router.post(
+  '/:memberId/grant-admin',
+  authenticate,
+  authorize('member.invite', () => ({ invitedKind: 'admin' })),
+  memberController.grantAdmin
+);
+
+router.delete(
+  '/:memberId/grant-admin',
+  authenticate,
+  authorize('member.invite', () => ({ invitedKind: 'admin' })),
+  memberController.revokeAdmin
+);
+
+// Self-enrol as doctor — authenticated admin joins own org as a doctor too
+router.post(
+  '/self/doctor',
+  authenticate,
+  authorize('member.invite', () => ({ invitedKind: 'doctor' })),
+  memberController.selfJoinAsDoctor
+);
+
 export default router;

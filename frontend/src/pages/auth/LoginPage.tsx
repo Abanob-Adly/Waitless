@@ -45,6 +45,10 @@ export function LoginPage() {
             navigate("/reception");
             return;
           }
+          if (user.role === "staff") {
+            navigate("/pending");
+            return;
+          }
         }
       } catch {
         // ignore parse errors

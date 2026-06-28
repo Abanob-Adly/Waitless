@@ -88,21 +88,33 @@ function buildAuthUser(
     };
   }
 
-  // Staff — derive role from membership kind
-  const frontendRole = (membership?.kind ?? "admin") as AuthRole;
+  // Worker with no active membership yet — pending state
+  if (!membership) {
+    return {
+      role: "staff",
+      profile: {
+        id: account.id,
+        name: account.fullName,
+        phone: account.phone ?? "",
+        email: account.email,
+      },
+    };
+  }
+
+  const frontendRole = membership.kind as AuthRole;
   const baseProfile = {
     id: account.id,
     name: account.fullName,
     phone: account.phone ?? "",
     email: account.email,
     password: "",
-    orgId: membership?.orgId ?? "",
+    orgId: membership.orgId ?? "",
   };
 
   if (frontendRole === "receptionist") {
     return {
       role: "receptionist",
-      profile: { ...baseProfile, branchId: membership?.branchId ?? "" },
+      profile: { ...baseProfile, branchId: membership.branchId ?? "" },
     };
   }
   if (frontendRole === "doctor") {
@@ -186,6 +198,17 @@ export const authService = {
       },
     );
     return data;
+  },
+
+  // Reload current auth state from the server using the stored access token.
+  async me(): Promise<AuthUser> {
+    const { data } = await api.get<{
+      data: { account: AccountPayload; membership: MembershipPayload };
+    }>("/auth/me");
+    const { account, membership } = data.data;
+    const user = buildAuthUser(account, membership);
+    saveUser(user);
+    return user;
   },
 
   async logout() {

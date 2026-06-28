@@ -1,5 +1,6 @@
 import Router from 'express';
 import { authController, schemas } from '../controllers/authController.js';
+import { joinRequestController } from '../controllers/joinRequestController.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { validate } from '../middleware/validate.js';
 
@@ -19,6 +20,7 @@ router.post('/password-reset/confirm', validate(schemas.confirmReset), authContr
 
 // Authenticated
 router.get ('/me',                   authenticate, authController.me);
+router.get ('/me/join-requests',     authenticate, joinRequestController.listMine);
 router.post('/email/verify',         authenticate, validate(schemas.verifyEmail), authController.confirmEmailVerification);
 router.post('/phone/verify/request', authenticate, authController.requestPhoneVerification);
 router.post('/phone/verify/confirm', authenticate, validate(schemas.verifyPhone), authController.confirmPhoneVerification);

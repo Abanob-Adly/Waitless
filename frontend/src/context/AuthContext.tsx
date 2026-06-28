@@ -16,6 +16,7 @@ type AuthCtx = {
   loginWithCredentials: (identifier: string, password: string) => Promise<boolean>;
   registerPatient: (data: PatientSignupPayload & { email: string }) => Promise<boolean>;
   registerDoctor: (data: DoctorSignupPayload & { email: string }) => Promise<boolean>;
+  reloadUser: () => Promise<boolean>;
   logout: () => void;
   clearAuthError: () => void;
 };
@@ -111,6 +112,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function reloadUser(): Promise<boolean> {
+    setIsAuthLoading(true);
+    try {
+      const user = await authService.me();
+      setAuthUser(user);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
   async function logout() {
     await authService.logout();
     setAuthUser(null);
@@ -125,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginWithCredentials,
         registerPatient,
         registerDoctor,
+        reloadUser,
         logout,
         clearAuthError,
       }}

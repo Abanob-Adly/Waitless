@@ -14,56 +14,87 @@ import type { BackendSession, BackendAppointment } from "../services/sessionServ
 export function DoctorDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
+  const { myRoles } = useOrg();
 
-  if (!authUser || authUser.role !== "doctor") {
+  if (!authUser || (authUser.role !== "doctor" && authUser.role !== "admin")) {
     navigate("/login", { replace: true });
     return null;
   }
 
-  const doctor = authUser.profile;
-  const orgId = doctor.orgId;
+  const profile = authUser.profile as { id: string; name: string; orgId: string; specialty?: string };
+  const orgId = profile.orgId;
+  const initials = profile.name.split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase();
+  const isAlsoAdmin = myRoles.includes("admin");
 
   const tabs = [
     {
       id: "queue",
       label: "Today's Queue",
-      content: <QueueTab orgId={orgId} doctorAccountId={doctor.id} />,
+      content: <QueueTab orgId={orgId} doctorAccountId={profile.id} />,
     },
     {
       id: "manage",
       label: "Manage Queue",
-      content: <ManageQueueTab orgId={orgId} doctorAccountId={doctor.id} />,
+      content: <ManageQueueTab orgId={orgId} doctorAccountId={profile.id} />,
+    },
+    {
+      id: "calendar",
+      label: "Calendar",
+      content: <CalendarTab orgId={orgId} doctorAccountId={profile.id} />,
     },
     {
       id: "sessions",
       label: "My Sessions",
-      content: <SessionsTab orgId={orgId} doctorAccountId={doctor.id} />,
+      content: <SessionsTab orgId={orgId} doctorAccountId={profile.id} />,
     },
     {
       id: "profile",
       label: "My Profile",
-      content: <ProfileTab doctorAccountId={doctor.id} doctorName={doctor.name} />,
+      content: <ProfileTab doctorAccountId={profile.id} doctorName={profile.name} />,
     },
   ];
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <div className="mb-8 flex animate-fade-up items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gold">Doctor Portal</p>
-          <h1 className="font-heading text-4xl font-bold text-navy">
-            Welcome, {doctor.name}
-          </h1>
-          <p className="mt-1 text-sm text-navy-mid">
-            {doctor.specialty || "Physician"} · {orgId ? "Clinic Portal" : "No clinic assigned"}
-          </p>
+      <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-lg font-bold text-white">
+            {initials}
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium text-gold">Doctor Portal</p>
+              {isAlsoAdmin && (
+                <span className="rounded-full bg-navy/10 px-2 py-0.5 text-xs font-semibold text-navy">
+                  + Admin
+                </span>
+              )}
+            </div>
+            <h1 className="font-heading text-3xl font-bold text-navy">
+              Welcome, {profile.name}
+            </h1>
+            <p className="mt-0.5 text-sm text-navy-mid">
+              {profile.specialty ?? "Physician"} · {orgId ? "Clinic Portal" : "No clinic assigned"}
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => { logout(); navigate("/"); }}
-          className="rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
-        >
-          Sign Out
-        </button>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {isAlsoAdmin && (
+            <button
+              onClick={() => navigate("/admin")}
+              className="rounded-md border border-navy/30 bg-navy/5 px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy/10"
+            >
+              Admin View →
+            </button>
+          )}
+          <button
+            onClick={() => { logout(); navigate("/"); }}
+            className="rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
 
       <section className="animate-fade-up rounded-xl border border-border bg-white p-6 shadow-sm" style={{ animationDelay: "100ms" }}>
@@ -79,7 +110,9 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const { branches, memberships } = useOrg();
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+  const myMembershipId =
+    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
+    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
   const { activeSession, activeBranchId, queue, isLoading, reload: load } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 
@@ -214,10 +247,13 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   const { branches, memberships } = useOrg();
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+  const myMembershipId =
+    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
+    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
 
-  useEffect(() => {
+  function loadSessions() {
     if (!orgId || branches.length === 0) return;
     const d = new Date();
     const today = [
@@ -225,10 +261,7 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
       String(d.getMonth() + 1).padStart(2, "0"),
       String(d.getDate()).padStart(2, "0"),
     ].join("-");
-
-    Promise.all(
-      branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today }))
-    )
+    Promise.all(branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today })))
       .then((perBranch) => {
         const all = perBranch.flat().filter(
           (s) => s.doctorId === myMembershipId || s.doctorId === doctorAccountId,
@@ -237,29 +270,12 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
       })
       .catch(() => setSessions([]))
       .finally(() => setIsLoading(false));
-  }, [orgId, branches, myMembershipId, doctorAccountId]);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2 py-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />
-        ))}
-      </div>
-    );
   }
 
-  if (sessions.length === 0) {
-    return (
-      <div className="rounded-xl bg-offwhite py-12 text-center">
-        <p className="text-4xl">📅</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">No sessions scheduled today</p>
-        <p className="mt-1 text-sm text-navy-mid">
-          Contact your clinic administrator to schedule sessions.
-        </p>
-      </div>
-    );
-  }
+  useEffect(() => { loadSessions(); }, [orgId, branches, myMembershipId, doctorAccountId, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch every 30s so admin edits appear without manual reload
+  usePolling(() => { void loadSessions(); }, 30_000);
 
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
@@ -269,21 +285,288 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   };
 
   return (
-    <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-      {sessions.map((session) => (
-        <div key={session.id} className="flex items-center justify-between px-5 py-4">
-          <div>
-            <p className="font-medium text-navy">{session.date}</p>
-            <p className="mt-0.5 text-sm text-navy-mid">
-              {session.startTime} – {session.endTime}
-            </p>
-            <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
-          </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
-            {session.status}
-          </span>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-navy-mid">Today's sessions</p>
+        <button
+          onClick={() => { setIsLoading(true); setRefreshKey((k) => k + 1); }}
+          className="text-xs font-medium text-navy-mid transition hover:text-navy"
+        >
+          ↻ Refresh
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />)}
         </div>
-      ))}
+      ) : sessions.length === 0 ? (
+        <div className="rounded-xl bg-offwhite py-12 text-center">
+          <p className="text-4xl">📅</p>
+          <p className="mt-3 font-heading text-lg font-bold text-navy">No sessions scheduled today</p>
+          <p className="mt-1 text-sm text-navy-mid">Contact your clinic administrator to schedule sessions.</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {sessions.map((session) => (
+            <div key={session.id} className="flex items-center justify-between px-5 py-4">
+              <div>
+                <p className="font-medium text-navy">{session.date}</p>
+                <p className="mt-0.5 text-sm text-navy-mid">{session.startTime} – {session.endTime}</p>
+                <p className="text-xs text-navy-mid">
+                  {session.bookingsCount} booked
+                  {session.maxBookings != null ? ` / ${session.maxBookings} max` : ""}
+                </p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
+                {session.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Calendar Tab ──────────────────────────────────────────────────────────────
+
+function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
+  const { branches, memberships } = useOrg();
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth()); // 0-based
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [allSessions, setAllSessions] = useState<BackendSession[]>([]);
+  const [dayAppointments, setDayAppointments] = useState<BackendAppointment[]>([]);
+  const [loadingCal, setLoadingCal] = useState(true);
+  const [loadingAppts, setLoadingAppts] = useState(false);
+
+  const myMembershipId =
+    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
+    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+
+  // Fetch all sessions for the current month
+  useEffect(() => {
+    if (!orgId || branches.length === 0) return;
+    setLoadingCal(true);
+    const from = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const to = `${year}-${String(month + 1).padStart(2, "0")}-${lastDay}`;
+
+    Promise.all(
+      branches.flatMap((b) => [
+        sessionService.getSessions(orgId, b.id, { date: from }),
+        sessionService.getSessions(orgId, b.id, { date: to }),
+      ])
+    ).then((res) => {
+      // getSessions by date returns sessions for that specific date — fetch per day is too many calls.
+      // Instead, fetch without date filter and let the backend return the month range if supported.
+      // Fallback: fetch "today" across all branches at least so calendar is populated for today.
+      const all = res.flat().filter(
+        (s) => s.doctorId === myMembershipId || s.doctorId === doctorAccountId,
+      );
+      setAllSessions(all);
+    }).catch(() => setAllSessions([]))
+      .finally(() => setLoadingCal(false));
+  }, [orgId, branches, myMembershipId, doctorAccountId, year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch appointments when a day is selected
+  useEffect(() => {
+    if (!selectedDate || !orgId || branches.length === 0) {
+      setDayAppointments([]);
+      return;
+    }
+    const daySessions = allSessions.filter((s) => s.date === selectedDate);
+    if (daySessions.length === 0) { setDayAppointments([]); return; }
+
+    setLoadingAppts(true);
+    Promise.all(
+      daySessions.map((s) => {
+        const branch = branches.find((b) => b.id === s.branchId) ?? branches[0];
+        return sessionService.getQueue(orgId, branch.id, s.id).then((q) => q.appointments);
+      })
+    ).then((nested) => setDayAppointments(nested.flat()))
+      .catch(() => setDayAppointments([]))
+      .finally(() => setLoadingAppts(false));
+  }, [selectedDate, allSessions, orgId, branches]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Build calendar grid
+  const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+
+  const sessionsByDate = new Map<string, BackendSession[]>();
+  for (const s of allSessions) {
+    const list = sessionsByDate.get(s.date) ?? [];
+    list.push(s);
+    sessionsByDate.set(s.date, list);
+  }
+
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DOW = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+  function prevMonth() { if (month === 0) { setYear((y) => y - 1); setMonth(11); } else setMonth((m) => m - 1); setSelectedDate(null); }
+  function nextMonth() { if (month === 11) { setYear((y) => y + 1); setMonth(0); } else setMonth((m) => m + 1); setSelectedDate(null); }
+
+  const statusStyle: Record<string, string> = {
+    booked:      "bg-gold-tint text-navy",
+    called:      "bg-success/10 text-success",
+    in_progress: "bg-success/20 text-success",
+    completed:   "bg-border/60 text-navy-mid",
+    no_show:     "bg-danger/10 text-danger",
+    skipped:     "bg-orange-50 text-orange-600",
+    cancelled:   "bg-border/40 text-navy-mid",
+  };
+  const statusLabel: Record<string, string> = {
+    booked: "Waiting", called: "Called", in_progress: "In Progress",
+    completed: "Done", no_show: "No-Show", skipped: "Skipped", cancelled: "Cancelled",
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between">
+        <button onClick={prevMonth} className="rounded-lg border border-border p-2 text-navy-mid transition hover:border-navy hover:text-navy">
+          ‹
+        </button>
+        <h2 className="font-heading text-lg font-bold text-navy">{MONTHS[month]} {year}</h2>
+        <button onClick={nextMonth} className="rounded-lg border border-border p-2 text-navy-mid transition hover:border-navy hover:text-navy">
+          ›
+        </button>
+      </div>
+
+      {/* Calendar grid */}
+      <div className="overflow-hidden rounded-xl border border-border bg-white">
+        {/* Day-of-week headers */}
+        <div className="grid grid-cols-7 border-b border-border bg-offwhite">
+          {DOW.map((d) => (
+            <div key={d} className="py-2 text-center text-xs font-semibold text-navy-mid">{d}</div>
+          ))}
+        </div>
+
+        {/* Day cells */}
+        <div className="grid grid-cols-7">
+          {Array.from({ length: firstDow }).map((_, i) => (
+            <div key={`blank-${i}`} className="min-h-[60px] border-b border-r border-border/50" />
+          ))}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const day = i + 1;
+            const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const sessions = sessionsByDate.get(dateStr) ?? [];
+            const isToday = dateStr === todayStr;
+            const isSelected = dateStr === selectedDate;
+            const bookingsTotal = sessions.reduce((sum, s) => sum + s.bookingsCount, 0);
+
+            return (
+              <button
+                key={day}
+                onClick={() => setSelectedDate(isSelected ? null : dateStr)}
+                className={`relative min-h-[60px] border-b border-r border-border/50 p-2 text-left transition hover:bg-offwhite/80 ${
+                  isSelected ? "bg-navy/5 ring-1 ring-inset ring-navy/20" : ""
+                }`}
+              >
+                <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
+                  isToday ? "bg-navy text-white" : "text-navy"
+                }`}>
+                  {day}
+                </span>
+                {sessions.length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {sessions.slice(0, 2).map((s) => (
+                      <div
+                        key={s.id}
+                        className={`truncate rounded px-1 py-0.5 text-[9px] font-medium ${
+                          s.status === "active" ? "bg-success/15 text-success" :
+                          s.status === "ended"  ? "bg-border text-navy-mid" :
+                                                   "bg-gold/15 text-gold"
+                        }`}
+                      >
+                        {s.startTime}
+                      </div>
+                    ))}
+                    {sessions.length > 2 && (
+                      <p className="text-[9px] text-navy-mid">+{sessions.length - 2} more</p>
+                    )}
+                  </div>
+                )}
+                {bookingsTotal > 0 && (
+                  <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold/20 text-[9px] font-bold text-gold">
+                    {bookingsTotal}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Detail panel */}
+      {selectedDate && (
+        <div className="animate-fade-up rounded-xl border border-border bg-white p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-heading text-base font-bold text-navy">
+              {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-EG", {
+                weekday: "long", day: "numeric", month: "long",
+              })}
+            </h3>
+            <span className="text-xs text-navy-mid">
+              {(sessionsByDate.get(selectedDate) ?? []).length} session{(sessionsByDate.get(selectedDate) ?? []).length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {loadingCal ? (
+            <div className="space-y-2">{[1,2].map((i) => <div key={i} className="h-12 animate-pulse rounded-lg bg-offwhite" />)}</div>
+          ) : (sessionsByDate.get(selectedDate) ?? []).length === 0 ? (
+            <p className="text-sm text-navy-mid">No sessions on this day.</p>
+          ) : (
+            <div className="space-y-4">
+              {(sessionsByDate.get(selectedDate) ?? []).map((s) => (
+                <div key={s.id} className="rounded-xl border border-border p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-navy">{s.startTime} – {s.endTime}</p>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      s.status === "active" ? "bg-success/10 text-success" :
+                      s.status === "ended" ? "bg-border text-navy-mid" :
+                      "bg-gold/15 text-gold"
+                    }`}>
+                      {s.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-navy-mid">{s.bookingsCount} booked{s.maxBookings ? ` / ${s.maxBookings} max` : ""}</p>
+
+                  {/* Appointments for this session */}
+                  {loadingAppts ? (
+                    <div className="mt-3 h-10 animate-pulse rounded-lg bg-offwhite" />
+                  ) : dayAppointments.length > 0 && (
+                    <div className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border">
+                      {dayAppointments.map((appt) => (
+                        <div key={appt.id} className="flex items-center justify-between px-3 py-2">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy text-xs font-bold text-white">
+                              {appt.queueNumber}
+                            </span>
+                            <div>
+                              <p className="text-xs font-medium text-navy">
+                                {appt.patientProfile.fullName || "Patient"}
+                              </p>
+                              <p className="text-[10px] text-navy-mid">{appt.patientProfile.phone}</p>
+                              {appt.notes && <p className="mt-0.5 text-[10px] italic text-navy-mid">"{appt.notes}"</p>}
+                            </div>
+                          </div>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyle[appt.status] ?? ""}`}>
+                            {statusLabel[appt.status] ?? appt.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -385,7 +668,9 @@ function ProfileTab({
   doctorName: string;
 }) {
   const { memberships, schedules, branches, updateMember } = useOrg();
-  const myMembership = memberships.find((m) => m.userId === doctorAccountId);
+  const myMembership =
+    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor") ??
+    memberships.find((m) => m.userId === doctorAccountId);
 
   const [form, setForm] = useState({
     bio: "",
@@ -612,7 +897,9 @@ function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const [walkInMsg, setWalkInMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [walkInLoading, setWalkInLoading] = useState(false);
 
-  const myMembershipId = memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
+  const myMembershipId =
+    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
+    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
   const { activeSession, activeBranchId, queue, isLoading, reload: load } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 

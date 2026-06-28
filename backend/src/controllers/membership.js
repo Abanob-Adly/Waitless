@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { inviteService } from '../services/invite.js';
 import { tokenService } from '../services/token.js';
+import { Membership } from '../models/Membership.js';
 
 export const inviteSchemas = {
     acceptNew: z.object({
@@ -42,5 +43,18 @@ export const membershipController = {
         // Re-issue token with new activeOrg
         const accessToken = tokenService.signAccessToken(account, membership.organization);
         res.json({ accessToken, membershipId: membership._id });
+    },
+
+    // List pending invitations for the currently authenticated worker (by email match)
+    async listMyInvitations(req, res) {
+        const email = req.actor.account.email;
+        const invitations = await Membership.find({
+            inviteEmail: email,
+            status: 'pending',
+        })
+          .populate('organization', 'name type')
+          .select('kind inviteToken inviteEmail organization createdAt inviteExpiresAt')
+          .lean();
+        res.json({ data: invitations });
     },
 };
