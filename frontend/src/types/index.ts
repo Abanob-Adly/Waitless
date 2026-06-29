@@ -150,7 +150,7 @@ export type ActiveBooking = {
   doctor: Doctor;
   session: Session;
   queueNumber: number;
-  paymentMethod: "card" | "vodafone" | "clinic";
+  paymentMethod: "card" | "vodafone" | "clinic" | "wallet";
   paymentStatus: "success" | "failed" | "pending";
   transactionId?: string;
   patientNotes?: string;

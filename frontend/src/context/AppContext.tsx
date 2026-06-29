@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import type { ActiveBooking, HistoryRecord, BookingIntent } from "../types/index";
+import { useAuth } from "./AuthContext";
 
 // Re-export all canonical types so existing consumers don't need to change their imports
 export type {
@@ -21,11 +22,13 @@ export type {
   PaymentRecord,
 } from "../types/index";
 
-const BOOKINGS_KEY = "waitless_bookings";
+function getBookingsKey(userId: string | undefined): string {
+  return `waitless_bookings_${userId ?? "guest"}`;
+}
 
-function loadStoredBookings(): ActiveBooking[] {
+function loadStoredBookings(key: string): ActiveBooking[] {
   try {
-    const raw = localStorage.getItem(BOOKINGS_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) return JSON.parse(raw) as ActiveBooking[];
   } catch { /* corrupted */ }
   return [];
@@ -49,13 +52,32 @@ const Ctx = createContext<AppCtx | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [bookings, setBookings] = useState<ActiveBooking[]>(loadStoredBookings);
+  const { authUser } = useAuth();
+  const storageKey = getBookingsKey(authUser?.profile.id);
+
+  const [bookings, setBookings] = useState<ActiveBooking[]>(() => loadStoredBookings(storageKey));
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [bookingIntent, setBookingIntent] = useState<BookingIntent | null>(null);
 
+  // Prevents the persist effect from writing the previous user's bookings to the
+  // new user's key in the same render cycle as a key change reload.
+  const suppressPersistRef = useRef(false);
+
+  // When the logged-in user changes (login / logout / account switch), reload
+  // bookings from the correct user-scoped key so each account only sees its own tickets.
   useEffect(() => {
-    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
-  }, [bookings]);
+    suppressPersistRef.current = true;
+    setBookings(loadStoredBookings(storageKey));
+  }, [storageKey]);
+
+  // Persist to the current user's scoped key on every change.
+  useEffect(() => {
+    if (suppressPersistRef.current) {
+      suppressPersistRef.current = false;
+      return;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(bookings));
+  }, [bookings, storageKey]);
 
   function addBooking(b: ActiveBooking) {
     setBookings((prev) => {
@@ -91,7 +113,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function clearBookings() {
     setBookings([]);
-    localStorage.removeItem(BOOKINGS_KEY);
+    localStorage.removeItem(storageKey);
   }
 
   return (

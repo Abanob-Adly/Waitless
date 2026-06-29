@@ -400,16 +400,20 @@ export async function updateSchedule(
     avgConsultationMin?: number;
     consultationFee?: number;
   },
-): Promise<DoctorBranchSchedule> {
+): Promise<{ schedule: DoctorBranchSchedule; sessionsGenerated: number }> {
   const payload: Record<string, unknown> = {};
   if (data.schedule !== undefined) payload.schedule = data.schedule;
   if (data.avgConsultationMin !== undefined) payload.avgConsultationMin = data.avgConsultationMin;
   if (data.consultationFee !== undefined) payload.consultationFee = { amount: data.consultationFee, currency: 'EGP' };
-  const res = await api.put<{ data: Record<string, unknown> }>(
+  const res = await api.put<{ data: Record<string, unknown>; sessionsGenerated?: number }>(
     `/orgs/${orgId}/schedules/${scheduleId}`,
     payload,
   );
-  return adaptSchedule(unwrap(res) as Record<string, unknown>);
+  const raw = res.data as { data: Record<string, unknown>; sessionsGenerated?: number };
+  return {
+    schedule: adaptSchedule(raw.data),
+    sessionsGenerated: Number(raw.sessionsGenerated ?? 0),
+  };
 }
 
 export async function addException(

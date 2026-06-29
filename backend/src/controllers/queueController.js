@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { queueService } from '../services/queueService.js';
 import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
+import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { NotFound } from '../utils/errors.js';
 
 export const queueSchemas = {
@@ -16,6 +17,15 @@ export const queueSchemas = {
     (d) => d.avgConsultationMin != null || d.globalDelayMin != null,
     { message: 'At least one of avgConsultationMin or globalDelayMin is required' }
   ),
+
+  startBreak: z.object({
+    durationMin: z.number().int().min(1).max(120),
+    reason:      z.string().max(200).optional(),
+  }),
+
+  forceInsert: z.object({
+    emergencyReason: z.string().max(300).optional(),
+  }),
 };
 
 export const queueController = {
@@ -77,5 +87,69 @@ export const queueController = {
 
     const result = await queueService.updateDelay({ session, data: req.body });
     res.json({ data: result });
+  },
+
+  async forceInsert(req, res) {
+    const appointment = await Appointment.findOne({
+      _id:     req.params.appointmentId,
+      session: req.params.sessionId,
+    });
+    if (!appointment) throw NotFound('Appointment not found');
+
+    const session = await Session.findById(req.params.sessionId);
+    if (!session) throw NotFound('Session not found');
+
+    const result = await queueService.forceInsert({
+      appointment,
+      session,
+      emergencyReason: req.body?.emergencyReason,
+    });
+    res.json({ data: result });
+  },
+
+  async startBreak(req, res) {
+    const session = await Session.findOne({ _id: req.params.sessionId, branch: req.params.branchId });
+    if (!session) throw NotFound('Session not found');
+    const result = await queueService.startBreak({
+      session,
+      durationMin: req.body.durationMin,
+      reason:      req.body.reason,
+    });
+    res.json({ data: result });
+  },
+
+  async resumeFromBreak(req, res) {
+    const session = await Session.findOne({ _id: req.params.sessionId, branch: req.params.branchId });
+    if (!session) throw NotFound('Session not found');
+    const result = await queueService.resumeFromBreak({ session });
+    res.json({ data: result });
+  },
+
+  async cashSummary(req, res) {
+    const session = await Session.findById(req.params.sessionId)
+      .populate({ path: 'doctorBranchSchedule', select: 'consultationFee' })
+      .lean();
+    if (!session) throw NotFound('Session not found');
+
+    const fee = session.doctorBranchSchedule?.consultationFee?.amount ?? 0;
+
+    const appointments = await Appointment.find({
+      session:       req.params.sessionId,
+      status:        'completed',
+      paymentMethod: 'cash',
+    }).populate('patientProfile', 'fullName').lean();
+
+    res.json({
+      data: {
+        totalCash:          appointments.length * fee,
+        count:              appointments.length,
+        feePerAppointment:  fee,
+        appointments:       appointments.map((a) => ({
+          queueNumber: a.queueNumber,
+          patientName: a.patientProfile?.fullName ?? '',
+          completedAt: a.completedAt,
+        })),
+      },
+    });
   },
 };

@@ -1,20 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
-import { Tabs } from "../../components/ui/Tabs";
 import * as sessionService from "../../services/sessionService";
 import { bookWalkIn } from "../../services/appointmentService";
+import type { AppointmentType } from "../../services/appointmentService";
 import { lookupPatientByPhone } from "../../services/patientService";
 import { toE164 } from "../../utils/phone";
-import type { BackendSession, BackendAppointment } from "../../services/sessionService";
+import type { BackendSession, BackendAppointment, CashSummary } from "../../services/sessionService";
+
+type RecSection = "sessions" | "walkin" | "checkin";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function ReceptionistDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
-  const { isLoading } = useOrg();
+  const [activeSection, setActiveSection] = useState<RecSection | null>(null);
 
   if (!authUser || authUser.role !== "receptionist") {
     navigate("/login", { replace: true });
@@ -24,37 +26,147 @@ export function ReceptionistDashboard() {
   const rec = authUser.profile;
   const orgId = rec.orgId;
   const branchId = rec.branchId;
+  const initials = (rec.name as string).split(" ").slice(0, 2).map((w: string) => w[0] ?? "").join("").toUpperCase();
 
-  const tabs = [
-    { id: "sessions", label: "Today's Sessions", content: <SessionsTab orgId={orgId} branchId={branchId} /> },
-    { id: "walkin",   label: "Walk-In",           content: <WalkInTab orgId={orgId} branchId={branchId} /> },
-    { id: "checkin",  label: "Check-In",           content: <CheckInTab orgId={orgId} branchId={branchId} /> },
-  ];
+  const sectionTitle: Record<RecSection, string> = {
+    sessions: "Today's Sessions",
+    walkin:   "Walk-In Booking",
+    checkin:  "Patient Check-In",
+  };
+
+  function renderSection() {
+    switch (activeSection) {
+      case "sessions": return <SessionsTab orgId={orgId} branchId={branchId} />;
+      case "walkin":   return <WalkInTab orgId={orgId} branchId={branchId} />;
+      case "checkin":  return <CheckInTab orgId={orgId} branchId={branchId} />;
+      default:         return null;
+    }
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <div className="mb-8 flex animate-fade-up items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gold">Reception Portal</p>
-          <h1 className="font-heading text-4xl font-bold text-navy">
-            {isLoading ? "Loading…" : "Reception Desk"}
-          </h1>
-          <p className="mt-1 text-sm text-navy-mid">
-            {rec.name} · Receptionist
-          </p>
+      {/* Header */}
+      <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-lg font-bold text-white">
+            {initials}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gold">Reception Portal</p>
+            <h1 className="font-heading text-3xl font-bold text-navy">
+              Reception Desk
+            </h1>
+            <p className="mt-0.5 text-sm text-navy-mid">{rec.name} · Receptionist</p>
+          </div>
         </div>
         <button
           onClick={() => { logout(); navigate("/"); }}
-          className="rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
+          className="shrink-0 rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
         >
           Sign Out
         </button>
       </div>
 
-      <section className="animate-fade-up rounded-xl border border-border bg-white p-6 shadow-sm" style={{ animationDelay: "100ms" }}>
-        <Tabs items={tabs} defaultTab="sessions" />
-      </section>
+      {/* Breadcrumb */}
+      {activeSection && (
+        <div className="mb-5 flex animate-fade-up items-center gap-2 text-sm">
+          <button
+            onClick={() => setActiveSection(null)}
+            className="font-medium text-gold transition hover:text-gold-light"
+          >
+            Dashboard
+          </button>
+          <span className="text-border">/</span>
+          <span className="font-medium text-navy">{sectionTitle[activeSection]}</span>
+        </div>
+      )}
+
+      <div className="animate-fade-up rounded-xl border border-border bg-white p-6 shadow-sm" style={{ animationDelay: "80ms" }}>
+        {activeSection ? (
+          renderSection()
+        ) : (
+          <ReceptionHome onSelect={setActiveSection} />
+        )}
+      </div>
     </main>
+  );
+}
+
+// ── Reception Home card grid ──────────────────────────────────────────────────
+
+function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
+  const cards: { id: RecSection; title: string; desc: string; icon: React.ReactNode; theme: "navy" | "gold" | "success" }[] = [
+    {
+      id: "sessions",
+      title: "Today's Sessions",
+      desc: "View all active doctor sessions, expand to see patient queue and manage appointments",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M3 9h14" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M7 3v4M13 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      ),
+      theme: "success",
+    },
+    {
+      id: "walkin",
+      title: "Walk-In Booking",
+      desc: "Register a walk-in patient into an active session without a prior appointment",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="6" r="3" fill="currentColor" />
+          <path d="M4 18c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M14 3l2 2-2 2M16 5H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ),
+      theme: "gold",
+    },
+    {
+      id: "checkin",
+      title: "Patient Check-In",
+      desc: "Look up an existing appointment by phone number to confirm arrival at the clinic",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M5 10l3.5 3.5L15 6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      ),
+      theme: "navy",
+    },
+  ];
+
+  const themeMap = {
+    navy:    { ring: "hover:ring-navy/20",    iconBg: "bg-navy",    arrow: "text-navy"    },
+    gold:    { ring: "hover:ring-gold/25",    iconBg: "bg-gold",    arrow: "text-gold"    },
+    success: { ring: "hover:ring-success/20", iconBg: "bg-success", arrow: "text-success" },
+  };
+
+  return (
+    <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-3">
+      {cards.map((card, i) => {
+        const t = themeMap[card.theme];
+        return (
+          <button
+            key={card.id}
+            onClick={() => onSelect(card.id)}
+            style={{ animationDelay: `${i * 60}ms` }}
+            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${t.ring}`}
+          >
+            <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${t.iconBg}`}>
+              {card.icon}
+            </div>
+            <div className="flex-1">
+              <p className="font-heading text-base font-bold text-navy">{card.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">{card.desc}</p>
+            </div>
+            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${t.arrow}`}>
+              Open →
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -220,10 +332,11 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
   const [patientName, setPatientName] = useState("");
   const [phone, setPhone] = useState("");
+  const [appointmentType, setAppointmentType] = useState<AppointmentType>("new_consultation");
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string>("");
   const [adding, setAdding] = useState(false);
-  const [result, setResult] = useState<{ queueNumber: number } | null>(null);
+  const [result, setResult] = useState<{ queueNumber: number; estimatedWaitMin?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const walkinNow = new Date();
@@ -268,13 +381,15 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     setError(null);
     try {
       const appt = await bookWalkIn(orgId, branchId, selectedSession, {
-        patientPhone: phone.trim() ? toE164(phone.trim()) : undefined,
-        patientName: patientName.trim(),
+        patientPhone:    phone.trim() ? toE164(phone.trim()) : undefined,
+        patientName:     patientName.trim(),
+        appointmentType,
       });
-      setResult({ queueNumber: appt.queueNumber });
+      setResult({ queueNumber: appt.queueNumber, estimatedWaitMin: appt.estimatedWaitMin });
       setPatientName("");
       setPhone("");
       setFoundPatient(null);
+      setAppointmentType("new_consultation");
       setPhase("lookup");
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to add patient to queue.";
@@ -297,7 +412,12 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
         <div className="rounded-xl border border-success/30 bg-success/5 px-5 py-4">
           <p className="font-medium text-success">Patient added to queue</p>
           <p className="mt-1 text-2xl font-bold text-navy">#{result.queueNumber}</p>
-          <p className="text-xs text-navy-mid">Queue number assigned</p>
+          <p className="text-xs text-navy-mid">
+            Queue number assigned
+            {result.estimatedWaitMin != null && result.estimatedWaitMin > 0 && (
+              <> · Est. wait: <span className="font-semibold">{Math.round(result.estimatedWaitMin)} min</span></>
+            )}
+          </p>
           <button
             onClick={() => setResult(null)}
             className="mt-2 text-xs text-navy-mid hover:text-navy"
@@ -354,6 +474,19 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
               onChange={(e) => setPatientName(e.target.value)}
               className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-navy">Visit Type</label>
+            <select
+              value={appointmentType}
+              onChange={(e) => setAppointmentType(e.target.value as AppointmentType)}
+              className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            >
+              <option value="new_consultation">New Consultation</option>
+              <option value="follow_up">Follow-Up</option>
+              <option value="medical_rep">Medical Rep</option>
+            </select>
           </div>
 
           {sessions.length > 0 && (
@@ -492,14 +625,18 @@ function CheckInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
 function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; branchId: string; sessionId: string }) {
   const [queue, setQueue] = useState<BackendAppointment[]>([]);
+  const [currentlyServing, setCurrentlyServing] = useState(0);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [delayMin, setDelayMin] = useState("0");
   const [savingDelay, setSavingDelay] = useState(false);
+  const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
+  const [loadingCash, setLoadingCash] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const q = await sessionService.getQueue(orgId, branchId, sessionId);
       setQueue(q.appointments);
+      setCurrentlyServing(q.currentlyServing);
     } catch {
       setQueue([]);
     }
@@ -548,6 +685,24 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     setSavingDelay(false);
   }
 
+  async function handleForceInsert(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.forceInsertNext(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
+  async function handleLoadCashSummary() {
+    setLoadingCash(true);
+    try {
+      const summary = await sessionService.getCashSummary(orgId, branchId, sessionId);
+      setCashSummary(summary);
+    } catch { setCashSummary(null); }
+    setLoadingCash(false);
+  }
+
   const statusColor: Record<string, string> = {
     booked:      "bg-gold-tint text-gold",
     called:      "bg-success/10 text-success",
@@ -584,10 +739,12 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
           {savingDelay ? "…" : "Update"}
         </button>
       </div>
-      {queue.map((p) => (
-        <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
+      {queue.map((p) => {
+        const isOverdue = p.status === "booked" && currentlyServing > 0 && p.queueNumber < currentlyServing;
+        return (
+        <div key={p.id} className={`flex items-center justify-between rounded-lg px-4 py-2.5 shadow-sm ${isOverdue ? "border border-danger/20 bg-danger/5" : "bg-white"}`}>
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-tint text-xs font-bold text-navy">
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-navy ${isOverdue ? "bg-danger/15" : "bg-gold-tint"}`}>
               {p.queueNumber}
             </span>
             <div>
@@ -600,11 +757,24 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isOverdue && (
+              <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
+                ⚠ Overdue
+              </span>
+            )}
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[p.status] ?? ""}`}>
               {p.status.replace("_", " ")}
             </span>
             {p.status === "booked" && (
               <>
+                <button
+                  onClick={() => handleForceInsert(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-gold/50 px-2 py-1 text-xs text-gold transition hover:bg-gold-tint"
+                  title="Move to front of queue"
+                >
+                  Force Next
+                </button>
                 <button
                   onClick={() => handleAction(p.id, "cancelled")}
                   disabled={actionInProgress === p.id}
@@ -616,6 +786,7 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
                   onClick={() => handleAction(p.id, "no_show")}
                   disabled={actionInProgress === p.id}
                   className="rounded border border-danger/30 px-2 py-1 text-xs text-danger transition hover:bg-danger/5"
+                  title="Mark as no-show and remove from queue"
                 >
                   No-Show
                 </button>
@@ -641,7 +812,45 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
+
+      {/* End-of-shift cash drawer reconciliation */}
+      <div className="mt-4 border-t border-border pt-4">
+        <div className="flex items-center gap-3">
+          <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">
+            Cash Drawer Summary
+          </p>
+          <button
+            onClick={handleLoadCashSummary}
+            disabled={loadingCash}
+            className="rounded border border-border px-3 py-1 text-xs text-navy-mid transition hover:border-gold hover:text-gold disabled:opacity-60"
+          >
+            {loadingCash ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+
+        {cashSummary ? (
+          cashSummary.count === 0 ? (
+            <p className="mt-2 text-xs text-navy-mid">No cash payments recorded for this session.</p>
+          ) : (
+            <div className="mt-2 space-y-1">
+              {cashSummary.appointments.map((a, i) => (
+                <div key={i} className="flex items-center justify-between rounded bg-white px-3 py-1.5 text-xs">
+                  <span className="text-navy-mid">#{a.queueNumber} · {a.patientName || "Patient"}</span>
+                  <span className="font-medium text-navy">{cashSummary.feePerAppointment} EGP</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between rounded-lg bg-gold-tint px-3 py-2 text-sm font-semibold text-navy">
+                <span>Total Cash Collected</span>
+                <span>{cashSummary.totalCash} EGP</span>
+              </div>
+            </div>
+          )
+        ) : (
+          <p className="mt-2 text-xs text-navy-mid">Click Refresh to see today's cash totals.</p>
+        )}
+      </div>
     </div>
   );
 }

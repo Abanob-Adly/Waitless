@@ -3,6 +3,8 @@ import { toE164 } from "../utils/phone";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type AppointmentType = "new_consultation" | "follow_up" | "medical_rep";
+
 export type BookedAppointment = {
   id: string;
   queueNumber: number;
@@ -12,6 +14,7 @@ export type BookedAppointment = {
   patientName: string;
   patientPhone: string;
   source: "walk_in" | "marketplace";
+  estimatedWaitMin?: number;
 };
 
 export type TrackResult = {
@@ -30,6 +33,7 @@ function sessionBase(orgId: string, branchId: string, sessionId: string) {
 function adaptBooked(
   a: Record<string, unknown>,
   accessToken: string,
+  estimatedWaitMin?: number,
 ): BookedAppointment {
   const profile = (a.patientProfile as Record<string, unknown>) ?? {};
   return {
@@ -41,6 +45,7 @@ function adaptBooked(
     patientName: String(profile.fullName ?? ""),
     patientPhone: String(profile.phone ?? ""),
     source: (a.source as BookedAppointment["source"]) ?? "walk_in",
+    estimatedWaitMin,
   };
 }
 
@@ -54,17 +59,23 @@ export async function bookWalkIn(
     patientPhone: string;
     patientName: string;
     notes?: string;
+    appointmentType?: AppointmentType;
   },
 ): Promise<BookedAppointment> {
   const res = await api.post<{
-    data: { appointment: Record<string, unknown>; accessToken: string };
+    data: {
+      appointment: Record<string, unknown>;
+      accessToken: string;
+      estimatedWaitMin?: number;
+    };
   }>(sessionBase(orgId, branchId, sessionId), {
-    patientPhone: toE164(data.patientPhone),
-    patientName: data.patientName,
-    notes: data.notes,
+    patientPhone:    toE164(data.patientPhone),
+    patientName:     data.patientName,
+    notes:           data.notes,
+    appointmentType: data.appointmentType,
   });
-  const { appointment, accessToken } = res.data.data;
-  return adaptBooked(appointment, accessToken);
+  const { appointment, accessToken, estimatedWaitMin } = res.data.data;
+  return adaptBooked(appointment, accessToken, estimatedWaitMin);
 }
 
 // ── List appointments in a session ───────────────────────────────────────────

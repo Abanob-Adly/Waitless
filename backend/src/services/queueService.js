@@ -11,8 +11,16 @@ import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { generateToken } from '../utils/otp.js';
 
+// Fixed durations (minutes) for short appointment types.
+// 'new_consultation' falls back to the session's avgConsultationMin.
+const APPT_DURATIONS_MIN = { follow_up: 5, medical_rep: 5 };
+
+function apptDuration(appt, avgMin) {
+  return APPT_DURATIONS_MIN[appt.appointmentType] ?? avgMin;
+}
+
 const VALID_TRANSITIONS = {
-  booked:      ['called', 'cancelled'],
+  booked:      ['called', 'cancelled', 'no_show'],
   called:      ['in_progress', 'skipped', 'no_show', 'cancelled', 'held'],
   held:        ['called', 'cancelled'],
   in_progress: ['completed', 'no_show'],
@@ -77,6 +85,9 @@ export const queueService = {
       .populate('patientProfile', 'fullName phone')
       .sort({ queueNumber: 1 });
 
+    const session       = await Session.findById(sessionId).lean();
+    const capacityInfo  = session ? queueService.checkDailyCapacity({ session }) : null;
+
     return {
       currentServing:     state.currentServing,
       avgConsultationMin: state.avgConsultationMin,
@@ -84,6 +95,7 @@ export const queueService = {
       status:             state.status,
       totalWaiting:       appointments.length,
       appointments,
+      capacityInfo,
     };
   },
 
@@ -226,10 +238,11 @@ export const queueService = {
     }
 
     if (newStatus === 'completed') {
-      // Auto-accumulate EWT delay from consultation overrun
+      // Auto-accumulate EWT delay from consultation overrun + adaptive average update
       if (appointment.consultationStartedAt) {
-        const actualMin  = (now.getTime() - appointment.consultationStartedAt.getTime()) / 60_000;
-        const overrunMin = Math.max(0, actualMin - session.avgConsultationMin);
+        const actualMin   = (now.getTime() - appointment.consultationStartedAt.getTime()) / 60_000;
+        const expectedMin = apptDuration(appointment, session.avgConsultationMin);
+        const overrunMin  = Math.max(0, actualMin - expectedMin);
         if (overrunMin > 0.5) { // ignore sub-30-second noise
           const rounded = Math.round(overrunMin * 10) / 10;
           await Session.findByIdAndUpdate(session._id, { $inc: { globalDelayMin: rounded } });
@@ -239,6 +252,32 @@ export const queueService = {
             await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
           } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
           await publishUpdate(session._id, { type: 'delay_updated', overrunMin: rounded });
+        }
+
+        // ── Feature B: Adaptive average (exponential smoothing, α=0.3) ────────
+        // Only update for new_consultation types; follow_up / medical_rep have
+        // fixed short durations that are not representative of the general pace.
+        // Clamp actualMin to [1, 120] to discard absurd outliers (crash, browser close, etc.).
+        if (!APPT_DURATIONS_MIN[appointment.appointmentType] && actualMin >= 1 && actualMin <= 120) {
+          const ALPHA  = 0.3;
+          const newAvg = Math.round((ALPHA * actualMin + (1 - ALPHA) * session.avgConsultationMin) * 10) / 10;
+
+          await Session.findByIdAndUpdate(session._id, { avgConsultationMin: newAvg });
+          session.avgConsultationMin = newAvg; // keep in-memory ref consistent
+          try {
+            await redis.hset(redisKey(session._id), 'avgConsultationMin', String(newAvg));
+          } catch (err) { console.warn('[adaptive] Redis write failed:', err.message); }
+
+          // Persist a slowly-drifting long-term average on the doctor's membership
+          // (α=0.1) so future sessions start with a personalised baseline.
+          Membership.findById(session.doctor).select('historicalAvgConsultationMin').lean()
+            .then((mem) => {
+              if (!mem) return;
+              const oldHist = mem.historicalAvgConsultationMin ?? session.avgConsultationMin;
+              const newHist = Math.round((0.1 * actualMin + 0.9 * oldHist) * 10) / 10;
+              return Membership.findByIdAndUpdate(session.doctor, { historicalAvgConsultationMin: newHist });
+            })
+            .catch((e) => console.warn('[adaptive] Membership update failed:', e.message));
         }
       }
 
@@ -280,9 +319,16 @@ export const queueService = {
           const apptId = appointment._id;
           const orgId  = appointment.organization;
 
-          // Debit patient wallet (silently skip if insufficient funds)
-          if (appointment.patientProfile?._id) {
-            walletService.purchaseDebit({ accountId: appointment.patientProfile._id, amount: fee, appointmentId: apptId })
+          // Debit patient wallet — skip if already paid via wallet at booking time,
+          // or if paying cash (receptionist collects physically).
+          if (!['wallet', 'cash'].includes(appointment.paymentMethod) && appointment.patientProfile) {
+            const PatientProfile = (await import('../models/PatientProfile.js')).default;
+            PatientProfile.findById(appointment.patientProfile).select('accountId').lean()
+              .then((pp) => {
+                if (pp?.accountId) {
+                  return walletService.purchaseDebit({ accountId: pp.accountId, amount: fee, appointmentId: apptId });
+                }
+              })
               .catch((e) => console.warn('[WALLET] patient debit failed:', e.message));
           }
 
@@ -308,7 +354,107 @@ export const queueService = {
       }
     }
 
+    // Broadcast queue change for statuses not already covered above.
+    // 'called' publishes inline; 'completed' publishes via delay_updated.
+    // no_show / cancelled / skipped shift EWTs for remaining patients.
+    if (['no_show', 'cancelled', 'skipped'].includes(newStatus)) {
+      await publishUpdate(session._id, { type: 'updated' });
+    }
+
     return appointment;
+  },
+
+  async forceInsert({ appointment, session, emergencyReason }) {
+    if (appointment.status !== 'booked') {
+      throw new AppError('Only booked appointments can be force-inserted', 422);
+    }
+    if (appointment.queueNumber <= session.currentServing) {
+      throw new AppError('Appointment is already in progress or past', 422);
+    }
+
+    const targetPosition = session.currentServing + 1;
+
+    if (appointment.queueNumber !== targetPosition) {
+      await Appointment.updateMany(
+        {
+          session:     session._id,
+          queueNumber: { $gte: targetPosition, $lt: appointment.queueNumber },
+          status:      { $in: ['booked', 'called', 'held', 'skipped'] },
+        },
+        { $inc: { queueNumber: 1 } },
+      );
+      appointment.queueNumber = targetPosition;
+    }
+
+    appointment.wasForceInserted = true;
+    if (emergencyReason) appointment.emergencyReason = emergencyReason;
+    await appointment.save();
+
+    await publishUpdate(session._id, { type: 'updated' });
+    return appointment;
+  },
+
+  async startBreak({ session, durationMin, reason }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
+    if (session.isOnBreak) {
+      throw new AppError('Session is already on break', 422);
+    }
+
+    session.isOnBreak = true;
+    if (!session.breaks) session.breaks = [];
+    session.breaks.push({ startedAt: new Date(), reason: reason ?? null });
+
+    // Add the planned break duration to the global delay so all waiting patients
+    // immediately see their EWT shift forward.
+    if (durationMin > 0) {
+      session.globalDelayMin = (session.globalDelayMin ?? 0) + durationMin;
+    }
+    await session.save();
+
+    try {
+      await redis.hmset(redisKey(session._id), {
+        globalDelayMin: String(session.globalDelayMin),
+      });
+    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+
+    await publishUpdate(session._id, {
+      type:           'break_started',
+      durationMin:    durationMin ?? 0,
+      globalDelayMin: session.globalDelayMin,
+    });
+    return session;
+  },
+
+  async resumeFromBreak({ session }) {
+    if (!session.isOnBreak) {
+      throw new AppError('Session is not on break', 422);
+    }
+
+    const now = new Date();
+    const lastBreak = session.breaks?.[session.breaks.length - 1];
+    if (lastBreak && !lastBreak.endedAt) {
+      lastBreak.endedAt     = now;
+      lastBreak.durationMin = Math.round((now.getTime() - lastBreak.startedAt.getTime()) / 60_000);
+    }
+
+    session.isOnBreak = false;
+    await session.save();
+
+    await publishUpdate(session._id, { type: 'break_ended' });
+    return session;
+  },
+
+  checkDailyCapacity({ session }) {
+    const shiftMin   = (new Date(session.endTime) - new Date(session.startTime)) / 60_000;
+    const maxPatients = Math.floor(shiftMin / session.avgConsultationMin);
+    return {
+      maxPatients,
+      currentBookings: session.bookingsCount,
+      remainingSlots:  Math.max(0, maxPatients - session.bookingsCount),
+      isFull:          session.bookingsCount >= maxPatients,
+    };
   },
 
   async trackByToken({ token }) {
@@ -324,8 +470,19 @@ export const queueService = {
     const avgConsultationMin = state?.avgConsultationMin ?? session.avgConsultationMin;
     const globalDelayMin     = state?.globalDelayMin     ?? session.globalDelayMin ?? 0;
 
-    const position         = Math.max(0, appointment.queueNumber - currentServing);
-    const estimatedWaitMin = position * avgConsultationMin + globalDelayMin;
+    // Sum type-specific durations of all active appointments ahead in queue.
+    // Cancelled / no-show appointments are excluded, giving accurate ETAs
+    // after any gap-creating events.
+    const aheadAppointments = await Appointment.find({
+      session:     session._id,
+      queueNumber: { $gte: currentServing, $lt: appointment.queueNumber },
+      status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
+    }).select('appointmentType').lean();
+
+    const estimatedWaitMin = aheadAppointments.reduce(
+      (sum, a) => sum + apptDuration(a, avgConsultationMin),
+      globalDelayMin,
+    );
 
     const [doctorDoc, scheduleDoc] = await Promise.all([
       Membership.findById(session.doctor).populate('account', 'fullName').lean(),
@@ -333,15 +490,22 @@ export const queueService = {
     ]);
 
     return {
-      queueNumber:      appointment.queueNumber,
-      currentlyServing: currentServing,
+      queueNumber:        appointment.queueNumber,
+      currentlyServing:   currentServing,
       estimatedWaitMin,
       globalDelayMin,
-      status:           appointment.status,
-      patientName:      appointment.patientProfile.fullName,
-      sessionDate:      session.startTime.toISOString().slice(0, 10),
-      doctorName:       doctorDoc?.account?.fullName ?? '',
-      consultationFee:  scheduleDoc?.consultationFee?.amount ?? 0,
+      avgConsultationMin,
+      status:             appointment.status,
+      reviewToken:        appointment.status === 'completed' ? (appointment.reviewToken ?? null) : null,
+      patientName:        appointment.patientProfile.fullName,
+      sessionDate:        session.startTime.toISOString().slice(0, 10),
+      sessionStartTime:   session.startTime.toISOString(),
+      sessionStatus:      session.status,
+      isOnBreak:          session.isOnBreak ?? false,
+      emergencyReason:    appointment.emergencyReason ?? null,
+      wasForceInserted:   appointment.wasForceInserted ?? false,
+      doctorName:         doctorDoc?.account?.fullName ?? '',
+      consultationFee:    scheduleDoc?.consultationFee?.amount ?? 0,
     };
   },
 };

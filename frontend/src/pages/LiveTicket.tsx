@@ -5,6 +5,93 @@ import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import { api } from "../services/api";
 import type { ActiveBooking } from "../context/AppContext";
 
+// ── Post-Consultation Rating Popup ────────────────────────────────────────────
+
+function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: string; reviewToken: string; onDismiss: () => void }) {
+  const [rating, setRating] = useState(0);
+  const [hovered, setHovered] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit() {
+    if (rating === 0) return;
+    setSubmitting(true);
+    try {
+      await api.post(`/reviews/submit`, { token: reviewToken, rating, comment: comment.trim() || undefined });
+      setSubmitted(true);
+      setTimeout(onDismiss, 2000);
+    } catch {
+      // Silently dismiss on error — review isn't critical
+      onDismiss();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/50 p-4 pb-8 backdrop-blur-sm sm:items-center">
+      <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-2xl">
+        {submitted ? (
+          <div className="py-4 text-center">
+            <p className="text-4xl">⭐</p>
+            <p className="mt-3 font-heading text-lg font-bold text-navy">Thank you!</p>
+            <p className="mt-1 text-sm text-navy-mid">Your feedback helps improve care.</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 text-center">
+              <p className="text-3xl">🩺</p>
+              <h3 className="mt-2 font-heading text-lg font-bold text-navy">Rate Your Consultation</h3>
+              <p className="mt-1 text-sm text-navy-mid">How was your experience with {doctorName}?</p>
+            </div>
+
+            {/* Star rating */}
+            <div className="mb-4 flex justify-center gap-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onMouseEnter={() => setHovered(star)}
+                  onMouseLeave={() => setHovered(0)}
+                  onClick={() => setRating(star)}
+                  className="text-3xl transition-transform hover:scale-110 focus:outline-none"
+                >
+                  <span className={(hovered || rating) >= star ? "text-gold" : "text-border"}>★</span>
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Optional comment…"
+              rows={3}
+              className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={onDismiss}
+                className="flex-1 rounded-md border border-border py-2.5 text-sm text-navy-mid hover:border-navy hover:text-navy"
+              >
+                Skip
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={rating === 0 || submitting}
+                className="flex-1 rounded-md bg-gold py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+              >
+                {submitting ? "Sending…" : "Submit Rating"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function LiveTicket() {
@@ -40,12 +127,16 @@ function TicketView({
   const [cancelling, setCancelling] = useState(false);
 
   const trackingToken = booking.accessToken ?? booking.id;
-  const { position, currentServing, etaMinutes, isCalled, sessionDate } =
-    useQueueSubscription(
-      trackingToken,
-      booking.queueNumber,
-      booking.session.avgConsultationMin,
-    );
+  const [ratingDismissed, setRatingDismissed] = useState(false);
+  const {
+    position, currentServing, etaMinutes, globalDelayMin, avgConsultationMin,
+    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, reviewToken,
+    emergencyReason, wasForceInserted,
+  } = useQueueSubscription(
+    trackingToken,
+    booking.queueNumber,
+    booking.session.avgConsultationMin,
+  );
 
   // Use booking's stored date as fallback until backend confirms sessionDate
   const effectiveDate = sessionDate || booking.session.date || "";
@@ -56,6 +147,18 @@ function TicketView({
     String(now.getDate()).padStart(2, "0"),
   ].join("-");
   const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
+
+  // Recommended arrival time: now + EWT − 10 min buffer (arrive early)
+  const recommendedArrivalMs = now.getTime() + etaMinutes * 60_000 - 10 * 60_000;
+  const recommendedArrivalTime = new Date(recommendedArrivalMs).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  // Session start display from backend ISO string or booking fallback
+  const sessionStartDisplay = sessionStartTime
+    ? new Date(sessionStartTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : booking.session.startTime;
 
   // SVG ring geometry — initialGap is fixed at 3 (hook starts 3 behind)
   const R = 68;
@@ -90,6 +193,15 @@ function TicketView({
 
   return (
     <main className="mx-auto max-w-lg px-4 pb-16 pt-8">
+      {/* Post-consultation rating popup */}
+      {isCompleted && reviewToken && !ratingDismissed && (
+        <RatingPopup
+          doctorName={booking.doctor.name}
+          reviewToken={reviewToken}
+          onDismiss={() => setRatingDismissed(true)}
+        />
+      )}
+
       {/* Live / scheduled indicator */}
       <div className="mb-6 flex items-center justify-center gap-2">
         <span className={`h-2 w-2 rounded-full ${isSessionDay ? "animate-pulse bg-success" : "bg-gold"}`} />
@@ -97,6 +209,42 @@ function TicketView({
           {isSessionDay ? "Live queue · syncing in real-time" : "Appointment confirmed · awaiting session day"}
         </span>
       </div>
+
+      {/* Break banner — highest priority, replaces delay banner when on break */}
+      {isSessionDay && isOnBreak && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
+          <span className="text-base">☕</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">Doctor is on a short break</p>
+            <p className="mt-0.5 text-xs text-navy-mid">
+              Queue will resume shortly. Your estimated wait has been updated.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Delay banner — shown when not on break but running late */}
+      {isSessionDay && !isOnBreak && globalDelayMin >= 5 && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
+          <span className="text-base">⏱</span>
+          <p className="text-sm text-navy">
+            <span className="font-semibold">Doctor is running behind</span> — estimated extra delay: {Math.round(globalDelayMin)} min
+          </p>
+        </div>
+      )}
+
+      {/* Emergency insert notification */}
+      {isSessionDay && wasForceInserted && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
+          <span className="text-base">🚨</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">An emergency case was inserted ahead of you</p>
+            {emergencyReason && (
+              <p className="mt-0.5 text-xs text-navy-mid">{emergencyReason}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Ticket card */}
       <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-xl">
@@ -125,7 +273,7 @@ function TicketView({
             </span>
             <p className="text-xs text-white/40">{booking.session.date}</p>
             <p className="text-xs text-white/40">
-              {booking.session.startTime} – {booking.session.endTime}
+              {sessionStartDisplay} – {booking.session.endTime}
             </p>
           </div>
         </div>
@@ -142,6 +290,8 @@ function TicketView({
               queueNumber={booking.queueNumber}
               currentServing={currentServing}
               etaMinutes={etaMinutes}
+              avgConsultationMin={avgConsultationMin}
+              recommendedArrivalTime={recommendedArrivalTime}
               circumference={circumference}
               dashOffset={dashOffset}
               R={R}
@@ -244,6 +394,8 @@ type WaitingViewProps = {
   queueNumber: number;
   currentServing: number;
   etaMinutes: number;
+  avgConsultationMin: number;
+  recommendedArrivalTime: string;
   circumference: number;
   dashOffset: number;
   R: number;
@@ -254,6 +406,8 @@ function WaitingView({
   queueNumber,
   currentServing,
   etaMinutes,
+  avgConsultationMin,
+  recommendedArrivalTime,
   circumference,
   dashOffset,
   R,
@@ -311,6 +465,7 @@ function WaitingView({
         <span className="font-semibold text-navy">#{currentServing}</span>
       </p>
 
+      {/* Stats grid */}
       <div className="mt-6 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-gold-tint p-4 text-center">
           <p className="font-heading text-2xl font-bold text-gold">
@@ -322,13 +477,28 @@ function WaitingView({
         </div>
         <div className="rounded-xl bg-offwhite p-4 text-center">
           <p className="font-heading text-2xl font-bold text-navy">
-            #{currentServing}
+            {avgConsultationMin}m
           </p>
           <p className="mt-1 text-xs font-medium text-navy-mid">
-            Now serving
+            Avg consultation
           </p>
         </div>
       </div>
+
+      {/* Recommended arrival time */}
+      {etaMinutes > 10 && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-offwhite px-4 py-3">
+          <span className="text-base">📍</span>
+          <div>
+            <p className="text-xs font-medium text-navy">
+              Best time to arrive at the clinic
+            </p>
+            <p className="mt-0.5 font-heading text-lg font-bold text-gold">
+              {recommendedArrivalTime}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -24,84 +24,212 @@ function TopUpModal({
   currency: string;
 }) {
   const PRESETS = [50, 100, 200, 500, 1000];
+  const [step, setStep] = useState<"amount" | "card" | "processing" | "success">("amount");
   const [amount, setAmount] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [cardNumber, setCardNumber] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [cvv, setCvv] = useState("");
+  const [cardName, setCardName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  function formatCard(v: string) {
+    return v.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
+  }
+  function formatExpiry(v: string) {
+    const digits = v.replace(/\D/g, "").slice(0, 4);
+    return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+  }
+
+  function handleAmountNext(e: React.FormEvent) {
     e.preventDefault();
     const num = Number(amount);
     if (!num || num <= 0) { setError("Enter a valid amount."); return; }
-    if (num > 50_000)      { setError("Maximum top-up is 50,000 EGP per transaction."); return; }
-    setLoading(true);
+    if (num > 50_000)     { setError("Maximum is 50,000 EGP per transaction."); return; }
     setError(null);
+    setStep("card");
+  }
+
+  async function handleCardSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = cardNumber.replace(/\s/g, "");
+    if (raw.length < 16) { setError("Enter a valid 16-digit card number."); return; }
+    if (!expiry.match(/^\d{2}\/\d{2}$/)) { setError("Enter expiry as MM/YY."); return; }
+    if (cvv.length < 3) { setError("Enter a valid CVV."); return; }
+    if (!cardName.trim()) { setError("Cardholder name is required."); return; }
+    setError(null);
+    setStep("processing");
+    // Simulate gateway delay then call real top-up
+    await new Promise((r) => setTimeout(r, 1800));
     try {
-      await onConfirm(num);
-      onClose();
+      await onConfirm(Number(amount));
+      setStep("success");
+      setTimeout(onClose, 2000);
     } catch {
-      setError("Top-up failed. Please try again.");
-    } finally {
-      setLoading(false);
+      setError("Payment declined. Please check your card details.");
+      setStep("card");
     }
   }
+
+  const cardBrand = cardNumber.replace(/\s/g, "").startsWith("4")
+    ? "Visa"
+    : cardNumber.replace(/\s/g, "").startsWith("5")
+    ? "Mastercard"
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
       <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-heading text-lg font-bold text-navy">Add Funds</h2>
-          <button onClick={onClose} className="text-navy-mid hover:text-navy">✕</button>
-        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Quick presets */}
-          <div className="grid grid-cols-5 gap-2">
-            {PRESETS.map((p) => (
+        {/* Step: amount */}
+        {step === "amount" && (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-heading text-lg font-bold text-navy">Add Funds</h2>
+              <button onClick={onClose} className="text-navy-mid hover:text-navy">✕</button>
+            </div>
+            <form onSubmit={handleAmountNext} className="space-y-4">
+              <div className="grid grid-cols-5 gap-2">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setAmount(String(p))}
+                    className={`rounded-lg border py-2 text-xs font-medium transition ${
+                      amount === String(p)
+                        ? "border-gold bg-gold-tint text-navy"
+                        : "border-border text-navy-mid hover:border-gold hover:text-navy"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-navy">Amount ({currency})</label>
+                <input
+                  type="number" min="1" max="50000"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Enter amount"
+                  className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-danger">{error}</p>}
               <button
-                key={p}
-                type="button"
-                onClick={() => setAmount(String(p))}
-                className={`rounded-lg border py-2 text-xs font-medium transition ${
-                  amount === String(p)
-                    ? "border-gold bg-gold-tint text-navy"
-                    : "border-border text-navy-mid hover:border-gold hover:text-navy"
-                }`}
+                type="submit"
+                className="w-full rounded-lg bg-gold py-3 text-sm font-semibold text-navy transition hover:bg-gold-light"
               >
-                {p}
+                Continue to Payment →
               </button>
-            ))}
+            </form>
+          </>
+        )}
+
+        {/* Step: card details */}
+        {step === "card" && (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <button onClick={() => { setStep("amount"); setError(null); }} className="mb-1 flex items-center gap-1 text-xs text-navy-mid hover:text-navy">
+                  ← Back
+                </button>
+                <h2 className="font-heading text-lg font-bold text-navy">Card Payment</h2>
+              </div>
+              <button onClick={onClose} className="self-start text-navy-mid hover:text-navy">✕</button>
+            </div>
+
+            {/* Summary banner */}
+            <div className="mb-4 flex items-center justify-between rounded-xl bg-navy px-4 py-3">
+              <span className="text-sm text-white/70">Charging</span>
+              <span className="font-heading text-xl font-bold text-gold">{amount} {currency}</span>
+            </div>
+
+            <form onSubmit={handleCardSubmit} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-navy">Card Number</label>
+                <div className="relative">
+                  <input
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(formatCard(e.target.value))}
+                    placeholder="0000 0000 0000 0000"
+                    inputMode="numeric"
+                    className="h-11 w-full rounded-md border border-border bg-white px-3 pr-16 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    required
+                  />
+                  {cardBrand && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-offwhite px-1.5 py-0.5 text-[10px] font-bold text-navy-mid">
+                      {cardBrand}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-navy">Expiry (MM/YY)</label>
+                  <input
+                    value={expiry}
+                    onChange={(e) => setExpiry(formatExpiry(e.target.value))}
+                    placeholder="MM/YY"
+                    inputMode="numeric"
+                    className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-navy">CVV</label>
+                  <input
+                    value={cvv}
+                    onChange={(e) => setCvv(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                    placeholder="•••"
+                    inputMode="numeric"
+                    type="password"
+                    className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-navy">Cardholder Name</label>
+                <input
+                  value={cardName}
+                  onChange={(e) => setCardName(e.target.value)}
+                  placeholder="Name on card"
+                  className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-danger">{error}</p>}
+              <button
+                type="submit"
+                className="w-full rounded-lg bg-gold py-3 text-sm font-semibold text-navy transition hover:bg-gold-light"
+              >
+                Pay {amount} {currency}
+              </button>
+            </form>
+            <p className="mt-2 text-center text-xs text-navy-mid">🔒 Simulated secure payment — no real charge</p>
+          </>
+        )}
+
+        {/* Step: processing */}
+        {step === "processing" && (
+          <div className="py-10 text-center">
+            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-gold border-t-transparent" />
+            <p className="font-heading text-base font-bold text-navy">Processing payment…</p>
+            <p className="mt-1 text-xs text-navy-mid">Please wait</p>
           </div>
+        )}
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-navy">
-              Amount ({currency})
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="50000"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Enter amount"
-              className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-              required
-            />
+        {/* Step: success */}
+        {step === "success" && (
+          <div className="py-10 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-4xl">
+              ✓
+            </div>
+            <p className="font-heading text-lg font-bold text-navy">Payment Successful!</p>
+            <p className="mt-1 text-sm text-navy-mid">{amount} {currency} added to your wallet</p>
           </div>
-
-          {error && <p className="text-xs text-danger">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-gold py-3 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-60"
-          >
-            {loading ? "Processing…" : `Add ${amount ? `${amount} ` : ""}${currency}`}
-          </button>
-        </form>
-
-        <p className="mt-3 text-center text-xs text-navy-mid">
-          Demo mode — no real payment processed.
-        </p>
+        )}
       </div>
     </div>
   );

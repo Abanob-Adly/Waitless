@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 import { LandingPage } from "../pages/LandingPage";
+import { OrgLandingPage } from "../pages/OrgLandingPage";
 import { Marketplace } from "../pages/Marketplace";
 import { DoctorProfile } from "../pages/DoctorProfile";
 import { PaymentPage } from "../pages/PaymentPage";
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <LandingPage /> },
+      { path: "for-clinics", element: <OrgLandingPage /> },
       { path: "search", element: <Marketplace /> },
       { path: "doctors/:doctorId", element: <DoctorProfile /> },
       { path: "login", element: <LoginPage /> },

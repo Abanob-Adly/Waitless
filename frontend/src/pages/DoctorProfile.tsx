@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   searchOrgs,
@@ -28,19 +28,42 @@ export function DoctorProfile() {
   const [reviews, setReviews] = useState<MarketplaceReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
+  // Persist the resolved orgId so the poll can refresh sessions cheaply
+  const resolvedOrgId = useRef<string>("");
+
+  // Re-fetch sessions + doctor fee — called by the 30s poll and the refresh button.
+  // Bug root-cause: admin edits DoctorBranchSchedule (fee, avgConsultationMin) but
+  // the initial loadProfile result is cached in state. This poll keeps both in sync.
+  const refreshSessions = useCallback(async () => {
+    if (!resolvedOrgId.current || !doctorId) return;
+    try {
+      const [freshSessions, freshMembers] = await Promise.all([
+        getOrgSessions(resolvedOrgId.current, doctorId),
+        getOrgDoctors(resolvedOrgId.current),
+      ]);
+      setSessions(freshSessions);
+      const member = freshMembers.find((m) => m.id === doctorId);
+      if (member) {
+        setDoctor((prev) => prev ? { ...prev, fee: member.consultationFee } : prev);
+      }
+    } catch { /* non-fatal */ }
+  }, [doctorId]);
+
+  // Full profile load (members + sessions + reviews)
   useEffect(() => {
     if (!doctorId) return;
     setIsLoading(true);
     setDoctor(null);
-    setSessions([]);
+    setSessions ([]);
     setReviews([]);
     setSelectedSession(null);
+    resolvedOrgId.current = "";
 
     const stateOrgId = (location.state as { orgId?: string } | null)?.orgId ?? "";
 
     async function loadProfile(orgId: string) {
+      resolvedOrgId.current = orgId;
       const [members, sess, fullOrg] = await Promise.all([
         getOrgDoctors(orgId),
         getOrgSessions(orgId, doctorId),
@@ -69,6 +92,7 @@ export function DoctorProfile() {
                 getMarketplaceOrg(org.id),
                 getDoctorReviews(org.id, doctorId!),
               ]);
+              resolvedOrgId.current = org.id;
               setDoctor(membershipToDoctor(member, fullOrg));
               setSessions(sess);
               setReviews(rev);
@@ -83,7 +107,13 @@ export function DoctorProfile() {
 
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doctorId, refreshKey]);
+  }, [doctorId]);
+
+  // Poll sessions every 30s so admin edits (capacity, time, status) appear automatically
+  useEffect(() => {
+    const id = setInterval(() => { void refreshSessions(); }, 30_000);
+    return () => clearInterval(id);
+  }, [refreshSessions]);
 
   if (isLoading && !doctor) {
     return (
@@ -163,7 +193,7 @@ export function DoctorProfile() {
           ← Back to results
         </button>
         <button
-          onClick={() => setRefreshKey((k) => k + 1)}
+          onClick={() => { void refreshSessions(); }}
           className="ml-auto rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy"
         >
           ↻ Refresh

@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useOrg } from "../context/OrgContext";
-import { Tabs } from "../components/ui/Tabs";
 import * as sessionService from "../services/sessionService";
 import * as appointmentService from "../services/appointmentService";
 import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 import { WalletView } from "../components/ui/WalletView";
+
+type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "profile";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ export function DoctorDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
   const { myRoles } = useOrg();
+  const [activeSection, setActiveSection] = useState<DoctorSection | null>(null);
 
   if (!authUser || (authUser.role !== "doctor" && authUser.role !== "admin")) {
     navigate("/login", { replace: true });
@@ -27,41 +29,30 @@ export function DoctorDashboard() {
   const initials = profile.name.split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase();
   const isAlsoAdmin = myRoles.includes("admin");
 
-  const tabs = [
-    {
-      id: "queue",
-      label: "Today's Queue",
-      content: <QueueTab orgId={orgId} doctorAccountId={profile.id} />,
-    },
-    {
-      id: "manage",
-      label: "Manage Queue",
-      content: <ManageQueueTab orgId={orgId} doctorAccountId={profile.id} />,
-    },
-    {
-      id: "calendar",
-      label: "Calendar",
-      content: <CalendarTab orgId={orgId} doctorAccountId={profile.id} />,
-    },
-    {
-      id: "sessions",
-      label: "My Sessions",
-      content: <SessionsTab orgId={orgId} doctorAccountId={profile.id} />,
-    },
-    {
-      id: "wallet",
-      label: "My Wallet",
-      content: <WalletView mode="personal" />,
-    },
-    {
-      id: "profile",
-      label: "My Profile",
-      content: <ProfileTab doctorAccountId={profile.id} doctorName={profile.name} />,
-    },
-  ];
+  const sectionTitle: Record<DoctorSection, string> = {
+    queue: "Today's Queue",
+    manage: "Manage Queue",
+    calendar: "Calendar",
+    sessions: "My Sessions",
+    wallet: "My Wallet",
+    profile: "My Profile",
+  };
+
+  function renderSection() {
+    switch (activeSection) {
+      case "queue":    return <QueueTab orgId={orgId} doctorAccountId={profile.id} />;
+      case "manage":   return <ManageQueueTab orgId={orgId} doctorAccountId={profile.id} />;
+      case "calendar": return <CalendarTab orgId={orgId} doctorAccountId={profile.id} />;
+      case "sessions": return <SessionsTab orgId={orgId} doctorAccountId={profile.id} />;
+      case "wallet":   return <WalletView mode="personal" />;
+      case "profile":  return <ProfileTab doctorAccountId={profile.id} doctorName={profile.name} />;
+      default:         return null;
+    }
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
+      {/* Header */}
       <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-lg font-bold text-white">
@@ -77,14 +68,13 @@ export function DoctorDashboard() {
               )}
             </div>
             <h1 className="font-heading text-3xl font-bold text-navy">
-              Welcome, {profile.name}
+              Welcome, Dr. {profile.name.split(" ")[0]}
             </h1>
             <p className="mt-0.5 text-sm text-navy-mid">
               {profile.specialty ?? "Physician"} · {orgId ? "Clinic Portal" : "No clinic assigned"}
             </p>
           </div>
         </div>
-
         <div className="flex shrink-0 items-center gap-2">
           {isAlsoAdmin && (
             <button
@@ -103,10 +93,171 @@ export function DoctorDashboard() {
         </div>
       </div>
 
-      <section className="animate-fade-up rounded-xl border border-border bg-white p-6 shadow-sm" style={{ animationDelay: "100ms" }}>
-        <Tabs items={tabs} defaultTab="queue" />
-      </section>
+      {/* Breadcrumb when inside a section */}
+      {activeSection && (
+        <div className="mb-5 flex animate-fade-up items-center gap-2 text-sm">
+          <button
+            onClick={() => setActiveSection(null)}
+            className="font-medium text-gold transition hover:text-gold-light"
+          >
+            Dashboard
+          </button>
+          <span className="text-border">/</span>
+          <span className="font-medium text-navy">{sectionTitle[activeSection]}</span>
+        </div>
+      )}
+
+      {/* Content */}
+      <div className="animate-fade-up rounded-xl border border-border bg-white p-6 shadow-sm" style={{ animationDelay: "80ms" }}>
+        {activeSection ? (
+          renderSection()
+        ) : (
+          <DoctorHome
+            isAlsoAdmin={isAlsoAdmin}
+            onSelect={setActiveSection}
+            onAdminView={() => navigate("/admin")}
+          />
+        )}
+      </div>
     </main>
+  );
+}
+
+// ── Doctor Home card grid ─────────────────────────────────────────────────────
+
+function DoctorHome({
+  isAlsoAdmin,
+  onSelect,
+  onAdminView,
+}: {
+  isAlsoAdmin: boolean;
+  onSelect: (s: DoctorSection) => void;
+  onAdminView: () => void;
+}) {
+  type CardDef = { id: DoctorSection; icon: React.ReactNode; title: string; desc: string; theme: "navy" | "gold" | "success" };
+
+  const cards: CardDef[] = [
+    { id: "queue",    icon: <IconQueue />,    title: "Today's Queue",  desc: "View and serve patients in your active session",        theme: "success" },
+    { id: "manage",   icon: <IconManage />,   title: "Manage Queue",   desc: "Call, skip, hold, and complete queue items manually",   theme: "navy"    },
+    { id: "calendar", icon: <IconCalendar />, title: "Calendar",       desc: "Monthly schedule view with booked sessions at a glance", theme: "gold"    },
+    { id: "sessions", icon: <IconSessions />, title: "My Sessions",    desc: "Upcoming and past sessions with patient appointments",    theme: "navy"    },
+    { id: "wallet",   icon: <IconWallet />,   title: "My Wallet",      desc: "Track your earnings, commissions, and top-up history",   theme: "gold"    },
+    { id: "profile",  icon: <IconProfile />,  title: "My Profile",     desc: "Update your bio, specialties, and account settings",     theme: "navy"    },
+  ];
+
+  const themeMap = {
+    navy:    { ring: "hover:ring-navy/20",    iconBg: "bg-navy",    arrow: "text-navy"    },
+    gold:    { ring: "hover:ring-gold/25",    iconBg: "bg-gold",    arrow: "text-gold"    },
+    success: { ring: "hover:ring-success/20", iconBg: "bg-success", arrow: "text-success" },
+  };
+
+  return (
+    <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {cards.map((card, i) => {
+        const t = themeMap[card.theme];
+        return (
+          <button
+            key={card.id}
+            onClick={() => onSelect(card.id)}
+            style={{ animationDelay: `${i * 40}ms` }}
+            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${t.ring}`}
+          >
+            <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${t.iconBg}`}>
+              {card.icon}
+            </div>
+            <div className="flex-1">
+              <p className="font-heading text-base font-bold text-navy">{card.title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">{card.desc}</p>
+            </div>
+            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${t.arrow}`}>
+              Open →
+            </span>
+          </button>
+        );
+      })}
+
+      {isAlsoAdmin && (
+        <button
+          onClick={onAdminView}
+          className="group flex flex-col gap-4 rounded-xl border border-gold/30 bg-gold-tint p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md hover:ring-gold/25"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold text-white">
+            <IconAdmin />
+          </div>
+          <div className="flex-1">
+            <p className="font-heading text-base font-bold text-navy">Admin Panel</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">
+              Manage your clinic, staff, and schedules
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-gold opacity-0 transition-opacity group-hover:opacity-100">
+            Switch to Admin →
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Doctor section icons ──────────────────────────────────────────────────────
+
+function IconQueue() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="6" r="3" fill="currentColor" />
+      <path d="M4 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconManage() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect x="3" y="4" width="14" height="2.5" rx="1.25" fill="currentColor" opacity=".4" />
+      <rect x="3" y="8.75" width="10" height="2.5" rx="1.25" fill="currentColor" opacity=".7" />
+      <rect x="3" y="13.5" width="7" height="2.5" rx="1.25" fill="currentColor" />
+    </svg>
+  );
+}
+function IconCalendar() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect x="3" y="5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3 9h14" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7 3v4M13 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconSessions() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 6v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconWallet() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect x="2" y="6" width="16" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 9h16" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="14" cy="13" r="1.5" fill="currentColor" />
+      <path d="M5 4h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconProfile() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="7" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.5 17c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconAdmin() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.3L10 14.4l-4.8 2.4.9-5.3L2.2 7.7l5.4-.8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -115,6 +266,10 @@ export function DoctorDashboard() {
 function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
   const { branches, memberships } = useOrg();
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [showBreakModal, setShowBreakModal] = useState(false);
+  const [breakDuration, setBreakDuration] = useState(15);
+  const [breakPending, setBreakPending] = useState(false);
 
   const myMembershipId =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
@@ -122,7 +277,19 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const { activeSession, activeBranchId, queue, isLoading, reload: load } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 
-  usePolling(() => { void load(); }, 4000);
+  // Sync isOnBreak from the session data when it loads
+  useEffect(() => {
+    if (activeSession) setIsOnBreak(activeSession.isOnBreak);
+  }, [activeSession]);
+
+  // Fire immediately when `load` changes (branches/myMembershipId become available after
+  // OrgContext loads), then keep polling every 4 s. usePolling only starts on mount, so
+  // we'd wait up to 4 s after OrgContext loaded before the queue first appeared.
+  useEffect(() => {
+    void load();
+    const id = setInterval(() => { void load(); }, 4000);
+    return () => clearInterval(id);
+  }, [load]);
 
   async function handleAction(apptId: string, status: string) {
     if (!activeBranchId || !activeSession) return;
@@ -144,6 +311,31 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
     } catch {
       // ignore
     }
+  }
+
+  async function handleStartBreak() {
+    if (!activeBranchId || !activeSession) return;
+    setBreakPending(true);
+    try {
+      await sessionService.startBreak(orgId, activeBranchId, activeSession.id, breakDuration);
+      setIsOnBreak(true);
+      setShowBreakModal(false);
+    } catch {
+      // ignore
+    }
+    setBreakPending(false);
+  }
+
+  async function handleResumeFromBreak() {
+    if (!activeBranchId || !activeSession) return;
+    setBreakPending(true);
+    try {
+      await sessionService.resumeFromBreak(orgId, activeBranchId, activeSession.id);
+      setIsOnBreak(false);
+    } catch {
+      // ignore
+    }
+    setBreakPending(false);
   }
 
   const serving = queue.find((p) => p.status === "called" || p.status === "in_progress");
@@ -174,6 +366,54 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
 
   return (
     <div className="space-y-5">
+      {/* Break modal */}
+      {showBreakModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setShowBreakModal(false)} />
+          <div className="relative w-full max-w-xs overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-navy px-6 py-4">
+              <p className="font-heading text-base font-bold text-white">Take a Break</p>
+              <p className="mt-0.5 text-xs text-white/50">Queue will pause and patients will be notified</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="mb-2 text-sm font-medium text-navy">Break duration</p>
+                <div className="flex gap-2">
+                  {[10, 15, 30].map((min) => (
+                    <button
+                      key={min}
+                      onClick={() => setBreakDuration(min)}
+                      className={`flex-1 rounded-md border py-2 text-sm font-medium transition ${
+                        breakDuration === min
+                          ? "border-gold bg-gold-tint text-navy"
+                          : "border-border text-navy-mid hover:border-navy hover:text-navy"
+                      }`}
+                    >
+                      {min}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowBreakModal(false)}
+                  className="flex-1 rounded-md border border-border py-2.5 text-sm text-navy-mid hover:border-navy hover:text-navy"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleStartBreak}
+                  disabled={breakPending}
+                  className="flex-1 rounded-md bg-gold py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+                >
+                  {breakPending ? "Starting…" : "Start Break"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3">
         {[
           <StatBox key="total" label="Total Patients" value={queue.length.toString()} />,
@@ -185,6 +425,30 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
           </div>
         ))}
       </div>
+
+      {/* Break / Resume button */}
+      {isOnBreak ? (
+        <div className="flex items-center justify-between rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
+          <div>
+            <p className="text-sm font-semibold text-navy">You are on a break</p>
+            <p className="mt-0.5 text-xs text-navy-mid">Patients have been notified</p>
+          </div>
+          <button
+            onClick={handleResumeFromBreak}
+            disabled={breakPending}
+            className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+          >
+            {breakPending ? "Resuming…" : "Resume Queue"}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowBreakModal(true)}
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
+        >
+          ☕ Take a Break
+        </button>
+      )}
 
       {serving && (
         <div className="flex items-center justify-between rounded-xl border border-gold bg-gold-tint px-5 py-4">

@@ -4,8 +4,8 @@ import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory } from "../services/patientService";
-import type { PatientRecord, OwnAppointmentItem } from "../services/patientService";
+import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets } from "../services/patientService";
+import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 import { WalletView } from "../components/ui/WalletView";
@@ -17,6 +17,7 @@ export function PatientDashboard() {
   const { authUser } = useAuth();
   const navigate = useNavigate();
   const [appointmentHistory, setAppointmentHistory] = useState<OwnAppointmentItem[]>([]);
+  const [serverTickets, setServerTickets] = useState<ActiveTicketItem[]>([]);
 
   const patientProfile =
     authUser?.role === "patient" ? authUser.profile : null;
@@ -24,6 +25,7 @@ export function PatientDashboard() {
   useEffect(() => {
     if (authUser?.role === "patient") {
       getOwnAppointmentHistory().then(setAppointmentHistory).catch(console.error);
+      getOwnActiveTickets().then(setServerTickets).catch(console.error);
     }
   }, [authUser]);
 
@@ -34,6 +36,7 @@ export function PatientDashboard() {
       content: (
         <ActiveBookingsTab
           bookings={bookings}
+          serverTickets={serverTickets}
           onGoToTicket={() => navigate("/ticket")}
           onBook={() => navigate("/search")}
           onCancel={(id) => removeBooking(id)}
@@ -329,16 +332,22 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
 
 function ActiveBookingsTab({
   bookings,
+  serverTickets,
   onGoToTicket,
   onBook,
   onCancel,
 }: {
   bookings: ActiveBooking[];
+  serverTickets: ActiveTicketItem[];
   onGoToTicket: () => void;
   onBook: () => void;
   onCancel: (id: string) => void;
 }) {
-  if (bookings.length === 0) {
+  // Server tickets not already tracked in local bookings (e.g. logged in on new device)
+  const localIds = new Set(bookings.map((b) => b.id));
+  const orphanTickets = serverTickets.filter((t) => !localIds.has(t.id) && t.accessToken);
+
+  if (bookings.length === 0 && orphanTickets.length === 0) {
     return (
       <EmptyState
         icon="🎫"
@@ -352,15 +361,17 @@ function ActiveBookingsTab({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2">
-        <span className="flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
-          Live
-        </span>
-        <span className="text-sm text-navy-mid">
-          Queue positions are updating in real-time
-        </span>
-      </div>
+      {bookings.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
+            Live
+          </span>
+          <span className="text-sm text-navy-mid">
+            Queue positions are updating in real-time
+          </span>
+        </div>
+      )}
 
       {bookings.map((booking) => (
         <BookingCard
@@ -370,6 +381,69 @@ function ActiveBookingsTab({
           onCancel={() => onCancel(booking.id)}
         />
       ))}
+
+      {/* Tickets found in MongoDB but not in localStorage (cross-device sync) */}
+      {orphanTickets.length > 0 && (
+        <>
+          {bookings.length > 0 && (
+            <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
+              Also found on your account
+            </p>
+          )}
+          <div className="space-y-3">
+            {orphanTickets.map((t) => (
+              <ServerTicketCard key={t.id} ticket={t} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Server-sourced ticket card (cross-device) ─────────────────────────────────
+
+function ServerTicketCard({ ticket }: { ticket: ActiveTicketItem }) {
+  const navigate = useNavigate();
+  const initials = ticket.doctorName
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase() || "?";
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border">
+      <div className="flex items-start gap-4 bg-offwhite px-5 py-4">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-lg font-bold text-navy">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-heading text-lg font-bold text-navy">{ticket.doctorName}</p>
+          {ticket.specialty && (
+            <p className="text-sm text-navy-mid">{ticket.specialty}</p>
+          )}
+          <p className="mt-0.5 text-xs text-navy-mid">
+            {ticket.sessionDate}
+            {ticket.sessionStartTime ? ` · ${ticket.sessionStartTime}` : ""}
+            {ticket.sessionEndTime ? ` – ${ticket.sessionEndTime}` : ""}
+          </p>
+          {ticket.clinicName && (
+            <p className="text-xs text-navy-mid">{ticket.clinicName}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 rounded-full bg-gold-tint px-3 py-1 text-xs font-medium text-navy">
+          #{ticket.queueNumber}
+        </div>
+      </div>
+      <div className="border-t border-border p-4">
+        <button
+          onClick={() => navigate(`/ticket/${ticket.accessToken}`)}
+          className="flex h-10 w-full items-center justify-center gap-1 rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light"
+        >
+          View Live Ticket →
+        </button>
+      </div>
     </div>
   );
 }

@@ -4,9 +4,10 @@ import { queueService } from '../services/queueService.js';
 
 export const appointmentSchemas = {
   bookWalkIn: z.object({
-    patientPhone: z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
-    patientName:  z.string().min(2).max(100),
-    notes:        z.string().max(500).optional(),
+    patientPhone:    z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    patientName:     z.string().min(2).max(100),
+    notes:           z.string().max(500).optional(),
+    appointmentType: z.enum(['new_consultation', 'follow_up', 'medical_rep']).optional(),
   }),
 
   bookOverride: z.object({

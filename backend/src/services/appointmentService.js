@@ -55,13 +55,19 @@ export const appointmentService = {
         bookedBy:         actor.activeMembership._id,
         accessToken,
         notes:            data.notes,
+        appointmentType:  data.appointmentType ?? 'new_consultation',
       });
     } catch (err) {
       if (err.code === 11000) throw Conflict('Patient already has an active booking in this session');
       throw err;
     }
 
-    return { appointment, accessToken };
+    // Simple positional EWT shown to receptionist at booking time
+    const position        = Math.max(0, queueNumber - (updated.currentServing ?? 0));
+    const estimatedWaitMin = position * (updated.avgConsultationMin ?? 15)
+      + (updated.globalDelayMin ?? 0);
+
+    return { appointment, accessToken, estimatedWaitMin };
   },
 
   async bookOverride({ actor, sessionId, branchId, orgId, data }) {
@@ -148,7 +154,7 @@ export const appointmentService = {
     return Appointment.find({ patientProfile: profile._id })
       .populate({
         path: 'doctorMembership',
-        select: 'specialties',
+        select: 'specialties account',
         populate: { path: 'account', select: 'fullName' },
       })
       .populate({

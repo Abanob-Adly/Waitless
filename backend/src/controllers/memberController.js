@@ -68,8 +68,10 @@ export const memberController = {
   // POST /orgs/:orgId/members/:memberId/grant-admin
   // Promotes a doctor/receptionist to also be an admin (multi-role)
   async grantAdmin(req, res) {
-    const { orgId } = req.params;
-    const sourceMembership = req.resource;
+    const { orgId, memberId } = req.params;
+    // req.resource is the authorize policy context object, not the membership —
+    // load the source membership directly.
+    const sourceMembership = await Membership.findOne({ _id: memberId, organization: orgId });
     if (!sourceMembership?.account) throw NotFound('Member not found');
 
     const existing = await Membership.findOne({
@@ -93,8 +95,8 @@ export const memberController = {
   // DELETE /orgs/:orgId/members/:memberId/grant-admin
   // Revokes admin role while keeping doctor/receptionist role
   async revokeAdmin(req, res) {
-    const { orgId } = req.params;
-    const sourceMembership = req.resource;
+    const { orgId, memberId } = req.params;
+    const sourceMembership = await Membership.findOne({ _id: memberId, organization: orgId });
     if (!sourceMembership?.account) throw NotFound('Member not found');
 
     const adminMembership = await Membership.findOne({

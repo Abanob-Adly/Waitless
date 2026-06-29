@@ -96,6 +96,20 @@ export const sessionService = {
     if (session.status !== 'scheduled') {
       throw new AppError('Session is not in scheduled state', 409);
     }
+
+    const now = new Date();
+    session.actualStartTime = now;
+
+    // Auto-detect late start: add overdue minutes to globalDelayMin so all
+    // pending ETAs shift forward immediately for waiting patients.
+    if (now > session.startTime) {
+      const lateMin = Math.round((now.getTime() - session.startTime.getTime()) / 60_000);
+      if (lateMin > 0) {
+        session.lateStartMin   = lateMin;
+        session.globalDelayMin = (session.globalDelayMin ?? 0) + lateMin;
+      }
+    }
+
     session.status = 'active';
     await session.save();
     await queueService.populateRedis({ session });

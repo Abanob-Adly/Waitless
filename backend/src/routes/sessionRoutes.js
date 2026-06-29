@@ -65,6 +65,28 @@ router.patch(
   queueController.updateDelay
 );
 
+router.post(
+  '/:sessionId/break',
+  authenticate,
+  authorize('queue.operate', loadSession),
+  validate(queueSchemas.startBreak),
+  queueController.startBreak
+);
+
+router.post(
+  '/:sessionId/resume',
+  authenticate,
+  authorize('queue.operate', loadSession),
+  queueController.resumeFromBreak
+);
+
+router.get(
+  '/:sessionId/cash-summary',
+  authenticate,
+  authorize('queue.operate', loadSession),
+  queueController.cashSummary
+);
+
 // Nested resources
 router.use('/:sessionId/appointments', appointmentRoutes);
 router.use('/:sessionId/queue', queueRoutes);

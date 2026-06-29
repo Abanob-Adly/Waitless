@@ -17,6 +17,8 @@ export type BackendSession = {
   currentServing: number;
   avgConsultationMin: number;
   maxBookings: number | null;
+  isOnBreak: boolean;
+  globalDelayMin: number;
 };
 
 export type QueueStatus = {
@@ -80,6 +82,8 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     currentServing: Number(s.currentServing ?? 0),
     avgConsultationMin: Number(s.avgConsultationMin ?? 15),
     maxBookings: s.maxBookings != null ? Number(s.maxBookings) : null,
+    isOnBreak: Boolean(s.isOnBreak ?? false),
+    globalDelayMin: Number(s.globalDelayMin ?? 0),
   };
 }
 
@@ -239,6 +243,70 @@ export async function updateSessionDelay(
     `${base(orgId, branchId)}/${sessionId}/queue/delay`,
     { globalDelayMin },
   );
+}
+
+// ── Break management ──────────────────────────────────────────────────────────
+
+export async function startBreak(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  durationMin: number,
+  reason?: string,
+): Promise<void> {
+  await api.post(
+    `${base(orgId, branchId)}/${sessionId}/break`,
+    { durationMin, reason },
+  );
+}
+
+export async function resumeFromBreak(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+): Promise<void> {
+  await api.post(
+    `${base(orgId, branchId)}/${sessionId}/resume`,
+  );
+}
+
+// ── Force Insert ──────────────────────────────────────────────────────────────
+
+export async function forceInsertNext(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  appointmentId: string,
+): Promise<void> {
+  await api.post(
+    `${base(orgId, branchId)}/${sessionId}/queue/appointments/${appointmentId}/force-insert`,
+  );
+}
+
+// ── Cash Summary ──────────────────────────────────────────────────────────────
+
+export type CashSummaryEntry = {
+  queueNumber: number;
+  patientName: string;
+  completedAt: string;
+};
+
+export type CashSummary = {
+  totalCash: number;
+  count: number;
+  feePerAppointment: number;
+  appointments: CashSummaryEntry[];
+};
+
+export async function getCashSummary(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+): Promise<CashSummary> {
+  const res = await api.get<{ data: CashSummary }>(
+    `${base(orgId, branchId)}/${sessionId}/cash-summary`,
+  );
+  return res.data.data;
 }
 
 function adaptAppointment(a: Record<string, unknown>): BackendAppointment {

@@ -47,7 +47,22 @@ const appointmentSchema = new Schema({
   // ── One-time review token (generated on completion, separate from accessToken) ──
   reviewToken: { type: String, default: null, index: true, sparse: true },
 
+  // ── Appointment type — drives per-appointment duration in EWT calculation ──
+  appointmentType: {
+    type: String,
+    enum: ['new_consultation', 'follow_up', 'medical_rep'],
+    default: 'new_consultation',
+  },
+
+  // ── Payment ──
+  paymentMethod: { type: String, enum: ['card', 'vodafone_cash', 'clinic', 'wallet', 'cash'], default: null },
+  paymentStatus: { type: String, enum: ['pending', 'success', 'failed'], default: 'pending' },
+
   notes: { type: String },
+
+  // ── Force-insert tracking ──────────────────────────────────────────────────
+  emergencyReason:  { type: String, default: null },
+  wasForceInserted: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // Hot query: today's queue ordering

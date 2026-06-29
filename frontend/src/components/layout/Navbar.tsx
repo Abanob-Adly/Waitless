@@ -5,7 +5,7 @@ import { useApp } from "../../context/AppContext";
 
 export function Navbar() {
   const { authUser, logout } = useAuth();
-  const { clearBookings, bookings } = useApp();
+  const { bookings } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -26,7 +26,6 @@ export function Navbar() {
 
   function signOut() {
     logout();
-    clearBookings();
     setDropdownOpen(false);
     navigate("/");
   }
@@ -101,7 +100,7 @@ export function Navbar() {
           )}
 
           {!authUser && (
-            <NavLink to="/search" label="For Clinics" active={false} />
+            <NavLink to="/for-clinics" label="For Clinics" active={isActive("/for-clinics")} />
           )}
 
           {isPatient && (
