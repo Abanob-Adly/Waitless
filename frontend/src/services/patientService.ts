@@ -104,6 +104,56 @@ export type OwnAppointmentItem = {
   fee?: number;
 };
 
+// Lightweight type for active tickets loaded from backend on any device.
+// `accessToken` drives the live-tracking view at /ticket/:token.
+export type ActiveTicketItem = {
+  id: string;
+  queueNumber: number;
+  status: string;
+  accessToken: string;
+  doctorName: string;
+  specialty: string;
+  clinicName: string;
+  sessionDate: string;
+  sessionStartTime: string;
+  sessionEndTime: string;
+};
+
+const ACTIVE_STATUSES = new Set(["booked", "called", "held", "in_progress"]);
+
+export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
+  try {
+    const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");
+    const list = Array.isArray(res.data.data) ? res.data.data : [];
+    return list
+      .filter((a) => ACTIVE_STATUSES.has(String((a as Record<string, unknown>).status ?? "")))
+      .map((a) => {
+        const raw = a as Record<string, unknown>;
+        const session = (raw.session as Record<string, unknown>) ?? {};
+        const doctor = (raw.doctorMembership as Record<string, unknown>) ?? {};
+        const account = (doctor.account as Record<string, unknown>) ?? {};
+        const specialties = (doctor.specialties as string[]) ?? [];
+        const branch = (raw.branch as Record<string, unknown>) ?? {};
+        const startIso = String(session.startTime ?? "");
+        const endIso = String(session.endTime ?? "");
+        return {
+          id: String(raw._id ?? raw.id),
+          queueNumber: Number(raw.queueNumber ?? 0),
+          status: String(raw.status ?? "booked"),
+          accessToken: raw.accessToken ? String(raw.accessToken) : "",
+          doctorName: String(account.fullName ?? "Unknown Doctor"),
+          specialty: specialties[0] ?? "",
+          clinicName: String(branch.name ?? ""),
+          sessionDate: startIso ? startIso.slice(0, 10) : "",
+          sessionStartTime: startIso ? startIso.slice(11, 16) : "",
+          sessionEndTime: endIso ? endIso.slice(11, 16) : "",
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
 export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> {
   try {
     const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");

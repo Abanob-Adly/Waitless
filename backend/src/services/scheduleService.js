@@ -27,7 +27,13 @@ export const scheduleService = {
         consultationFee:    data.consultationFee,
         status:             'active',
       });
-      return schedule;
+      // Populate so the response has doctorMembership.account.fullName immediately,
+      // matching what listSchedules returns (no re-login needed to see the doctor name).
+      return schedule.populate({
+        path:     'doctorMembership',
+        select:   'kind specialties account',
+        populate: { path: 'account', select: 'fullName' },
+      });
     } catch (err) {
       if (err.code === 11000) throw Conflict('An active schedule already exists for this doctor and branch');
       throw err;
@@ -42,7 +48,7 @@ export const scheduleService = {
     else                           query.status           = 'active';
 
     return DoctorBranchSchedule.find(query)
-      .populate({ path: 'doctorMembership', select: 'kind specialties', populate: { path: 'account', select: 'fullName' } })
+      .populate({ path: 'doctorMembership', select: 'kind specialties account', populate: { path: 'account', select: 'fullName' } })
       .populate('branch', 'name');
   },
 
@@ -52,6 +58,35 @@ export const scheduleService = {
     if (data.consultationFee    !== undefined) schedule.consultationFee    = data.consultationFee;
     if (data.status             !== undefined) schedule.status             = data.status;
     await schedule.save();
+
+    const Session = (await import('../models/QueueSession.js')).default;
+    const now = new Date();
+    const futureScheduled = { doctorBranchSchedule: schedule._id, startTime: { $gt: now }, status: 'scheduled' };
+
+    // When the weekly pattern changes, clean up stale future sessions so the controller
+    // can regenerate with the new times. Sessions with existing bookings are cancelled
+    // (patients need to see the cancellation); empty sessions are deleted so the unique
+    // index { doctorBranchSchedule, startTime } doesn't block the new inserts.
+    if (data.schedule !== undefined) {
+      await Promise.all([
+        Session.deleteMany({ ...futureScheduled, bookingsCount: 0 }),
+        Session.updateMany({ ...futureScheduled, bookingsCount: { $gt: 0 } }, { $set: { status: 'cancelled' } }),
+      ]).catch(err => console.warn('[SCHEDULE] pattern-change cleanup failed:', err.message));
+      return schedule; // controller handles regeneration
+    }
+
+    // Propagate avgConsultationMin to already-generated future sessions
+    if (data.avgConsultationMin !== undefined) {
+      await Session.updateMany(futureScheduled, { $set: { avgConsultationMin: data.avgConsultationMin } })
+        .catch(err => console.warn('[SCHEDULE] avgConsultationMin propagation failed:', err.message));
+    }
+
+    // Cancel future sessions when the schedule is deactivated
+    if (data.status === 'inactive') {
+      await Session.updateMany(futureScheduled, { $set: { status: 'cancelled' } })
+        .catch(err => console.warn('[SCHEDULE] session cancellation failed:', err.message));
+    }
+
     return schedule;
   },
 

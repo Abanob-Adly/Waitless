@@ -64,7 +64,7 @@ export function LandingPage() {
           }
           if (results.length >= 4) break;
         }
-        if (!cancelled) setDoctors(results);
+        if (!cancelled) setDoctors([...results].sort((a, b) => b.rating - a.rating));
       } catch {
         // network/data not available yet — show empty state
       } finally {

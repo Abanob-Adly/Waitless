@@ -46,4 +46,11 @@ router.post(
   queueController.reinsert
 );
 
+router.post(
+  '/appointments/:appointmentId/force-insert',
+  authenticate,
+  authorize('queue.operate', loadSession),
+  queueController.forceInsert
+);
+
 export default router;

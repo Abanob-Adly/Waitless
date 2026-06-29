@@ -4,7 +4,8 @@ import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { tokenService } from './token.js';
-import { Conflict, Forbidden } from '../utils/errors.js';
+import { AppError, Conflict, Forbidden } from '../utils/errors.js';
+import Branch from '../models/Branch.js';
 
 export const orgService = {
   async createOrg({ actor, data }) {
@@ -114,6 +115,20 @@ export const orgService = {
   async upgradePlan({ org, planId }) {
     const plan = await SubscriptionPlan.findById(planId);
     if (!plan) throw Forbidden('Plan not found');
+
+    // Before downgrading, validate current resource counts vs new plan limits
+    if (plan.limits.maxBranches !== null && plan.limits.maxBranches !== undefined) {
+      const branchCount = await Branch.countDocuments({ organization: org._id, isActive: true });
+      if (branchCount > plan.limits.maxBranches) {
+        const err = new AppError(
+          `You have ${branchCount} active branches but the "${plan.name}" plan allows only ${plan.limits.maxBranches}. Remove branches first to downgrade.`,
+          409,
+          'BRANCH_LIMIT_EXCEEDED',
+        );
+        err.details = { currentBranches: branchCount, allowedBranches: plan.limits.maxBranches, planName: plan.name };
+        throw err;
+      }
+    }
 
     const now = new Date();
     const sub = await Subscription.findOneAndUpdate(

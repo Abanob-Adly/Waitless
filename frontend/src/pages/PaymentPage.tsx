@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { bookMarketplace } from "../services/appointmentService";
+import { getMyWallet } from "../services/walletService";
+import { api } from "../services/api";
 import {
   validateCardNumber,
   validateExpiry,
@@ -10,6 +12,7 @@ import {
 } from "../utils/validation";
 import { CardVisual, detectCardBrand } from "../components/payment/CardVisual";
 import type { Doctor, Session } from "../context/AppContext";
+import type { WalletInfo } from "../services/walletService";
 
 // ── Checkout state passed via React Router location.state ─────────────────────
 
@@ -20,7 +23,7 @@ type CheckoutState = {
   patientPhone: string;
 };
 
-type PaymentMethod = "card" | "vodafone" | "clinic";
+type PaymentMethod = "card" | "vodafone" | "clinic" | "wallet";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -52,6 +55,14 @@ export function PaymentPage() {
   }
 
   const { doctor, session, patientName, patientPhone } = state;
+
+  // ── Wallet balance ────────────────────────────────────────────────────────
+  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
+  useEffect(() => {
+    getMyWallet().then(setWalletInfo).catch(() => setWalletInfo(null));
+  }, []);
+
+  const walletSufficient = walletInfo?.status === "active" && (walletInfo?.balance ?? 0) >= (session?.fee ?? doctor?.fee ?? 0);
 
   // ── Payment form state ────────────────────────────────────────────────────
   const [method, setMethod] = useState<PaymentMethod>("card");
@@ -88,7 +99,9 @@ export function PaymentPage() {
   function validate(): boolean {
     const errs: Record<string, string> = {};
 
-    if (method === "card") {
+    if (method === "wallet") {
+      if (!walletSufficient) errs.wallet = "Insufficient wallet balance.";
+    } else if (method === "card") {
       if (!cardholderName.trim())
         errs.cardholderName = "Cardholder name is required.";
       const cardResult = validateCardNumber(cardNumber.replace(/\s/g, ""));
@@ -97,9 +110,7 @@ export function PaymentPage() {
       if (!expiryResult.valid) errs.expiry = expiryResult.error;
       const cvvResult = validateCVV(cvv);
       if (!cvvResult.valid) errs.cvv = cvvResult.error;
-    }
-
-    if (method === "vodafone") {
+    } else if (method === "vodafone") {
       const phoneResult = validatePhone(vodafonePhone.trim());
       if (!phoneResult.valid) errs.vodafonePhone = phoneResult.error;
     }
@@ -121,8 +132,32 @@ export function PaymentPage() {
       appointmentId = appt.id;
       queueNumber = appt.queueNumber;
       accessToken = appt.accessToken ?? "";
-    } catch {
-      // If booking fails, still proceed with "pay at clinic" flow for demo
+    } catch (err: unknown) {
+      // Wallet payments need a confirmed appointment ID before charging —
+      // abort and surface the error rather than silently skipping the debit.
+      if (method === "wallet") {
+        const msg =
+          (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          "Booking failed. Please try again.";
+        setErrors({ wallet: msg });
+        setProcessing(false);
+        return;
+      }
+      // For card / clinic / vodafone: keep the original demo behaviour
+      // (proceed to result page even without a real appointment ID).
+    }
+
+    // Debit the wallet now that we have a confirmed appointment
+    if (method === "wallet" && appointmentId) {
+      try {
+        const fee = session.fee || doctor.fee;
+        await api.post("/wallet/me/purchase", { appointmentId, amount: fee });
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Wallet payment failed.";
+        setErrors({ wallet: msg });
+        setProcessing(false);
+        return;
+      }
     }
 
     const last4 = rawDigits.length >= 4 ? rawDigits.slice(-4) : undefined;
@@ -150,10 +185,12 @@ export function PaymentPage() {
     });
   }
 
+  const walletBalance = walletInfo?.balance ?? 0;
   const methodLabels: Record<PaymentMethod, string> = {
     card: "💳  Credit / Debit",
     vodafone: "📱  Vodafone Cash",
     clinic: "🏥  Pay at Clinic",
+    wallet: `👛  Wallet (${walletBalance} EGP)`,
   };
 
   return (
@@ -179,20 +216,27 @@ export function PaymentPage() {
           </p>
 
           {/* Payment method tab buttons */}
-          <div className="mt-6 grid grid-cols-3 gap-2">
-            {(["card", "vodafone", "clinic"] as PaymentMethod[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMethod(m)}
-                className={`rounded-md border py-3 text-xs font-medium transition ${
-                  method === m
-                    ? "border-navy bg-navy text-white"
-                    : "border-border bg-white text-navy-mid hover:border-navy/50 hover:text-navy"
-                }`}
-              >
-                {methodLabels[m]}
-              </button>
-            ))}
+          <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(["card", "vodafone", "clinic", "wallet"] as PaymentMethod[]).map((m) => {
+              const isWalletDisabled = m === "wallet" && !walletSufficient;
+              return (
+                <button
+                  key={m}
+                  onClick={() => !isWalletDisabled && setMethod(m)}
+                  disabled={isWalletDisabled}
+                  title={isWalletDisabled ? `Insufficient balance (${walletBalance} EGP)` : undefined}
+                  className={`rounded-md border py-3 text-xs font-medium transition ${
+                    method === m
+                      ? "border-navy bg-navy text-white"
+                      : isWalletDisabled
+                        ? "cursor-not-allowed border-border bg-offwhite text-navy-mid/40"
+                        : "border-border bg-white text-navy-mid hover:border-navy/50 hover:text-navy"
+                  }`}
+                >
+                  {methodLabels[m]}
+                </button>
+              );
+            })}
           </div>
 
           {/* Animated card visual (card method only) */}
@@ -291,6 +335,28 @@ export function PaymentPage() {
               </div>
             )}
 
+            {method === "wallet" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-border bg-offwhite px-5 py-4">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-navy-mid">Wallet Balance</p>
+                    <p className="mt-0.5 font-heading text-2xl font-bold text-navy">{walletBalance} EGP</p>
+                  </div>
+                  <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                    {walletSufficient ? "✓ Sufficient" : "Insufficient"}
+                  </span>
+                </div>
+                {!walletSufficient && (
+                  <div className="rounded-lg bg-danger/5 border border-danger/20 px-4 py-3 text-sm text-danger">
+                    Your wallet balance is insufficient. Top up from the Wallet tab in your dashboard.
+                  </div>
+                )}
+                {errors.wallet && (
+                  <p className="text-sm text-danger">{errors.wallet}</p>
+                )}
+              </div>
+            )}
+
             {/* Pay button */}
             <button
               type="submit"
@@ -304,6 +370,8 @@ export function PaymentPage() {
                 </>
               ) : method === "clinic" ? (
                 "Confirm Booking →"
+              ) : method === "wallet" ? (
+                `Pay ${session.fee || doctor.fee} EGP from Wallet →`
               ) : (
                 `Pay ${doctor.fee} EGP →`
               )}

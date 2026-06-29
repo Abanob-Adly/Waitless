@@ -33,6 +33,10 @@ export function LoginPage() {
         const stored = localStorage.getItem("waitless_user");
         if (stored) {
           const user = JSON.parse(stored) as { role: string };
+          if (user.role === "patient") {
+            navigate(next && next.startsWith('/') && next !== '/login' ? next : '/dashboard');
+            return;
+          }
           if (user.role === "doctor") {
             navigate("/doctor-dashboard");
             return;

@@ -37,6 +37,20 @@ const sessionSchema = new Schema(
     globalDelayMin: { type: Number, default: 0, min: 0 },
     // Maximum bookings allowed. null = unlimited.
     maxBookings:    { type: Number, default: null, min: 1 },
+
+    // ── Break tracking ───────────────────────────────────────────────────────
+    isOnBreak: { type: Boolean, default: false },
+    breaks: [{
+      startedAt:   { type: Date, required: true },
+      endedAt:     { type: Date, default: null },
+      durationMin: { type: Number, default: null },
+      reason:      { type: String, default: null },
+      _id:         false,
+    }],
+
+    // ── Late-start tracking ──────────────────────────────────────────────────
+    actualStartTime: { type: Date, default: null },
+    lateStartMin:    { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -54,7 +68,15 @@ sessionSchema.index(
  */
 sessionSchema.statics.reserveQueueNumber = function (sessionId) {
   return this.findOneAndUpdate(
-    { _id: sessionId, status: { $in: ['scheduled', 'active'] } },
+    {
+      _id: sessionId,
+      status: { $in: ['scheduled', 'active'] },
+      // Only allow booking when under the limit (null maxBookings = unlimited)
+      $or: [
+        { maxBookings: null },
+        { $expr: { $lt: ['$bookingsCount', '$maxBookings'] } },
+      ],
+    },
     { $inc: { bookingsCount: 1 } },
     { new: true }
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
 import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index";
@@ -21,7 +21,20 @@ export function AdminDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
   const { org, isLoading, myRoles, branches, memberships, schedules } = useOrg();
-  const [activeSection, setActiveSection] = useState<AdminSection | null>(null);
+  const [searchParams] = useSearchParams();
+  const VALID_SECTIONS: AdminSection[] = ["overview","branches","staff","joinrequests","schedules","sessions","wallet","billing","whatsapp","settings"];
+  const [activeSection, setActiveSection] = useState<AdminSection | null>(() => {
+    const tab = searchParams.get("tab") as AdminSection | null;
+    return tab && VALID_SECTIONS.includes(tab) ? tab : null;
+  });
+
+  // React to URL tab param changes (handles same-page navigation e.g. from UpgradeModal)
+  useEffect(() => {
+    const tab = searchParams.get("tab") as AdminSection | null;
+    if (tab && VALID_SECTIONS.includes(tab)) {
+      setActiveSection(tab);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!authUser || (authUser.role !== "admin" && authUser.role !== "doctor")) {
     navigate("/login", { replace: true });
@@ -662,8 +675,8 @@ function StaffTab() {
                     {removing === primary.id ? "…" : "Remove"}
                   </button>
                 </div>
-                {/* Make Admin / Revoke Admin — only for non-admin doctors/receptionists */}
-                {!isAdmin && isDoctor && (
+                {/* Make Admin — for any non-admin staff (doctor or receptionist) */}
+                {!isAdmin && (isDoctor || roles.includes("receptionist")) && (
                   <button
                     onClick={() => handleGrantAdmin(primary.id)}
                     disabled={isBusy}
@@ -672,7 +685,8 @@ function StaffTab() {
                     {promoting === primary.id ? "…" : "Make Admin"}
                   </button>
                 )}
-                {isAdmin && isDoctor && (
+                {/* Revoke Admin — for any member who holds an admin role */}
+                {isAdmin && (
                   <button
                     onClick={() => handleRevokeAdmin(
                       group.find((m) => m.userRole === "admin")?.id ?? primary.id,
@@ -911,7 +925,7 @@ function SchedulesTab() {
 
       {lastGenerated !== null && (
         <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
-          Schedule saved — {lastGenerated} session{lastGenerated !== 1 ? "s" : ""} auto-generated for the next 14 days.
+          Schedule saved — {lastGenerated} session{lastGenerated !== 1 ? "s" : ""} generated for the next 14 days. Doctor Profile will reflect this within 30 seconds.
         </div>
       )}
 
@@ -1066,7 +1080,8 @@ function SchedulesTab() {
           initialValues={editingSchedule}
           onClose={() => setEditingSchedule(null)}
           onSave={async (data) => {
-            await updateSchedule(editingSchedule.id, data);
+            const result = await updateSchedule(editingSchedule.id, data);
+            if (result.sessionsGenerated) setLastGenerated(result.sessionsGenerated);
             setEditingSchedule(null);
           }}
         />
@@ -1087,26 +1102,55 @@ function SchedulesTab() {
 
 // ── Billing Tab ───────────────────────────────────────────────────────────────
 
+type BranchConflict = { currentBranches: number; allowedBranches: number; planName: string };
+
 function BillingTab() {
-  const { subscription, plans, isLoading, upgradePlan } = useOrg();
+  const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<(BranchConflict & { planId: string }) | null>(null);
+  const [removingBranchId, setRemovingBranchId] = useState<string | null>(null);
 
   if (isLoading) return <Skeleton />;
 
   async function handleUpgrade(planId: string) {
+    const plan = plans.find((p) => p.id === planId);
+    const priceMsg = (plan?.pricePerMonth ?? 0) > 0 ? ` You will be billed ${plan!.pricePerMonth} EGP/month.` : "";
+    if (!window.confirm(`Switch to ${plan?.name ?? "this plan"}?${priceMsg} This takes effect immediately.`)) return;
     setUpgrading(planId);
     setSuccess(null);
     setError(null);
-    const ok = await upgradePlan(planId);
-    const plan = plans.find((p) => p.id === planId);
-    if (ok) {
-      setSuccess(`Plan upgraded to ${plan?.name ?? planId}. Changes take effect immediately.`);
+    setConflict(null);
+    const result = await upgradePlan(planId);
+    if (result.ok) {
+      setSuccess(`Switched to ${plan?.name ?? planId}. Changes take effect immediately.`);
+    } else if (result.conflict) {
+      setConflict({ ...result.conflict, planId });
     } else {
-      setError("Failed to upgrade plan. Please try again.");
+      setError("Failed to change plan. Please try again.");
     }
     setUpgrading(null);
+  }
+
+  async function handleRemoveBranchForConflict(branchId: string) {
+    if (!conflict || !org) return;
+    setRemovingBranchId(branchId);
+    try {
+      await orgService.deleteBranch(org.id, branchId);
+      await refresh();
+      // Re-check: if we now have enough space, retry the plan change
+      const updatedBranchCount = branches.filter((b) => b.id !== branchId).length;
+      if (updatedBranchCount <= conflict.allowedBranches) {
+        setConflict(null);
+        await handleUpgrade(conflict.planId);
+      } else {
+        setConflict((prev) => prev ? { ...prev, currentBranches: updatedBranchCount } : null);
+      }
+    } catch {
+      setError("Failed to remove branch. Please try again.");
+    }
+    setRemovingBranchId(null);
   }
 
   return (
@@ -1119,6 +1163,45 @@ function BillingTab() {
       {error && (
         <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
           {error}
+        </div>
+      )}
+
+      {/* Branch conflict modal */}
+      {conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="font-heading text-xl font-bold text-navy">Branch Limit Exceeded</h2>
+            <p className="mt-2 text-sm text-navy-mid">
+              You have <strong className="text-navy">{conflict.currentBranches} active branches</strong>, but the{" "}
+              <strong className="text-navy">{conflict.planName}</strong> plan allows only{" "}
+              <strong className="text-navy">{conflict.allowedBranches}</strong>. Remove{" "}
+              {conflict.currentBranches - conflict.allowedBranches} branch
+              {conflict.currentBranches - conflict.allowedBranches > 1 ? "es" : ""} to downgrade.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">Select a branch to remove</p>
+              {branches.map((b) => (
+                <div key={b.id} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                  <p className="text-sm font-medium text-navy">{b.name}</p>
+                  <button
+                    onClick={() => handleRemoveBranchForConflict(b.id)}
+                    disabled={removingBranchId === b.id}
+                    className="rounded-md bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger hover:text-white disabled:opacity-50"
+                  >
+                    {removingBranchId === b.id ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setConflict(null)}
+              className="mt-4 w-full rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
+            >
+              Keep Current Plan
+            </button>
+          </div>
         </div>
       )}
 
@@ -1165,7 +1248,7 @@ function BillingTab() {
                   disabled={upgrading === plan.id}
                   className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-60"
                 >
-                  {upgrading === plan.id ? "Upgrading…" : "Select Plan"}
+                  {upgrading === plan.id ? "Processing…" : "Select Plan"}
                 </button>
               )}
               {!isCurrent && plan.tier === "enterprise" && (

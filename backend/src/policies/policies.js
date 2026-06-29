@@ -67,7 +67,8 @@ const membershipPolicies = {
   'member.revoke': (actor, target) => {
     if (!target || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(target.organization)) return false;
-    if (actor.account._id.equals(target.account)) return false;
+    // Pending members have account=null; skip the self-revoke guard for them.
+    if (target.account && actor.account._id.equals(target.account)) return false;
     if (target.kind === 'admin' && target.isSuper && !actor.activeMembership.isSuper) return false;
     const m = actor.activeMembership;
     return m.kind === 'admin' && (m.isSuper || (m.permissions || []).includes('members.manage'));

@@ -87,6 +87,11 @@ const DoctorMembership = Membership.discriminator(
       avg: { type: Number, default: 0, min: 0, max: 5 },
       count: { type: Number, default: 0, min: 0 },
     },
+
+    // Long-term adaptive consultation average (Feature B).
+    // Seeded from the schedule's default; drifts slowly via α=0.1 smoothing
+    // across sessions so new sessions start with a personalised baseline.
+    historicalAvgConsultationMin: { type: Number, default: null },
   }),
 );
 

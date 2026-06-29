@@ -12,7 +12,7 @@ type PaymentResultState = {
   doctor: Doctor;
   session: Session;
   amount: number;
-  method: "card" | "vodafone" | "clinic";
+  method: "card" | "vodafone" | "clinic" | "wallet";
   last4?: string;
   patientName: string;
   patientPhone: string;

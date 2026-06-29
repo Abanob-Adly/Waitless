@@ -53,13 +53,13 @@ type OrgCtx = {
   updateSchedule: (
     scheduleId: string,
     data: Omit<DoctorBranchSchedule, "id" | "doctorId" | "branchId" | "doctorName" | "specialty" | "isActive">,
-  ) => Promise<boolean>;
+  ) => Promise<{ ok: boolean; sessionsGenerated?: number }>;
   addException: (
     scheduleId: string,
     date: string,
     reason: string,
   ) => Promise<boolean>;
-  upgradePlan: (planId: string) => Promise<boolean>;
+  upgradePlan: (planId: string) => Promise<{ ok: boolean; conflict?: { currentBranches: number; allowedBranches: number; planName: string } }>;
   toggleVisibility: (isPublic: boolean) => Promise<{ ok: boolean; error?: string }>;
   updateOrg: (data: { name?: string; whatsappNumber?: string | null }) => Promise<{ ok: boolean; error?: string }>;
   grantAdmin: (memberId: string) => Promise<boolean>;
@@ -181,7 +181,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         permissions: role === "admin"        ? permissions  : undefined,
       });
       await refresh();
-      return result.token;
+      return result.inviteToken;
     } catch (err) {
       const limitType = detectLimitError(err);
       if (limitType) { setUpgradeModal({ limitType }); return null; }
@@ -213,19 +213,19 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   async function updateSchedule(
     scheduleId: string,
     data: Omit<DoctorBranchSchedule, "id" | "doctorId" | "branchId" | "doctorName" | "specialty" | "isActive">,
-  ): Promise<boolean> {
-    if (!orgId) return false;
+  ): Promise<{ ok: boolean; sessionsGenerated?: number }> {
+    if (!orgId) return { ok: false };
     try {
-      const updated = await orgService.updateSchedule(orgId, scheduleId, {
+      const { schedule: updated, sessionsGenerated } = await orgService.updateSchedule(orgId, scheduleId, {
         schedule:           data.weeklySlots,
         avgConsultationMin: data.avgConsultationMin,
         consultationFee:    data.fee,
       });
       setSchedules((prev) => prev.map((s) => s.id === scheduleId ? { ...s, ...updated } : s));
-      return true;
+      return { ok: true, sessionsGenerated };
     } catch (err) {
       console.error("updateSchedule error:", err);
-      return false;
+      return { ok: false };
     }
   }
 
@@ -244,18 +244,22 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function upgradePlan(planId: string): Promise<boolean> {
-    if (!orgId) return false;
+  async function upgradePlan(planId: string): Promise<{ ok: boolean; conflict?: { currentBranches: number; allowedBranches: number; planName: string } }> {
+    if (!orgId) return { ok: false };
     try {
       const sub = await orgService.upgradePlan(orgId, planId);
       if (sub) {
         setSubscription(sub);
-        return true;
+        return { ok: true };
       }
-      return false;
-    } catch (err) {
+      return { ok: false };
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { code?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
+      if (e?.response?.data?.code === 'BRANCH_LIMIT_EXCEEDED' && e.response.data.details) {
+        return { ok: false, conflict: e.response.data.details };
+      }
       console.error("upgradePlan error:", err);
-      return false;
+      return { ok: false };
     }
   }
 

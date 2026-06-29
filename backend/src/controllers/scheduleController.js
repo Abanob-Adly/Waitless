@@ -71,7 +71,28 @@ export const scheduleController = {
 
   async update(req, res) {
     const schedule = await scheduleService.updateSchedule({ schedule: req.resource, data: req.body });
-    res.json({ data: schedule });
+
+    // When the weekly pattern changes, cancel stale sessions and regenerate for the next 14 days.
+    // avgConsultationMin-only or fee-only edits don't need this (scheduleService handles those).
+    let sessionsGenerated = 0;
+    if (req.body.schedule !== undefined && req.body.status !== 'inactive') {
+      const today = new Date();
+      const fromDate = today.toISOString().slice(0, 10);
+      const toDate = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      try {
+        const result = await sessionService.generateSessions({
+          scheduleId: schedule._id.toString(),
+          orgId:      req.params.orgId,
+          fromDate,
+          toDate,
+        });
+        sessionsGenerated = result.created ?? 0;
+      } catch (_err) {
+        // Non-fatal: stale sessions were cancelled; new ones will appear via daily job
+      }
+    }
+
+    res.json({ data: schedule, sessionsGenerated });
   },
 
   async delete(req, res) {

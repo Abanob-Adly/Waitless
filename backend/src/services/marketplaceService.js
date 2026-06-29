@@ -48,10 +48,9 @@ export const marketplaceService = {
       feeMap[s.doctorMembership.toString()] = s.consultationFee?.amount ?? 0;
     });
 
-    return doctors.map(d => ({
-      ...d.toObject(),
-      consultationFee: feeMap[d._id.toString()] ?? 0,
-    }));
+    return doctors
+      .map(d => ({ ...d.toObject(), consultationFee: feeMap[d._id.toString()] ?? 0 }))
+      .filter(d => d.consultationFee > 0);
   },
 
   async getAvailableSessions({ orgId, doctorId, date }) {

@@ -52,6 +52,8 @@ export const sessionController = {
       session.maxBookings = req.body.maxBookings ?? null;
     }
     await session.save();
+    // Re-populate doctor so adaptSession has fullName available immediately.
+    await session.populate({ path: 'doctor', select: 'kind specialties account', populate: { path: 'account', select: 'fullName' } });
     res.json({ data: session });
   },
 };
