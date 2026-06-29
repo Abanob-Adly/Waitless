@@ -74,9 +74,12 @@ export function LoginPage() {
         <div className="px-8 py-7">
           {/* Demo credentials hint */}
           <div className="mb-5 rounded-lg border border-border bg-offwhite px-4 py-3 text-xs text-navy-mid">
-            <p className="font-semibold text-navy">Sign in with phone or email</p>
+            <p className="font-semibold text-navy">
+              Sign in with phone or email
+            </p>
             <p className="mt-1 text-navy-mid">
-              Use the phone number or email you registered with, along with your password.
+              Use the phone number or email you registered with, along with your
+              password.
             </p>
           </div>
 
@@ -88,8 +91,8 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field
-              label="Phone Number *"
-              placeholder="01XXXXXXXXX"
+              label="Email or Phone Number *"
+              placeholder="you@example.com or 01XXXXXXXXX"
               value={phone}
               onChange={setPhone}
               error={errors.phone}
