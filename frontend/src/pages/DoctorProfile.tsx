@@ -28,6 +28,7 @@ export function DoctorProfile() {
   const [reviews, setReviews] = useState<MarketplaceReview[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!doctorId) return;
@@ -82,7 +83,7 @@ export function DoctorProfile() {
 
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doctorId]);
+  }, [doctorId, refreshKey]);
 
   if (isLoading && !doctor) {
     return (
@@ -153,13 +154,21 @@ export function DoctorProfile() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-10">
-      {/* Back */}
-      <button
-        onClick={() => navigate(-1)}
-        className="mb-6 flex items-center gap-1.5 rounded-md bg-offwhite px-3 py-1.5 text-sm text-navy-mid transition hover:bg-border hover:text-navy"
-      >
-        ← Back to results
-      </button>
+      {/* Back + Refresh */}
+      <div className="mb-6 flex items-center gap-3">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1.5 rounded-md bg-offwhite px-3 py-1.5 text-sm text-navy-mid transition hover:bg-border hover:text-navy"
+        >
+          ← Back to results
+        </button>
+        <button
+          onClick={() => setRefreshKey((k) => k + 1)}
+          className="ml-auto rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy"
+        >
+          ↻ Refresh
+        </button>
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* ── Left column ── */}

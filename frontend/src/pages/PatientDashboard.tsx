@@ -8,6 +8,7 @@ import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory } from "../se
 import type { PatientRecord, OwnAppointmentItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
+import { WalletView } from "../components/ui/WalletView";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,11 @@ export function PatientDashboard() {
       id: "history",
       label: `Past History (${appointmentHistory.length})`,
       content: <HistoryTab history={appointmentHistory} />,
+    },
+    {
+      id: "wallet",
+      label: "Wallet",
+      content: <WalletView mode="personal" />,
     },
   ];
 

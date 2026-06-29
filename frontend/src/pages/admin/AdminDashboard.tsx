@@ -9,6 +9,7 @@ import * as orgService from "../../services/orgService";
 import type { WalletSummary, WalletTransaction } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import type { AdminJoinRequest } from "../../services/joinRequestService";
+import { WalletView } from "../../components/ui/WalletView";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1312,12 +1313,16 @@ function WalletTab() {
   };
 
   return (
-    <div className="space-y-5">
-      {/* Header with refresh */}
+    <div className="space-y-8">
+      {/* Organization Wallet (balance + top-up + wallet entries) */}
+      <WalletView mode="org" orgId={orgId} />
+
+      {/* Session Revenue — detailed transaction list from completed appointments */}
+      <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Wallet</h2>
-          <p className="text-sm text-navy-mid">Revenue from completed sessions</p>
+          <h2 className="font-heading text-lg font-bold text-navy">Session Revenue</h2>
+          <p className="text-sm text-navy-mid">Revenue from completed appointments</p>
         </div>
         <button
           onClick={() => setRefreshKey((k) => k + 1)}
@@ -1445,6 +1450,7 @@ function WalletTab() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1889,6 +1895,20 @@ function AddScheduleModal({
   return (
     <ModalShell title={isEditMode ? "Edit Doctor Schedule" : "Add Doctor Schedule"} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
+
+        {/* Bug #6: Show doctor identity clearly in edit mode */}
+        {isEditMode && initialValues && (
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-offwhite px-4 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-sm font-bold text-white">
+              {(initialValues.doctorName || "?").split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase()}
+            </span>
+            <div>
+              <p className="font-heading text-sm font-bold text-navy">{initialValues.doctorName || "Unknown Doctor"}</p>
+              <p className="text-xs text-navy-mid capitalize">{initialValues.specialty}</p>
+            </div>
+          </div>
+        )}
+
         {!isEditMode && (
           <div>
             <label className="block text-sm font-medium text-navy">Branch</label>

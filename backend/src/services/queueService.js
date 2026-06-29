@@ -5,6 +5,7 @@ import Branch from '../models/Branch.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
+import { walletService } from './walletService.js';
 import redis from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
@@ -273,6 +274,35 @@ export const queueService = {
           doctorNet,
           status:           'settled',
         });
+
+        // ── Wallet distribution (non-fatal) ────────────────────────────────
+        if (fee > 0) {
+          const apptId = appointment._id;
+          const orgId  = appointment.organization;
+
+          // Debit patient wallet (silently skip if insufficient funds)
+          if (appointment.patientProfile?._id) {
+            walletService.purchaseDebit({ accountId: appointment.patientProfile._id, amount: fee, appointmentId: apptId })
+              .catch((e) => console.warn('[WALLET] patient debit failed:', e.message));
+          }
+
+          // Credit doctor wallet — look up the account behind the membership
+          if (session.doctor && doctorNet > 0) {
+            Membership.findById(session.doctor).select('account').lean()
+              .then((mem) => {
+                if (mem?.account) {
+                  return walletService.doctorEarningCredit({ accountId: mem.account, amount: doctorNet, appointmentId: apptId });
+                }
+              })
+              .catch((e) => console.warn('[WALLET] doctor credit failed:', e.message));
+          }
+
+          // Credit org wallet
+          if (commissionAmt > 0) {
+            walletService.orgCommissionCredit({ orgId, amount: commissionAmt, appointmentId: apptId })
+              .catch((e) => console.warn('[WALLET] org credit failed:', e.message));
+          }
+        }
       } catch (err) {
         console.warn('[PAYMENT] Transaction save failed:', err.message);
       }

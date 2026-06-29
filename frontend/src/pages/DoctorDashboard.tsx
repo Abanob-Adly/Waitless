@@ -8,6 +8,7 @@ import * as sessionService from "../services/sessionService";
 import * as appointmentService from "../services/appointmentService";
 import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
+import { WalletView } from "../components/ui/WalletView";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,11 @@ export function DoctorDashboard() {
       id: "sessions",
       label: "My Sessions",
       content: <SessionsTab orgId={orgId} doctorAccountId={profile.id} />,
+    },
+    {
+      id: "wallet",
+      label: "My Wallet",
+      content: <WalletView mode="personal" />,
     },
     {
       id: "profile",

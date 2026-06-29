@@ -6,6 +6,7 @@ import membershipRoutes from "./routes/membership.js";
 import orgRoutes from "./routes/orgRoutes.js";
 import marketplaceRoutes from "./routes/marketplaceRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
+import walletRoutes from "./routes/walletRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { validate } from "./middleware/validate.js";
@@ -51,6 +52,9 @@ app.use("/marketplace", marketplaceRoutes);
 
 // Reviews (public — token-based)
 app.use("/reviews", reviewRoutes);
+
+// Wallet (personal — patient / doctor)
+app.use("/wallet", walletRoutes);
 
 // Patient self-service endpoints
 app.get("/patients/me", authenticate, patientController.getOwn);

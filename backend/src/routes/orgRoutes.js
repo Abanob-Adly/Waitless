@@ -10,6 +10,7 @@ import scheduleRoutes from './scheduleRoutes.js';
 import patientRoutes from './patientRoutes.js';
 import transactionRoutes from './transactionRoutes.js';
 import joinRequestRoutes from './joinRequestRoutes.js';
+import orgWalletRoutes from './orgWalletRoutes.js';
 
 const router = Router();
 
@@ -72,5 +73,6 @@ router.use('/:orgId/schedules', scheduleRoutes);
 router.use('/:orgId/patients', patientRoutes);
 router.use('/:orgId/transactions', transactionRoutes);
 router.use('/:orgId/join-requests', joinRequestRoutes);
+router.use('/:orgId/wallet', orgWalletRoutes);
 
 export default router;
