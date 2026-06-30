@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const subscriptionSchema = new Schema({
-  organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
+  organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true},
   plan:         { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan', required: true },
 
   state: {

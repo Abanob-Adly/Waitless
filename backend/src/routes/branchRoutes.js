@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authenticate, optionalAuthenticate } from "../middleware/authenticate.js";
 import { validate } from "../middleware/validate.js";
-import { authorize } from "../auth/can.js";
+import { authorize } from "../policies/can.js";
 
 import Branch from "../models/Branch.js";
 import { branchController, branchSchemas } from "../controllers/branchController.js";

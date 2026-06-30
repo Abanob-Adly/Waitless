@@ -4,7 +4,7 @@ import Organization from '../models/Organization.js';
 import Branch from '../models/Branch.js';
 import { Membership, AdminMembership, DoctorMembership, ReceptionistMembership } from '../models/Membership.js';
 import crypto from 'crypto';
-import { env } from './config/env.js';
+import { env } from '../config/env.js';
 import { hashPassword } from '../utils/password.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
 

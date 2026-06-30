@@ -6,7 +6,7 @@ import { validate } from '../middleware/validate.js';
 const router = Router();
 
 // Public
-router.post('/user/register',   validate(schemas.register), authController.registerPatient);
+router.post('/user/register', validate(schemas.register), authController.registerPatient);
 router.post('/worker/register', validate(schemas.register), authController.registerWorker);
 router.post('/user/login',      validate(schemas.login),    authController.loginPatient);
 router.post('/worker/login',    validate(schemas.login),    authController.loginWorker);

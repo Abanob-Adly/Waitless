@@ -1,38 +1,35 @@
-import { z } from "zod";
-import { inviteService } from "../services/invite.js";
-import { tokenService } from "../services/token.js";
+import { z } from 'zod';
+import { inviteService } from '../services/invite.js';
+import { membershipService } from '../services/membership.js';
+import { tokenService } from '../services/token.js';
 
-const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
+const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 const email = z.string().email().toLowerCase();
 
-const createAdminInvite = z.object({
-  kind: z.literal("admin"),
+const adminInvite = z.object({
+  kind: z.literal('admin'),
   inviteEmail: email,
-  permissions: z.array(z.string().min(1)).default(["*"]),
+  permissions: z.array(z.string().min(1)).default(['*']),
   isSuper: z.boolean().default(false),
 });
 
-const createDoctorInvite = z.object({
-  kind: z.literal("doctor"),
+const doctorInvite = z.object({
+  kind: z.literal('doctor'),
   inviteEmail: email,
-  specialties: z.array(z.string().min(1).max(100)).default([]),
-  services: z.array(z.string().min(1).max(100)).default([]),
-  licenseNumber: z.string().trim().max(100).optional(),
+  specialties: z.array(z.string().min(1)).default([]),
+  services: z.array(z.string().min(1)).default([]),
+  licenseNumber: z.string().trim().optional(),
   bio: z.string().trim().max(2000).optional(),
 });
 
-const createReceptionistInvite = z.object({
-  kind: z.literal("receptionist"),
+const receptionistInvite = z.object({
+  kind: z.literal('receptionist'),
   inviteEmail: email,
   branches: z.array(objectId).min(1),
 });
 
 export const inviteSchemas = {
-  create: z.discriminatedUnion("kind", [
-    createAdminInvite,
-    createDoctorInvite,
-    createReceptionistInvite,
-  ]),
+  create: z.discriminatedUnion('kind', [adminInvite, doctorInvite, receptionistInvite]),
   acceptNew: z.object({
     token: z.string(),
     fullName: z.string().min(2),
@@ -40,17 +37,31 @@ export const inviteSchemas = {
     phone: z.string().optional(),
   }),
   acceptExisting: z.object({ token: z.string() }),
+
+  update: z
+    .object({
+      kind: z.enum(['admin', 'doctor', 'receptionist']).optional(),
+      permissions: z.array(z.string().min(1)).optional(),
+      isSuper: z.boolean().optional(),
+      specialties: z.array(z.string().min(1)).optional(),
+      services: z.array(z.string().min(1)).optional(),
+      licenseNumber: z.string().trim().optional(),
+      bio: z.string().trim().max(2000).optional(),
+      branches: z.array(objectId).optional(),
+    })
+    .strict(),
 };
 
-const serializeMembership = (m) => ({
+const publicMembership = (m) => ({
   id: m._id,
   organization: m.organization,
   kind: m.kind,
   status: m.status,
-  inviteEmail: m.inviteEmail,
+  account: m.account,
   invitedBy: m.invitedBy,
-  inviteToken: m.inviteToken,
+  inviteEmail: m.inviteEmail,
   inviteExpiresAt: m.inviteExpiresAt,
+  acceptedAt: m.acceptedAt,
   permissions: m.permissions,
   isSuper: m.isSuper,
   specialties: m.specialties,
@@ -58,7 +69,8 @@ const serializeMembership = (m) => ({
   licenseNumber: m.licenseNumber,
   bio: m.bio,
   branches: m.branches,
-  acceptedAt: m.acceptedAt,
+  createdAt: m.createdAt,
+  updatedAt: m.updatedAt,
 });
 
 export const membershipController = {
@@ -70,9 +82,39 @@ export const membershipController = {
     });
 
     res.status(201).json({
-      membership: serializeMembership(result.membership),
-      inviteUrl: `/members/invites/${result.inviteToken}`,
+      membership: publicMembership(result.membership),
+      inviteToken: result.inviteToken,
     });
+  },
+
+  async listMembers(req, res) {
+    const rows = await membershipService.list(req.params.id, req.query);
+    res.json({ items: rows.map(publicMembership) });
+  },
+
+  async getMember(req, res) {
+    const membership = await membershipService.get(req.params.membershipId);
+    res.json({ membership: publicMembership(membership) });
+  },
+
+  async updateMember(req, res) {
+    const membership = await membershipService.update(req.params.membershipId, req.body, req.actor);
+    res.json({ membership: publicMembership(membership) });
+  },
+
+  async suspendMember(req, res) {
+    const membership = await membershipService.suspend(req.params.membershipId, req.actor);
+    res.json({ membership: publicMembership(membership) });
+  },
+
+  async reactivateMember(req, res) {
+    const membership = await membershipService.reactivate(req.params.membershipId, req.actor);
+    res.json({ membership: publicMembership(membership) });
+  },
+
+  async revokeMember(req, res) {
+    const membership = await membershipService.revoke(req.params.membershipId, req.actor);
+    res.json({ membership: publicMembership(membership) });
   },
 
   async lookupInvite(req, res) {

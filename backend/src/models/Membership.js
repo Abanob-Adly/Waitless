@@ -54,9 +54,9 @@ membershipSchema.index(
 // Fast "list all doctors in org X" / "list active receptionists in org X"
 membershipSchema.index({ organization: 1, kind: 1, status: 1 });
 
-const Membership = mongoose.model('Membership', membershipSchema);
+const Membership =  mongoose.models.Membership || mongoose.model('Membership', membershipSchema);
 
-const AdminMembership = Membership.discriminator(
+const AdminMembership = Membership.discriminators?.admin || Membership.discriminator(
   'admin',
   new Schema({
     permissions: { type: [String], default: ['*'] },
@@ -64,7 +64,7 @@ const AdminMembership = Membership.discriminator(
   })
 );
 
-const DoctorMembership = Membership.discriminator(
+const DoctorMembership = Membership.discriminators?.doctor || Membership.discriminator(
   'doctor',
   new Schema({
     specialties: [{ type: String, lowercase: true, trim: true, index: true }],
@@ -80,7 +80,7 @@ const DoctorMembership = Membership.discriminator(
   })
 );
 
-const ReceptionistMembership = Membership.discriminator(
+const ReceptionistMembership = Membership.discriminators?.receptionist || Membership.discriminator(
   'receptionist',
   new Schema({
     branches: {

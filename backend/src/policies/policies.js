@@ -94,29 +94,88 @@ const branchPolicies = {
   },
 };
 
-const membershipPolicies = {
-  'member.invite': (actor, { invitedKind } = {}) => {
-    const m = actor.activeMembership;
-    if (!m || m.kind !== 'admin') return false;
-    if (!actor.activeOrgId || !resource?.organization) return false;
-    if (!actor.activeOrgId.equals(resource.organization._id ?? resource.organization)) return false;
-    if (resource.invitedKind === 'admin') return m.isSuper === true; // Inviting an admin requires super
 
-    // Inviting doctor/receptionist: super OR explicit permission
-    return m.isSuper || (m.permissions || []).includes('members.invite');
+// suport funcs
+const hasPermission = (membership, permission) => {
+  const perms = membership?.permissions || [];
+  return membership?.isSuper === true || perms.includes('*') || perms.includes(permission);
+};
+const sameOrg = (actor, orgId) => actor.activeOrgId && actor.activeOrgId.equals(orgId);
+
+const membershipPolicies = {
+  'member.invite': (actor, { invitedKind, organization } = {}) => {
+    const m = actor.activeMembership;
+    if (!m || m.kind !== 'admin' || m.status !== 'active') return false;
+    if (organization && !sameOrg(actor, organization._id || organization)) return false;
+
+    if (invitedKind === 'admin') return m.isSuper;
+    return hasPermission(m, 'members.invite');
+  },
+
+  'member.view': (actor, target) => {
+    if (actor.isPlatformAdmin) return true;
+    if (!target) return false;
+
+    const orgId = target.organization?._id || target.organization || target._id;
+    return !!actor.activeMembership && sameOrg(actor, orgId) && actor.activeMembership.status === 'active';
+  },
+
+  'member.update': (actor, target) => {
+    if (!target || !actor.activeMembership) return false;
+    if (!sameOrg(actor, target.organization)) return false;
+    if (actor.activeMembership.status !== 'active') return false;
+
+    if (actor.activeMembership.kind === 'admin') {
+      return hasPermission(actor.activeMembership, 'members.manage');
+    }
+
+    return target.kind === 'doctor' && actor.account._id.equals(target.account?._id || target.account);
+  },
+
+  'member.suspend': (actor, target) => {
+    if (!target || !actor.activeMembership) return false;
+    if (!sameOrg(actor, target.organization)) return false;
+    if (actor.account._id.equals(target.account?._id || target.account)) return false;
+    return actor.activeMembership.kind === 'admin' &&
+      actor.activeMembership.status === 'active' &&
+      hasPermission(actor.activeMembership, 'members.manage');
+  },
+
+  'member.reactivate': (actor, target) => {
+    if (!target || !actor.activeMembership) return false;
+    if (!sameOrg(actor, target.organization)) return false;
+    return actor.activeMembership.kind === 'admin' &&
+      actor.activeMembership.status === 'active' &&
+      hasPermission(actor.activeMembership, 'members.manage');
   },
 
   'member.revoke': (actor, target) => {
     if (!target || !actor.activeMembership) return false;
-    if (!actor.activeOrgId?.equals(target.organization)) return false;
-    if (actor.account._id.equals(target.account)) return false; // no self-revoke
-    if (target.kind === 'admin' && target.isSuper && !actor.activeMembership.isSuper) {
-      return false; // only super can revoke a super
-    }
-    const m = actor.activeMembership;
-    return m.kind === 'admin' && (m.isSuper || (m.permissions || []).includes('members.manage'));
+    if (!sameOrg(actor, target.organization)) return false;
+    if (actor.account._id.equals(target.account?._id || target.account)) return false;
+    if (target.kind === 'admin' && target.isSuper && !actor.activeMembership.isSuper) return false;
+    return actor.activeMembership.kind === 'admin' &&
+      actor.activeMembership.status === 'active' &&
+      hasPermission(actor.activeMembership, 'members.manage');
+  },
+
+  'member.cancel_invite': (actor, target) => {
+    if (!target || !actor.activeMembership) return false;
+    if (!sameOrg(actor, target.organization)) return false;
+    if (target.status !== 'pending') return false;
+    return (
+      actor.account._id.equals(target.invitedBy?._id || target.invitedBy) ||
+      (actor.activeMembership.kind === 'admin' && hasPermission(actor.activeMembership, 'members.invite'))
+    );
+  },
+
+  'member.permissions.update': (actor, target) => {
+    if (!target || !actor.activeMembership) return false;
+    if (!sameOrg(actor, target.organization)) return false;
+    return actor.activeMembership.kind === 'admin' && actor.activeMembership.isSuper;
   },
 };
+
 
 export const policies = {
   ...accountPolicies,
