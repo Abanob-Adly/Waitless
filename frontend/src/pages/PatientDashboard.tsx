@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
@@ -29,31 +29,35 @@ export function PatientDashboard() {
     }
   }, [authUser]);
 
-  const dashboardTabs = [
-    {
-      id: "active",
-      label: `Active Bookings${bookings.length > 0 ? ` (${bookings.length})` : ""}`,
-      content: (
-        <ActiveBookingsTab
-          bookings={bookings}
-          serverTickets={serverTickets}
-          onGoToTicket={() => navigate("/ticket")}
-          onBook={() => navigate("/search")}
-          onCancel={(id) => removeBooking(id)}
-        />
-      ),
-    },
-    {
-      id: "history",
-      label: `Past History (${appointmentHistory.length})`,
-      content: <HistoryTab history={appointmentHistory} />,
-    },
-    {
-      id: "wallet",
-      label: "Wallet",
-      content: <WalletView mode="personal" />,
-    },
-  ];
+  const dashboardTabs = useMemo(
+    () => [
+      {
+        id: "active",
+        label: `Active Bookings${bookings.length > 0 ? ` (${bookings.length})` : ""}`,
+        content: (
+          <ActiveBookingsTab
+            bookings={bookings}
+            serverTickets={serverTickets}
+            onGoToTicket={() => navigate("/ticket")}
+            onBook={() => navigate("/search")}
+            onCancel={(id) => removeBooking(id)}
+          />
+        ),
+      },
+      {
+        id: "history",
+        label: `Past History (${appointmentHistory.length})`,
+        content: <HistoryTab history={appointmentHistory} />,
+      },
+      {
+        id: "wallet",
+        label: "Wallet",
+        content: <WalletView mode="personal" />,
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bookings, serverTickets, appointmentHistory],
+  );
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -343,9 +347,17 @@ function ActiveBookingsTab({
   onBook: () => void;
   onCancel: (id: string) => void;
 }) {
-  // Server tickets not already tracked in local bookings (e.g. logged in on new device)
+  // Server tickets not already tracked in local bookings (e.g. logged in on new device).
+  // Dedup by both appointment ID and accessToken: if bookings haven't reloaded from
+  // the user's localStorage key yet when the server response arrives, localIds will be
+  // temporarily empty. The accessToken check catches that window.
   const localIds = new Set(bookings.map((b) => b.id));
-  const orphanTickets = serverTickets.filter((t) => !localIds.has(t.id) && t.accessToken);
+  const localTokens = new Set(
+    bookings.map((b) => b.accessToken).filter((t): t is string => Boolean(t)),
+  );
+  const orphanTickets = serverTickets.filter(
+    (t) => t.accessToken && !localIds.has(t.id) && !localTokens.has(t.accessToken),
+  );
 
   if (bookings.length === 0 && orphanTickets.length === 0) {
     return (

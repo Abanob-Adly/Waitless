@@ -59,6 +59,7 @@ function adaptMembership(m: Record<string, unknown>): Membership {
     invitedEmail: String(account.email ?? m.inviteEmail ?? ""),
     memberName: String(account.fullName ?? ""),
     createdAt: String(m.createdAt ?? ""),
+    avatarUrl: (m.avatarUrl as string | undefined) ?? "",
     bio: m.bio as string | undefined,
     specialties: m.specialties as string[] | undefined,
     websiteUrl: (m.websiteUrl as string | null | undefined) ?? null,
@@ -87,6 +88,7 @@ function adaptSchedule(s: Record<string, unknown>): DoctorBranchSchedule {
     })),
     fee: Number((s.consultationFee as { amount?: number } | null)?.amount ?? s.consultationFee ?? 0),
     avgConsultationMin: Number(s.avgConsultationMin ?? 15),
+    defaultMaxBookings: s.defaultMaxBookings != null ? Number(s.defaultMaxBookings) : null,
     isActive: s.status !== "inactive",
   };
 }
@@ -371,6 +373,7 @@ export async function createSchedule(
     }>;
     avgConsultationMin?: number;
     consultationFee?: number;
+    defaultMaxBookings?: number | null;
   },
 ): Promise<{ schedule: DoctorBranchSchedule; sessionsGenerated: number }> {
   const res = await api.post<{ data: Record<string, unknown> }>(
@@ -383,6 +386,7 @@ export async function createSchedule(
       consultationFee: data.consultationFee != null
         ? { amount: data.consultationFee, currency: 'EGP' }
         : undefined,
+      defaultMaxBookings: data.defaultMaxBookings ?? null,
     },
   );
   const raw = unwrap(res) as Record<string, unknown>;
@@ -399,12 +403,14 @@ export async function updateSchedule(
     schedule?: Array<{ dayOfWeek: number; startTime: string; endTime: string }>;
     avgConsultationMin?: number;
     consultationFee?: number;
+    defaultMaxBookings?: number | null;
   },
 ): Promise<{ schedule: DoctorBranchSchedule; sessionsGenerated: number }> {
   const payload: Record<string, unknown> = {};
   if (data.schedule !== undefined) payload.schedule = data.schedule;
   if (data.avgConsultationMin !== undefined) payload.avgConsultationMin = data.avgConsultationMin;
   if (data.consultationFee !== undefined) payload.consultationFee = { amount: data.consultationFee, currency: 'EGP' };
+  if (data.defaultMaxBookings !== undefined) payload.defaultMaxBookings = data.defaultMaxBookings;
   const res = await api.put<{ data: Record<string, unknown>; sessionsGenerated?: number }>(
     `/orgs/${orgId}/schedules/${scheduleId}`,
     payload,

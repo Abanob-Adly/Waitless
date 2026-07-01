@@ -119,7 +119,7 @@ export type ActiveTicketItem = {
   sessionEndTime: string;
 };
 
-const ACTIVE_STATUSES = new Set(["booked", "called", "held", "in_progress"]);
+const ACTIVE_STATUSES = new Set(["booked", "called", "held", "skipped", "in_progress"]);
 
 export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
   try {

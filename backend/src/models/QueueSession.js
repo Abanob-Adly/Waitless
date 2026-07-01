@@ -51,6 +51,23 @@ const sessionSchema = new Schema(
     // ── Late-start tracking ──────────────────────────────────────────────────
     actualStartTime: { type: Date, default: null },
     lateStartMin:    { type: Number, default: 0 },
+
+    // ── Late-start excuse (doctor submits before penalty fires) ──────────────
+    excuse: {
+      submittedAt: { type: Date, default: null },
+      reason:      { type: String, default: null },
+      status:      { type: String, enum: ['pending', 'approved', 'denied'], default: null },
+      reviewedAt:  { type: Date, default: null },
+      reviewedBy:  { type: Types.ObjectId, ref: 'Membership', default: null },
+      _id:         false,
+    },
+
+    // ── Penalty applied by the auto-checker ──────────────────────────────────
+    penaltyApplied: {
+      amount:    { type: Number },
+      appliedAt: { type: Date },
+      _id:       false,
+    },
   },
   { timestamps: true }
 );

@@ -41,6 +41,7 @@ type OrgCtx = {
     specialties?: string[];
     bio?: string;
     permissions?: string[];
+    avatarUrl?: string | null;
     websiteUrl?: string | null;
     acceptedInsurances?: string[];
     licenseNumber?: string;
@@ -103,6 +104,32 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  async function fetchAndApply() {
+    if (!orgId) return;
+    const [o, b, m, s, p] = await Promise.all([
+      orgService.getOrg(orgId),
+      orgService.getBranches(orgId),
+      orgService.getMembers(orgId),
+      orgService.getSchedules(orgId),
+      orgService.getPlans(),
+    ]);
+    setOrg(o);
+    // Preserve array identity when data hasn't changed to prevent downstream
+    // useCallback/useEffect chains from re-firing (Bug 2: queue jitter).
+    setBranches((prev) =>
+      prev.length === b.length && prev.every((x, i) => x.id === b[i].id) ? prev : b,
+    );
+    setMemberships(m);
+    setSchedules(s);
+    setPlans(p);
+    try {
+      const sub = await orgService.getSubscription(orgId);
+      setSubscription(sub);
+    } catch {
+      setSubscription(null);
+    }
+  }
+
   async function refresh() {
     if (!orgId) {
       setIsLoading(false);
@@ -110,29 +137,19 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     }
     setIsLoading(true);
     try {
-      const [o, b, m, s, p] = await Promise.all([
-        orgService.getOrg(orgId),
-        orgService.getBranches(orgId),
-        orgService.getMembers(orgId),
-        orgService.getSchedules(orgId),
-        orgService.getPlans(),
-      ]);
-      setOrg(o);
-      setBranches(b);
-      setMemberships(m);
-      setSchedules(s);
-      setPlans(p);
-      // Subscription is optional — 404 means no active plan yet
-      try {
-        const sub = await orgService.getSubscription(orgId);
-        setSubscription(sub);
-      } catch {
-        setSubscription(null);
-      }
+      await fetchAndApply();
     } catch (err) {
       console.error("OrgContext refresh error:", err);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function backgroundRefresh() {
+    try {
+      await fetchAndApply();
+    } catch (err) {
+      console.error("OrgContext backgroundRefresh error:", err);
     }
   }
 
@@ -181,7 +198,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         permissions: role === "admin"        ? permissions  : undefined,
       });
       await refresh();
-      return result.inviteToken;
+      return result.token;
     } catch (err) {
       const limitType = detectLimitError(err);
       if (limitType) { setUpgradeModal({ limitType }); return null; }
@@ -201,6 +218,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         schedule:           data.weeklySlots,
         avgConsultationMin: data.avgConsultationMin,
         consultationFee:    data.fee,
+        defaultMaxBookings: data.defaultMaxBookings,
       });
       setSchedules((prev) => [...prev, result.schedule]);
       return { ok: true, sessionsGenerated: result.sessionsGenerated };
@@ -220,6 +238,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         schedule:           data.weeklySlots,
         avgConsultationMin: data.avgConsultationMin,
         consultationFee:    data.fee,
+        defaultMaxBookings: data.defaultMaxBookings,
       });
       setSchedules((prev) => prev.map((s) => s.id === scheduleId ? { ...s, ...updated } : s));
       return { ok: true, sessionsGenerated };
@@ -286,7 +305,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
   async function updateMember(
     memberId: string,
-    data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[] },
+    data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; avatarUrl?: string | null; websiteUrl?: string | null; acceptedInsurances?: string[]; licenseNumber?: string; yearsOfExperience?: number | null; languagesSpoken?: string[] },
   ): Promise<boolean> {
     if (!orgId) return false;
     try {
@@ -316,14 +335,17 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   async function grantAdmin(memberId: string): Promise<boolean> {
     if (!orgId) return false;
     const ok = await orgService.grantMemberAdmin(orgId, memberId);
-    if (ok) await refresh();
+    if (ok) void backgroundRefresh();
     return ok;
   }
 
   async function revokeAdmin(memberId: string): Promise<boolean> {
     if (!orgId) return false;
     const ok = await orgService.revokeMemberAdmin(orgId, memberId);
-    if (ok) await refresh();
+    if (ok) {
+      setMemberships((prev) => prev.filter((m) => m.id !== memberId));
+      void backgroundRefresh();
+    }
     return ok;
   }
 

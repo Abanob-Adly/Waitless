@@ -20,6 +20,7 @@ export const scheduleSchemas = {
     schedule:           z.array(slotSchema).min(1),
     avgConsultationMin: z.number().int().min(1),
     consultationFee:    feeSchema,
+    defaultMaxBookings: z.number().int().min(1).nullable().optional(),
   }),
 
   update: z.object({
@@ -27,6 +28,7 @@ export const scheduleSchemas = {
     avgConsultationMin: z.number().int().min(1).optional(),
     consultationFee:    feeSchema,
     status:             z.enum(['active', 'inactive']).optional(),
+    defaultMaxBookings: z.number().int().min(1).nullable().optional(),
   }),
 
   createException: z.object({

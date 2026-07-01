@@ -13,6 +13,8 @@ import { DoctorDashboard } from "../pages/DoctorDashboard";
 import { LoginPage } from "../pages/auth/LoginPage";
 import { SignupPage } from "../pages/auth/SignupPage";
 import { PendingPage } from "../pages/auth/PendingPage";
+import { ForgotPasswordPage } from "../pages/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../pages/auth/ResetPasswordPage";
 import { ProtectedRoute } from "../components/auth/ProtectedRoute";
 import { OrgOnboardingPage } from "../pages/org/OrgOnboardingPage";
 import { AcceptInvitePage } from "../pages/org/AcceptInvitePage";
@@ -34,6 +36,8 @@ export const router = createBrowserRouter([
       { path: "login", element: <LoginPage /> },
       { path: "signup", element: <SignupPage /> },
       { path: "pending", element: <PendingPage /> },
+      { path: "forgot-password", element: <ForgotPasswordPage /> },
+      { path: "reset-password", element: <ResetPasswordPage /> },
       { path: "payment-result", element: <PaymentResult /> },
       { path: "org/signup", element: <OrgOnboardingPage /> },
       { path: "accept-invite", element: <AcceptInvitePage /> },
@@ -77,7 +81,7 @@ export const router = createBrowserRouter([
       {
         path: "admin",
         element: (
-          <ProtectedRoute role={["admin", "doctor"]}>
+          <ProtectedRoute role="admin">
             <OrgProvider>
               <AdminDashboard />
             </OrgProvider>

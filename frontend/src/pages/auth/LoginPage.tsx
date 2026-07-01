@@ -1,15 +1,36 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { loginWithCredentials, isAuthLoading, authError, clearAuthError } = useAuth();
+  const { authUser, loginWithCredentials, isAuthLoading, authError, clearAuthError } = useAuth();
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Redirect whenever authUser becomes available — covers both already-logged-in
+  // users landing on /login and the post-login state update from loginWithCredentials.
+  // This is reactive so it works even if the synchronous navigate() in handleSubmit
+  // loses the race against the auth:logout interceptor clearing localStorage.
+  useEffect(() => {
+    if (!authUser) return;
+    const next = searchParams.get("next");
+    const safeNext = next && next.startsWith("/") && next !== "/login" ? next : null;
+    if (authUser.role === "patient") {
+      navigate(safeNext ?? "/dashboard", { replace: true });
+    } else if (authUser.role === "doctor") {
+      navigate("/doctor-dashboard", { replace: true });
+    } else if (authUser.role === "admin") {
+      navigate("/admin", { replace: true });
+    } else if (authUser.role === "receptionist") {
+      navigate("/reception", { replace: true });
+    } else {
+      navigate(safeNext ?? "/", { replace: true });
+    }
+  }, [authUser, navigate, searchParams]);
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
@@ -23,42 +44,8 @@ export function LoginPage() {
     e.preventDefault();
     clearAuthError();
     if (!validate()) return;
-
-    const success = await loginWithCredentials(phone.trim(), password);
-    if (success) {
-      const next = searchParams.get("next");
-      // Use the hook result isn't available synchronously — navigate based on
-      // localStorage which was just written by loginWithCredentials
-      try {
-        const stored = localStorage.getItem("waitless_user");
-        if (stored) {
-          const user = JSON.parse(stored) as { role: string };
-          if (user.role === "patient") {
-            navigate(next && next.startsWith('/') && next !== '/login' ? next : '/dashboard');
-            return;
-          }
-          if (user.role === "doctor") {
-            navigate("/doctor-dashboard");
-            return;
-          }
-          if (user.role === "admin") {
-            navigate("/admin");
-            return;
-          }
-          if (user.role === "receptionist") {
-            navigate("/reception");
-            return;
-          }
-          if (user.role === "staff") {
-            navigate("/pending");
-            return;
-          }
-        }
-      } catch {
-        // ignore parse errors
-      }
-      navigate(next && next.startsWith('/') ? next : '/');
-    }
+    // Navigation is handled reactively by the useEffect above once authUser updates.
+    await loginWithCredentials(phone.trim(), password);
   }
 
   return (
@@ -124,15 +111,20 @@ export function LoginPage() {
             </button>
           </form>
 
-          <p className="mt-5 text-center text-sm text-navy-mid">
-            Don&apos;t have an account?{" "}
-            <Link
-              to={`/signup${searchParams.get("next") ? `?next=${searchParams.get("next")}` : ""}`}
-              className="font-medium text-gold transition hover:text-gold-light"
-            >
-              Create one →
+          <div className="mt-4 flex items-center justify-between text-sm">
+            <p className="text-navy-mid">
+              Don&apos;t have an account?{" "}
+              <Link
+                to={`/signup${searchParams.get("next") ? `?next=${searchParams.get("next")}` : ""}`}
+                className="font-medium text-gold transition hover:text-gold-light"
+              >
+                Create one →
+              </Link>
+            </p>
+            <Link to="/forgot-password" className="font-medium text-navy-mid transition hover:text-navy">
+              Forgot password?
             </Link>
-          </p>
+          </div>
         </div>
       </div>
     </main>

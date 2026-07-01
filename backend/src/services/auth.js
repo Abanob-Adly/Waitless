@@ -6,6 +6,16 @@ import { AppError, Conflict, NotFound, Unauthorized } from '../utils/errors.js';
 import { tokenService } from './token.js';
 import { verificationService } from './verification.js';
 
+// Strips formatting and converts to E.164 (Egyptian default: 01X → +201X).
+function normalizePhone(input = '') {
+  const digits = input.replace(/[\s\-().]/g, '');
+  if (digits.startsWith('+')) return digits;
+  if (digits.startsWith('00')) return `+${digits.slice(2)}`;
+  if (digits.startsWith('201') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('01') && digits.length === 11) return `+2${digits}`;
+  return digits; // return as-is if pattern is unrecognised
+}
+
 // Normalises phone/email identifier for login lookups.
 // 01XXXXXXXXX → +201XXXXXXXXX; otherwise treated as email.
 function normalizeIdentifier(input = '') {
@@ -24,8 +34,14 @@ export const authService = {
   async registerPatient({ email, phone, password, fullName, dateOfBirth }) {
     if (await Account.findOne({ email })) throw Conflict('Email already in use');
 
+    // Normalise phone to E.164 (+201XXXXXXXXX) to prevent false-unique duplicates
+    const normalizedPhone = phone ? normalizePhone(phone) : undefined;
+    if (normalizedPhone && await Account.findOne({ phone: normalizedPhone })) {
+      throw Conflict('This phone number is already registered to another account. Please use a different number.');
+    }
+
     const account = await Account.create({
-      email, phone, fullName,
+      email, phone: normalizedPhone ?? phone, fullName,
       passwordHash: await hashPassword(password),
       role: 'patient',
       // Auto-activate so the frontend works without email verification in development.
@@ -49,8 +65,13 @@ export const authService = {
   async registerWorker({ email, phone, password, fullName }) {
     if (await Account.findOne({ email })) throw Conflict('Email already in use');
 
+    const normalizedPhone = phone ? normalizePhone(phone) : undefined;
+    if (normalizedPhone && await Account.findOne({ phone: normalizedPhone })) {
+      throw Conflict('This phone number is already registered to another account. Please use a different number.');
+    }
+
     const account = await Account.create({
-      email, phone, fullName,
+      email, phone: normalizedPhone ?? phone, fullName,
       passwordHash: await hashPassword(password),
       role: 'staff',
       status: 'active',

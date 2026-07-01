@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -8,6 +8,7 @@ import * as appointmentService from "../services/appointmentService";
 import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 import { WalletView } from "../components/ui/WalletView";
+import { SPECIALTIES } from "../data/mockData";
 
 type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "profile";
 
@@ -16,7 +17,7 @@ type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "
 export function DoctorDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
-  const { myRoles } = useOrg();
+  const { myRoles, memberships, isLoading, updateMember } = useOrg();
   const [activeSection, setActiveSection] = useState<DoctorSection | null>(null);
 
   if (!authUser || (authUser.role !== "doctor" && authUser.role !== "admin")) {
@@ -28,6 +29,29 @@ export function DoctorDashboard() {
   const orgId = profile.orgId;
   const initials = profile.name.split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase();
   const isAlsoAdmin = myRoles.includes("admin");
+
+  // Specialty backfill modal — shown once when doctor has no specialties set
+  const myMembershipForSpecialty = memberships.find(
+    (m) => m.userId === profile.id && m.userRole === "doctor",
+  );
+  const needsSpecialty =
+    !isLoading &&
+    myMembershipForSpecialty != null &&
+    (!myMembershipForSpecialty.specialties || myMembershipForSpecialty.specialties.length === 0);
+  const [specialtyInput, setSpecialtyInput] = useState("");
+  const [specialtySaving, setSpecialtySaving] = useState(false);
+  const [specialtyError, setSpecialtyError] = useState<string | null>(null);
+
+  const handleSpecialtyBackfill = useCallback(async () => {
+    const cleaned = specialtyInput.trim();
+    if (!cleaned) { setSpecialtyError("Please enter your specialty."); return; }
+    if (!myMembershipForSpecialty) return;
+    setSpecialtySaving(true); setSpecialtyError(null);
+    const ok = await updateMember(myMembershipForSpecialty.id, { specialties: [cleaned] });
+    setSpecialtySaving(false);
+    if (!ok) setSpecialtyError("Failed to save. Please try again.");
+    // On success, OrgContext refresh will re-evaluate `needsSpecialty` to false.
+  }, [specialtyInput, myMembershipForSpecialty, updateMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sectionTitle: Record<DoctorSection, string> = {
     queue: "Today's Queue",
@@ -52,6 +76,46 @@ export function DoctorDashboard() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
+      {/* Specialty backfill modal — blocks dashboard until doctor sets a specialty */}
+      {needsSpecialty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-navy px-6 py-5">
+              <p className="font-heading text-lg font-bold text-white">One quick step</p>
+              <p className="mt-0.5 text-sm text-white/60">We need your specialty to complete your profile.</p>
+            </div>
+            <div className="space-y-4 p-6">
+              <p className="text-sm text-navy-mid">
+                Your account doesn&apos;t have a specialty listed yet. This is required to appear correctly in the system.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-navy">Your Specialty *</label>
+                <input
+                  list="backfill-specialty-options"
+                  value={specialtyInput}
+                  onChange={(e) => setSpecialtyInput(e.target.value)}
+                  placeholder="e.g. Cardiology, General Practice…"
+                  className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                />
+                <datalist id="backfill-specialty-options">
+                  {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+                {specialtyError && <p className="mt-1 text-xs text-danger">{specialtyError}</p>}
+              </div>
+              <button
+                onClick={() => void handleSpecialtyBackfill()}
+                disabled={specialtySaving}
+                className="w-full rounded-md bg-gold py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-60"
+              >
+                {specialtySaving ? "Saving…" : "Save & Continue →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
         <div className="flex items-start gap-4">
@@ -518,6 +582,21 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
+  const [excuseReason, setExcuseReason] = useState("");
+  const [submittingExcuse, setSubmittingExcuse] = useState(false);
+  const [excuseError, setExcuseError] = useState<string | null>(null);
+  const [startingSession, setStartingSession] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [absenceModal, setAbsenceModal] = useState<{ sessionId: string; branchId: string } | null>(null);
+
+  const hasActiveReceptionist = memberships.some(
+    (m) => m.userRole === "receptionist" && m.status === "active",
+  );
+  const receptionistAbsenceKey = `waitless_receptionist_absent_${orgId}`;
+  const receptionistAbsent =
+    !hasActiveReceptionist ||
+    sessionStorage.getItem(receptionistAbsenceKey) === new Date().toISOString().slice(0, 10);
 
   const myMembershipId =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
@@ -547,12 +626,66 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   // Re-fetch every 30s so admin edits appear without manual reload
   usePolling(() => { void loadSessions(); }, 30_000);
 
+  async function handleSubmitExcuse() {
+    if (!excuseModal || !excuseReason.trim()) { setExcuseError("Please enter a reason."); return; }
+    setSubmittingExcuse(true);
+    setExcuseError(null);
+    try {
+      await sessionService.submitExcuse(orgId, excuseModal.branchId, excuseModal.sessionId, excuseReason.trim());
+      setExcuseModal(null);
+      setExcuseReason("");
+      setRefreshKey((k) => k + 1);
+    } catch {
+      setExcuseError("Failed to submit excuse. Please try again.");
+    } finally {
+      setSubmittingExcuse(false);
+    }
+  }
+
+  function requestStartSession(session: BackendSession) {
+    if (receptionistAbsent) {
+      void doStartSession(session.id, session.branchId);
+    } else {
+      setAbsenceModal({ sessionId: session.id, branchId: session.branchId });
+    }
+  }
+
+  async function doStartSession(sessionId: string, branchId: string) {
+    setStartingSession(sessionId);
+    setStartError(null);
+    setAbsenceModal(null);
+    try {
+      await sessionService.startSession(orgId, branchId, sessionId);
+      setRefreshKey((k) => k + 1);
+    } catch {
+      setStartError("Failed to start session. Please try again.");
+    } finally {
+      setStartingSession(null);
+    }
+  }
+
+  function confirmAbsence() {
+    if (!absenceModal) return;
+    sessionStorage.setItem(receptionistAbsenceKey, new Date().toISOString().slice(0, 10));
+    void doStartSession(absenceModal.sessionId, absenceModal.branchId);
+  }
+
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
     active:    "bg-success/10 text-success",
     ended:     "bg-border text-navy-mid",
     cancelled: "bg-danger/10 text-danger",
   };
+
+  const now = new Date();
+
+  function isOverdue(session: BackendSession) {
+    if (session.status !== "scheduled") return false;
+    // date + startTime are derived from the UTC ISO startTime, so parse them as
+    // UTC ("Z") — parsing as local time would shift the cutoff by the tz offset.
+    const dt = new Date(`${session.date}T${session.startTime}:00Z`);
+    return dt < now;
+  }
 
   return (
     <div className="space-y-3">
@@ -578,21 +711,148 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
         </div>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {sessions.map((session) => (
-            <div key={session.id} className="flex items-center justify-between px-5 py-4">
-              <div>
-                <p className="font-medium text-navy">{session.date}</p>
-                <p className="mt-0.5 text-sm text-navy-mid">{session.startTime} – {session.endTime}</p>
-                <p className="text-xs text-navy-mid">
-                  {session.bookingsCount} booked
-                  {session.maxBookings != null ? ` / ${session.maxBookings} max` : ""}
-                </p>
+          {sessions.map((session) => {
+            const overdue = isOverdue(session);
+            const excuse  = session.excuse;
+            const penalty = session.penaltyApplied;
+            return (
+              <div key={session.id} className={`px-5 py-4 ${overdue ? "bg-danger/3" : ""}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-navy">{session.date}</p>
+                    <p className="mt-0.5 text-sm text-navy-mid">{session.startTime} – {session.endTime}</p>
+                    <p className="text-xs text-navy-mid">
+                      {session.bookingsCount} booked
+                      {session.maxBookings != null ? ` / ${session.maxBookings} max` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
+                      {session.status}
+                    </span>
+                    {/* Doctor-initiated start: only shown for scheduled sessions */}
+                    {session.status === "scheduled" && (
+                      <button
+                        onClick={() => requestStartSession(session)}
+                        disabled={startingSession === session.id}
+                        className="rounded-full border border-success/40 bg-success/5 px-2.5 py-0.5 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
+                      >
+                        {startingSession === session.id ? "Starting…" : "Start Session"}
+                      </button>
+                    )}
+                    {/* Excuse submission for overdue sessions */}
+                    {overdue && !excuse?.submittedAt && (
+                      <button
+                        onClick={() => setExcuseModal({ sessionId: session.id, branchId: session.branchId })}
+                        className="rounded-full border border-danger/40 bg-danger/5 px-2.5 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10"
+                      >
+                        Submit Excuse
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Penalty notice */}
+                {penalty && (
+                  <p className="mt-2 text-xs text-danger">
+                    Penalty applied: {penalty.amount} EGP deducted for unexcused late start.
+                  </p>
+                )}
+
+                {/* Excuse status */}
+                {excuse?.submittedAt && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      excuse.status === "approved" ? "bg-success/10 text-success"
+                      : excuse.status === "denied"  ? "bg-danger/10 text-danger"
+                      : "bg-gold-tint text-gold"
+                    }`}>
+                      Excuse: {excuse.status ?? "pending"}
+                    </span>
+                    {excuse.reason && (
+                      <span className="text-xs text-navy-mid truncate max-w-[200px]">{excuse.reason}</span>
+                    )}
+                  </div>
+                )}
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
-                {session.status}
-              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {startError && (
+        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
+          {startError}
+        </div>
+      )}
+
+      {/* Receptionist absence confirmation modal */}
+      {absenceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setAbsenceModal(null)} />
+          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-navy px-6 py-4">
+              <p className="font-heading text-base font-bold text-white">Start Session</p>
+              <p className="mt-0.5 text-xs text-white/50">Confirm before starting without reception</p>
             </div>
-          ))}
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-navy">
+                Your clinic has receptionists. Is the receptionist absent today? You'll be starting this session yourself.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setAbsenceModal(null)}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmAbsence}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md bg-success text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  Yes, Start Session
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excuse submission modal */}
+      {excuseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => { setExcuseModal(null); setExcuseReason(""); }} />
+          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-navy px-6 py-4">
+              <p className="font-heading text-base font-bold text-white">Submit Late-Start Excuse</p>
+              <p className="mt-0.5 text-xs text-white/50">Explain why your session started late</p>
+            </div>
+            <div className="space-y-4 p-5">
+              <textarea
+                value={excuseReason}
+                onChange={(e) => setExcuseReason(e.target.value)}
+                placeholder="Describe the reason (e.g. traffic, emergency, technical issue)…"
+                rows={4}
+                className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              />
+              {excuseError && <p className="text-xs text-danger">{excuseError}</p>}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setExcuseModal(null); setExcuseReason(""); }}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleSubmitExcuse()}
+                  disabled={submittingExcuse || !excuseReason.trim()}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+                >
+                  {submittingExcuse ? "Submitting…" : "Submit"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -625,10 +885,9 @@ function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
     const to = `${year}-${String(month + 1).padStart(2, "0")}-${lastDay}`;
 
     Promise.all(
-      branches.flatMap((b) => [
-        sessionService.getSessions(orgId, b.id, { date: from }),
-        sessionService.getSessions(orgId, b.id, { date: to }),
-      ])
+      branches.map((b) =>
+        sessionService.getSessions(orgId, b.id, { fromDate: from, toDate: to })
+      )
     ).then((res) => {
       // getSessions by date returns sessions for that specific date — fetch per day is too many calls.
       // Instead, fetch without date filter and let the backend return the month range if supported.
@@ -948,6 +1207,8 @@ function ProfileTab({
     avatarUrl: "",
     websiteUrl: "",
     insurances: [] as string[],
+    languages: "",
+    yearsOfExperience: "",
   });
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -958,9 +1219,11 @@ function ProfileTab({
     setForm({
       bio: myMembership.bio ?? "",
       specialties: (myMembership.specialties ?? []).join(", "),
-      avatarUrl: "",
+      avatarUrl: myMembership.avatarUrl ?? "",
       websiteUrl: myMembership.websiteUrl ?? "",
       insurances: myMembership.acceptedInsurances ?? [],
+      languages: (myMembership.languagesSpoken ?? []).join(", "),
+      yearsOfExperience: myMembership.yearsOfExperience != null ? String(myMembership.yearsOfExperience) : "",
     });
   }, [myMembership?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -987,12 +1250,17 @@ async function handleSave(e: React.FormEvent) {
     setSaving(true);
     setResult(null);
     const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
-    
+    const languagesList = form.languages.split(",").map((l) => l.trim()).filter(Boolean);
+    const yoe = form.yearsOfExperience.trim() !== "" ? Number(form.yearsOfExperience) : null;
+
     const ok = await updateMember(myMembership.id, {
       bio: form.bio.trim() || undefined,
       specialties: specialtiesList.length ? specialtiesList : undefined,
       websiteUrl: form.websiteUrl.trim() || null,
+      avatarUrl: form.avatarUrl.trim() || null,
       acceptedInsurances: form.insurances,
+      languagesSpoken: languagesList,
+      yearsOfExperience: yoe,
     });
 
     // We don't even need a manual refresh here because your OrgContext does it for us!
@@ -1014,7 +1282,7 @@ async function handleSave(e: React.FormEvent) {
     <div className="space-y-5">
       <div className="flex items-center gap-4 rounded-xl border border-border bg-offwhite p-4">
         {form.avatarUrl ? (
-          <img src={form.avatarUrl} alt={doctorName} className="h-14 w-14 rounded-full object-cover" />
+          <img src={form.avatarUrl} alt={doctorName} className="h-14 w-14 rounded-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
         ) : (
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gold font-heading text-xl font-bold text-navy">
             {initials}
@@ -1022,7 +1290,17 @@ async function handleSave(e: React.FormEvent) {
         )}
         <div>
           <p className="font-heading text-lg font-bold text-navy">{doctorName}</p>
-          <p className="text-sm text-navy-mid">{myMembership.memberName || "Doctor"}</p>
+          {myMembership.specialties && myMembership.specialties.length > 0 ? (
+            <p className="text-sm text-navy-mid">{myMembership.specialties.join(", ")}</p>
+          ) : (
+            <p className="text-sm italic text-navy-mid/60">No specialty listed</p>
+          )}
+          {myMembership.yearsOfExperience != null && (
+            <p className="text-xs text-navy-mid">{myMembership.yearsOfExperience} years experience</p>
+          )}
+          {myMembership.languagesSpoken && myMembership.languagesSpoken.length > 0 && (
+            <p className="text-xs text-navy-mid">Speaks: {myMembership.languagesSpoken.join(", ")}</p>
+          )}
         </div>
       </div>
 
@@ -1070,6 +1348,27 @@ async function handleSave(e: React.FormEvent) {
             value={form.avatarUrl}
             onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
             placeholder="https://..."
+            className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Languages Spoken</span>
+          <input
+            type="text"
+            value={form.languages}
+            onChange={(e) => setForm((f) => ({ ...f, languages: e.target.value }))}
+            placeholder="e.g. Arabic, English (comma-separated)"
+            className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-navy">Years of Experience</span>
+          <input
+            type="number"
+            min={0}
+            value={form.yearsOfExperience}
+            onChange={(e) => setForm((f) => ({ ...f, yearsOfExperience: e.target.value }))}
+            placeholder="e.g. 10"
             className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
           />
         </label>
@@ -1178,7 +1477,7 @@ function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     return () => clearInterval(id);
   }, [load]);
 
-  async function handleCheckIn(apptId: string) {
+  async function handleManualCall(apptId: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try {
@@ -1260,14 +1559,14 @@ function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccou
         <strong>Receptionist mode</strong> — Use this tab when operating without reception staff.
       </div>
 
-      {/* Check-In Section */}
+      {/* Waiting Section */}
       <div>
         <h3 className="mb-2 font-heading text-base font-bold text-navy">
-          Waiting to Check-In ({booked.length})
+          Waiting ({booked.length})
         </h3>
         {booked.length === 0 ? (
           <p className="rounded-xl bg-offwhite py-6 text-center text-sm text-navy-mid">
-            No patients waiting for check-in
+            No patients waiting
           </p>
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
@@ -1283,11 +1582,11 @@ function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                   </div>
                 </div>
                 <button
-                  onClick={() => handleCheckIn(appt.id)}
+                  onClick={() => handleManualCall(appt.id)}
                   disabled={actionInProgress === appt.id}
                   className="rounded-md bg-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
                 >
-                  Check In →
+                  Call Next →
                 </button>
               </div>
             ))}

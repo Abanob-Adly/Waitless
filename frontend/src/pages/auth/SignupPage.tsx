@@ -108,6 +108,8 @@ export function SignupPage() {
     if (!pw.valid) errs.password = pw.error;
     if (!isDoctor) {
       if (!birthdate) errs.birthdate = "Date of birth is required.";
+    } else {
+      if (!specialty.trim()) errs.specialty = "Specialty is required.";
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -382,19 +384,20 @@ export function SignupPage() {
               <Field label="Email Address *"  placeholder="dr@clinic.eg"          value={email}     onChange={setEmail}     error={errors.email} type="email" />
               <Field label="Phone Number *"   placeholder="01XXXXXXXXX"           value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
               <div>
-                <label className="block text-sm font-medium text-navy">Specialty</label>
+                <label className="block text-sm font-medium text-navy">Specialty *</label>
                 <input
                   list="specialty-options"
                   value={specialty}
                   onChange={(e) => setSpecialty(e.target.value)}
                   placeholder="Select or type your specialty…"
-                  className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  className={`mt-1.5 h-12 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${errors.specialty ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
                 />
                 <datalist id="specialty-options">
                   {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
                     <option key={s} value={s} />
                   ))}
                 </datalist>
+                {errors.specialty && <p className="mt-1 text-xs text-danger">{errors.specialty}</p>}
               </div>
               <Field label="Medical License Number" placeholder="EG-XXXXXX"     value={licenseNumber} onChange={setLicenseNumber} />
               <Field label="Password *"       placeholder="Min. 8 chars + 1 number" value={password} onChange={setPassword} error={errors.password} type="password" />

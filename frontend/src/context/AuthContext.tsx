@@ -19,6 +19,8 @@ type AuthCtx = {
   reloadUser: () => Promise<boolean>;
   logout: () => void;
   clearAuthError: () => void;
+  requestPasswordReset: (email: string) => Promise<boolean>;
+  confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<boolean>;
 };
 
 const AuthContext = createContext<AuthCtx | null>(null);
@@ -130,6 +132,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthUser(null);
   }
 
+  async function requestPasswordReset(email: string): Promise<boolean> {
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      await authService.requestPasswordReset(email);
+      return true;
+    } catch {
+      setAuthError("Failed to send reset code. Please try again.");
+      return false;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function confirmPasswordReset(email: string, token: string, newPassword: string): Promise<boolean> {
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      await authService.confirmPasswordReset(email, token, newPassword);
+      return true;
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Invalid or expired code. Please try again.";
+      setAuthError(msg);
+      return false;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -142,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         reloadUser,
         logout,
         clearAuthError,
+        requestPasswordReset,
+        confirmPasswordReset,
       }}
     >
       {children}

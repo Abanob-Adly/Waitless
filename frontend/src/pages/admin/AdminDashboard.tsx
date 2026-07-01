@@ -36,7 +36,7 @@ export function AdminDashboard() {
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!authUser || (authUser.role !== "admin" && authUser.role !== "doctor")) {
+  if (!authUser || authUser.role !== "admin") {
     navigate("/login", { replace: true });
     return null;
   }
@@ -675,8 +675,8 @@ function StaffTab() {
                     {removing === primary.id ? "…" : "Remove"}
                   </button>
                 </div>
-                {/* Make Admin — for any non-admin staff (doctor or receptionist) */}
-                {!isAdmin && (isDoctor || roles.includes("receptionist")) && (
+                {/* Make Admin — doctors only; receptionists cannot be promoted to admin */}
+                {!isAdmin && isDoctor && (
                   <button
                     onClick={() => handleGrantAdmin(primary.id)}
                     disabled={isBusy}
@@ -684,6 +684,14 @@ function StaffTab() {
                   >
                     {promoting === primary.id ? "…" : "Make Admin"}
                   </button>
+                )}
+                {!isAdmin && !isDoctor && roles.includes("receptionist") && (
+                  <span
+                    title="Receptionists cannot be promoted to admin"
+                    className="cursor-not-allowed rounded-md border border-border px-3 py-1 text-xs font-medium text-navy-mid/40"
+                  >
+                    Make Admin
+                  </span>
                 )}
                 {/* Revoke Admin — for any member who holds an admin role */}
                 {isAdmin && (
@@ -1931,6 +1939,9 @@ function AddScheduleModal({
   const [specialty, setSpecialty] = useState(initialValues?.specialty ?? "General Practice");
   const [fee, setFee] = useState(String(initialValues?.fee ?? "300"));
   const [avgMin, setAvgMin] = useState(String(initialValues?.avgConsultationMin ?? "12"));
+  const [defaultMax, setDefaultMax] = useState(
+    initialValues?.defaultMaxBookings != null ? String(initialValues.defaultMaxBookings) : "",
+  );
   const [saving, setSaving] = useState(false);
 
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1970,6 +1981,7 @@ function AddScheduleModal({
       })),
       fee: Number(fee),
       avgConsultationMin: Number(avgMin),
+      defaultMaxBookings: defaultMax.trim() !== "" ? Number(defaultMax) : null,
       isActive: true,
     });
     setSaving(false);
@@ -2077,6 +2089,14 @@ function AddScheduleModal({
           <ModalField label="Avg. Min / Patient" value={avgMin} onChange={setAvgMin} placeholder="12" inputMode="numeric" />
         </div>
 
+        <ModalField
+          label="Default Max Bookings (optional)"
+          value={defaultMax}
+          onChange={setDefaultMax}
+          placeholder="Leave blank for unlimited"
+          inputMode="numeric"
+        />
+
         <ModalActions onClose={onClose} saving={saving} label={isEditMode ? "Save Changes" : "Create Schedule"} />
       </form>
     </ModalShell>
@@ -2136,6 +2156,7 @@ function SessionsTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [editingMax, setEditingMax] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [reviewingExcuse, setReviewingExcuse] = useState<string | null>(null);
 
   // Default to first branch
   useEffect(() => {
@@ -2175,12 +2196,29 @@ function SessionsTab() {
     }
   }
 
+  async function handleReviewExcuse(session: BackendSession, verdict: "approved" | "denied") {
+    setReviewingExcuse(`${session.id}-${verdict}`);
+    try {
+      await sessionService.reviewExcuse(orgId, session.branchId, session.id, verdict);
+      // Refresh sessions list
+      const updated = await sessionService.getSessions(orgId, branchId, { date });
+      setSessions(updated);
+    } catch {
+      // ignore
+    } finally {
+      setReviewingExcuse(null);
+    }
+  }
+
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
     active:    "bg-success/10 text-success",
     ended:     "bg-border text-navy-mid",
     cancelled: "bg-danger/10 text-danger",
   };
+
+  // Count sessions with pending excuses for a quick summary
+  const pendingExcuseCount = sessions.filter((s) => s.excuse?.status === "pending").length;
 
   return (
     <div className="space-y-5">
@@ -2202,6 +2240,16 @@ function SessionsTab() {
         />
       </div>
 
+      {/* Pending excuse alert */}
+      {pendingExcuseCount > 0 && (
+        <div className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
+          <span className="text-base">📋</span>
+          <p className="text-sm font-medium text-navy">
+            {pendingExcuseCount} pending excuse{pendingExcuseCount > 1 ? "s" : ""} require your review
+          </p>
+        </div>
+      )}
+
       {isLoading ? (
         <Skeleton />
       ) : sessions.length === 0 ? (
@@ -2211,43 +2259,92 @@ function SessionsTab() {
           {sessions.map((session) => {
             const isEditing = editingMax[session.id] !== undefined;
             const maxVal = isEditing ? editingMax[session.id] : session.maxBookings != null ? String(session.maxBookings) : "";
+            const excuse  = session.excuse;
+            const penalty = session.penaltyApplied;
             return (
-              <div key={session.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
-                <div>
-                  <p className="font-medium text-navy">{session.doctorName || "Doctor"}</p>
-                  <p className="mt-0.5 text-sm text-navy-mid">
-                    {session.startTime} – {session.endTime}
-                  </p>
-                  <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {/* Max slots editor */}
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs text-navy-mid">Max slots</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={isEditing ? editingMax[session.id] : maxVal}
-                      placeholder="∞"
-                      onChange={(e) => setEditingMax((prev) => ({ ...prev, [session.id]: e.target.value }))}
-                      className="h-8 w-20 rounded-md border border-border bg-white px-2 text-sm text-navy outline-none focus:border-gold"
-                    />
-                    {isEditing && (
-                      <button
-                        onClick={() => handleSaveMax(session)}
-                        disabled={saving === session.id}
-                        className="rounded-md bg-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
-                      >
-                        {saving === session.id ? "…" : "Save"}
-                      </button>
-                    )}
+              <div key={session.id} className="px-5 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-navy">{session.doctorName || "Doctor"}</p>
+                    <p className="mt-0.5 text-sm text-navy-mid">
+                      {session.startTime} – {session.endTime}
+                    </p>
+                    <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
                   </div>
 
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
-                    {session.status}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* Max slots editor */}
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-navy-mid">Max slots</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={isEditing ? editingMax[session.id] : maxVal}
+                        placeholder="∞"
+                        onChange={(e) => setEditingMax((prev) => ({ ...prev, [session.id]: e.target.value }))}
+                        className="h-8 w-20 rounded-md border border-border bg-white px-2 text-sm text-navy outline-none focus:border-gold"
+                      />
+                      {isEditing && (
+                        <button
+                          onClick={() => handleSaveMax(session)}
+                          disabled={saving === session.id}
+                          className="rounded-md bg-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
+                        >
+                          {saving === session.id ? "…" : "Save"}
+                        </button>
+                      )}
+                    </div>
+
+                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
+                      {session.status}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Penalty info */}
+                {penalty && (
+                  <p className="mt-2 text-xs text-danger">
+                    Penalty: {penalty.amount} EGP deducted at {new Date(penalty.appliedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
+
+                {/* Excuse review panel */}
+                {excuse?.submittedAt && (
+                  <div className="mt-3 rounded-lg border border-border bg-offwhite p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-navy">Doctor excuse submitted</p>
+                        <p className="mt-0.5 text-xs text-navy-mid">{excuse.reason}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                        excuse.status === "approved" ? "bg-success/10 text-success"
+                        : excuse.status === "denied"  ? "bg-danger/10 text-danger"
+                        : "bg-gold-tint text-gold"
+                      }`}>
+                        {excuse.status ?? "pending"}
+                      </span>
+                    </div>
+
+                    {excuse.status === "pending" && (
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => void handleReviewExcuse(session, "approved")}
+                          disabled={!!reviewingExcuse}
+                          className="rounded-md border border-success/30 bg-success/5 px-3 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
+                        >
+                          {reviewingExcuse === `${session.id}-approved` ? "…" : "Approve"}
+                        </button>
+                        <button
+                          onClick={() => void handleReviewExcuse(session, "denied")}
+                          disabled={!!reviewingExcuse}
+                          className="rounded-md border border-danger/30 bg-danger/5 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
+                        >
+                          {reviewingExcuse === `${session.id}-denied` ? "…" : "Deny"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

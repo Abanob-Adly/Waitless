@@ -78,7 +78,7 @@ export const memberService = {
   },
 
   async listMembers({ orgId, filters }) {
-    const query = { organization: orgId };
+    const query = { organization: orgId, status: { $ne: 'revoked' } };
     if (filters.kind)   query.kind   = filters.kind;
     if (filters.status) query.status = filters.status;
 
@@ -102,7 +102,7 @@ export const memberService = {
     const { kind } = membership;
 
     if (kind === 'doctor') {
-      const allowed = ['specialties', 'bio', 'licenseNumber', 'services', 'yearsOfExperience', 'languagesSpoken', 'websiteUrl', 'acceptedInsurances'];
+      const allowed = ['specialties', 'bio', 'licenseNumber', 'services', 'yearsOfExperience', 'languagesSpoken', 'websiteUrl', 'acceptedInsurances', 'avatarUrl'];
       for (const k of allowed) if (data[k] !== undefined) membership[k] = data[k];
     } else if (kind === 'receptionist') {
       if (data.branches !== undefined) membership.branches = data.branches;

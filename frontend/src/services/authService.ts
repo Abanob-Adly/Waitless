@@ -221,6 +221,14 @@ export const authService = {
     clearTokens();
   },
 
+  async requestPasswordReset(email: string): Promise<void> {
+    await api.post("/auth/password-reset/request", { email });
+  },
+
+  async confirmPasswordReset(email: string, token: string, newPassword: string): Promise<void> {
+    await api.post("/auth/password-reset/confirm", { email, token, newPassword });
+  },
+
   // Try loginPatient first, then loginWorker, return AuthUser on success.
   async login(identifier: string, password: string): Promise<AuthUser> {
     try {

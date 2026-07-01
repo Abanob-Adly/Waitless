@@ -25,6 +25,7 @@ export const scheduleService = {
         schedule:           data.schedule,
         avgConsultationMin: data.avgConsultationMin,
         consultationFee:    data.consultationFee,
+        defaultMaxBookings: data.defaultMaxBookings ?? null,
         status:             'active',
       });
       // Populate so the response has doctorMembership.account.fullName immediately,
@@ -57,6 +58,7 @@ export const scheduleService = {
     if (data.avgConsultationMin !== undefined) schedule.avgConsultationMin = data.avgConsultationMin;
     if (data.consultationFee    !== undefined) schedule.consultationFee    = data.consultationFee;
     if (data.status             !== undefined) schedule.status             = data.status;
+    if (data.defaultMaxBookings !== undefined) schedule.defaultMaxBookings = data.defaultMaxBookings;
     await schedule.save();
 
     const Session = (await import('../models/QueueSession.js')).default;
@@ -79,6 +81,12 @@ export const scheduleService = {
     if (data.avgConsultationMin !== undefined) {
       await Session.updateMany(futureScheduled, { $set: { avgConsultationMin: data.avgConsultationMin } })
         .catch(err => console.warn('[SCHEDULE] avgConsultationMin propagation failed:', err.message));
+    }
+
+    // Propagate defaultMaxBookings to already-generated future sessions
+    if (data.defaultMaxBookings !== undefined) {
+      await Session.updateMany(futureScheduled, { $set: { maxBookings: data.defaultMaxBookings } })
+        .catch(err => console.warn('[SCHEDULE] maxBookings propagation failed:', err.message));
     }
 
     // Cancel future sessions when the schedule is deactivated

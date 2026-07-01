@@ -13,6 +13,7 @@ import { validate } from "./middleware/validate.js";
 import { patientController, patientSchemas } from "./controllers/patientController.js";
 import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
+import { startLateStartPenaltyCron } from "./jobs/lateStartPenalty.js";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 
@@ -69,6 +70,7 @@ app.get("/appointments/track/:token", appointmentController.track);
 app.use(errorHandler);
 
 startSessionGeneratorCron();
+startLateStartPenaltyCron();
 
 app.listen(env.port, () => {
   console.log(`Server Started on port: ${env.port}`);

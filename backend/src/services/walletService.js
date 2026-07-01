@@ -114,6 +114,35 @@ export const walletService = {
   /**
    * Top-up a personal wallet by `amount` (no validation — always succeeds).
    */
+  /**
+   * Deduct a late-start penalty from a doctor's wallet.
+   * Unlike purchaseDebit, this does NOT require sufficient balance — the wallet
+   * may go negative to ensure the penalty is always recorded.
+   */
+  async penaltyDebit({ accountId, amount, sessionId }) {
+    const wallet = await getOrCreateAccountWallet(accountId, 'doctor');
+    // Bypass the balance-check by using a raw $inc without a floor guard.
+    const updated = await (await import('../models/Wallet.js')).default.findOneAndUpdate(
+      { _id: wallet._id, status: 'active' },
+      { $inc: { balance: -amount } },
+      { new: true },
+    );
+    if (!updated) throw new Error('Doctor wallet is frozen or closed');
+    const WalletEntry = (await import('../models/WalletEntry.js')).default;
+    await WalletEntry.create({
+      wallet:        updated._id,
+      type:          'penalty',
+      direction:     'debit',
+      amount,
+      balanceAfter:  updated.balance,
+      reference:     sessionId,
+      referenceKind: 'session',
+      description:   'Late-start penalty deduction',
+      status:        'settled',
+    });
+    return updated;
+  },
+
   async topUp({ accountId, ownerKind, amount }) {
     const wallet = await getOrCreateAccountWallet(accountId, ownerKind);
     return creditWallet(wallet._id, amount, {

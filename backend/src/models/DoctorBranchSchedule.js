@@ -15,6 +15,7 @@ const doctorBranchScheduleSchema = new Schema({
   schedule: { type: [scheduleSlotSchema], default: [] },
 
   avgConsultationMin: { type: Number, min: 1, default: null },
+  defaultMaxBookings: { type: Number, min: 1, default: null },
   consultationFee: {
     amount:   { type: Number, min: 0 },
     currency: { type: String, default: 'EGP' },

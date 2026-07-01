@@ -29,7 +29,16 @@ function getBookingsKey(userId: string | undefined): string {
 function loadStoredBookings(key: string): ActiveBooking[] {
   try {
     const raw = localStorage.getItem(key);
-    if (raw) return JSON.parse(raw) as ActiveBooking[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as ActiveBooking[];
+      // Deduplicate by ID in case of corrupted previous state
+      const seen = new Set<string>();
+      return parsed.filter((b) => {
+        if (seen.has(b.id)) return false;
+        seen.add(b.id);
+        return true;
+      });
+    }
   } catch { /* corrupted */ }
   return [];
 }

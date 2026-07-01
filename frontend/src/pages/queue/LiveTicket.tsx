@@ -21,7 +21,7 @@ type QueueStatus = {
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
   sessionDate: string;
-  sessionStatus: "scheduled" | "active" | "ended";
+  sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
   doctor: {
     name: string;
     specialty: string;
@@ -62,7 +62,7 @@ export function LiveTicket() {
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
           status:              String(d.status ?? "booked") as AppointmentStatus,
           sessionDate:         String(d.sessionDate ?? ""),
-          sessionStatus:       "active",
+          sessionStatus:       (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
           doctor: {
             name:            String(d.doctorName ?? ""),
             specialty:       "",
@@ -165,6 +165,10 @@ export function LiveTicket() {
           <div className="px-5 pb-8 pt-6">
             {!isSessionDay ? (
               <CountdownView sessionDate={queueStatus.sessionDate} />
+            ) : queueStatus.sessionStatus === "ended" &&
+              queueStatus.status !== "completed" &&
+              queueStatus.status !== "cancelled" ? (
+              <SessionEndedView />
             ) : (
               <>
                 {queueStatus.status === "booked" && (
@@ -373,6 +377,31 @@ function CompletedView({ token }: { token: string }) {
         className="mt-3 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
         Book Another Appointment
+      </Link>
+    </div>
+  );
+}
+
+// ── Session ended view (doctor ended the session before this patient) ────────
+
+function SessionEndedView() {
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-offwhite text-4xl">
+        🕒
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        Session has ended
+      </h2>
+      <p className="mt-3 text-sm text-navy-mid">
+        This doctor's session has closed. If you weren't seen, please contact
+        the clinic reception to reschedule.
+      </p>
+      <Link
+        to="/"
+        className="mt-6 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
+      >
+        Find Another Doctor
       </Link>
     </div>
   );

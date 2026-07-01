@@ -4,8 +4,8 @@ const { Schema } = mongoose;
 const walletSchema = new Schema(
   {
     // Exactly one of these is set — account for personal wallets, organization for org wallets
-    account:      { type: Schema.Types.ObjectId, ref: 'Account',      index: true, default: null },
-    organization: { type: Schema.Types.ObjectId, ref: 'Organization', index: true, default: null },
+    account:      { type: Schema.Types.ObjectId, ref: 'Account',      default: null },
+    organization: { type: Schema.Types.ObjectId, ref: 'Organization', default: null },
     ownerKind:    { type: String, enum: ['patient', 'doctor', 'organization'], required: true },
     balance:      { type: Number, default: 0, min: 0 },
     currency:     { type: String, default: 'EGP' },

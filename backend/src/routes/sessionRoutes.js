@@ -5,13 +5,23 @@ import { validate } from '../middleware/validate.js';
 import { sessionController, sessionSchemas } from '../controllers/sessionController.js';
 import { queueController, queueSchemas } from '../controllers/queueController.js';
 import Session from '../models/QueueSession.js';
+import Branch from '../models/Branch.js';
 import appointmentRoutes from './appointmentRoutes.js';
 import queueRoutes from './queueRoutes.js';
 
 const router = Router({ mergeParams: true });
 
-const loadSession = (req) =>
-  Session.findOne({ _id: req.params.sessionId, branch: req.params.branchId });
+// Resolve the session only when its branch belongs to the org in the URL.
+// Without the org check, an actor authenticated under org A could operate a
+// session in org B by supplying a foreign sessionId + branchId pair.
+const loadSession = async (req) => {
+  const branch = await Branch.findOne({
+    _id:          req.params.branchId,
+    organization: req.params.orgId,
+  }).select('_id');
+  if (!branch) return null;
+  return Session.findOne({ _id: req.params.sessionId, branch: branch._id });
+};
 
 router.post(
   '/generate',
@@ -85,6 +95,24 @@ router.get(
   authenticate,
   authorize('queue.operate', loadSession),
   queueController.cashSummary
+);
+
+// Doctor submits a late-start excuse (before or after penalty fires)
+router.post(
+  '/:sessionId/excuse',
+  authenticate,
+  authorize('session.operate', loadSession),
+  validate(sessionSchemas.submitExcuse),
+  sessionController.submitExcuse
+);
+
+// Admin approves or denies a pending excuse
+router.patch(
+  '/:sessionId/excuse',
+  authenticate,
+  authorize('session.operate', loadSession),
+  validate(sessionSchemas.reviewExcuse),
+  sessionController.reviewExcuse
 );
 
 // Nested resources

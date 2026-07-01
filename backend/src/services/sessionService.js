@@ -57,6 +57,7 @@ export const sessionService = {
             startTime,
             endTime,
             avgConsultationMin:   schedule.avgConsultationMin || 15,
+            maxBookings:          schedule.defaultMaxBookings ?? null,
             status:               'scheduled',
             bookingsCount:        0,
             currentServing:       0,
@@ -80,6 +81,10 @@ export const sessionService = {
     if (filters.date) {
       const d = new Date(filters.date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
+    } else if (filters.fromDate && filters.toDate) {
+      const d1 = new Date(filters.fromDate + 'T00:00:00Z');
+      const d2 = new Date(filters.toDate + 'T00:00:00Z');
+      query.startTime = { $gte: d1, $lt: new Date(d2.getTime() + 24 * 60 * 60 * 1000) };
     }
     return Session.find(query)
       .populate({ path: 'doctor', select: 'kind specialties', populate: { path: 'account', select: 'fullName' } })

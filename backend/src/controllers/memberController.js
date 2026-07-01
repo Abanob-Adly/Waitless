@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { memberService } from '../services/memberService.js';
 import { AdminMembership, DoctorMembership, Membership } from '../models/Membership.js';
-import { NotFound } from '../utils/errors.js';
+import { Forbidden, NotFound } from '../utils/errors.js';
 
 export const memberSchemas = {
   invite: z.object({
@@ -28,6 +28,7 @@ export const memberSchemas = {
     yearsOfExperience:  z.number().int().min(0).optional(),
     languagesSpoken:    z.array(z.string()).optional(),
     websiteUrl:         z.string().url().nullable().optional(),
+    avatarUrl:          z.string().url().nullable().optional(),
     acceptedInsurances: z.array(z.string().max(100)).optional(),
   }),
 };
@@ -66,13 +67,17 @@ export const memberController = {
   },
 
   // POST /orgs/:orgId/members/:memberId/grant-admin
-  // Promotes a doctor/receptionist to also be an admin (multi-role)
+  // Promotes a doctor to also be an admin (multi-role). Receptionists are not eligible.
   async grantAdmin(req, res) {
     const { orgId, memberId } = req.params;
     // req.resource is the authorize policy context object, not the membership —
     // load the source membership directly.
     const sourceMembership = await Membership.findOne({ _id: memberId, organization: orgId });
     if (!sourceMembership?.account) throw NotFound('Member not found');
+
+    if (sourceMembership.kind === 'receptionist') {
+      throw Forbidden('Receptionists are not eligible for the admin role');
+    }
 
     const existing = await Membership.findOne({
       account:      sourceMembership.account,

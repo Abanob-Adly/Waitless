@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
@@ -148,6 +148,21 @@ function TicketView({
   ].join("-");
   const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
 
+  // True when it's session day but the scheduled start time is still in the future
+  // (or the doctor hasn't pressed Start yet). We parse the start time from the
+  // booking because the queue subscription doesn't expose session status.
+  const sessionNotStarted = isSessionDay && (() => {
+    const startStr = sessionStartTime || null;
+    if (startStr) {
+      return new Date(startStr) > now;
+    }
+    // Fallback: parse HH:MM from booking.session.startTime against session date
+    const [hh, mm] = (booking.session.startTime ?? "00:00").split(":").map(Number);
+    const scheduledStart = new Date(`${effectiveDate || todayLocal}T00:00:00`);
+    scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+    return scheduledStart > now;
+  })();
+
   // Recommended arrival time: now + EWT − 10 min buffer (arrive early)
   const recommendedArrivalMs = now.getTime() + etaMinutes * 60_000 - 10 * 60_000;
   const recommendedArrivalTime = new Date(recommendedArrivalMs).toLocaleTimeString([], {
@@ -246,6 +261,21 @@ function TicketView({
         </div>
       )}
 
+      {/* Turn-approaching notification — shown when 2 or fewer patients ahead */}
+      {isSessionDay && !isCalled && position > 0 && position <= 3 && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
+          <span className="text-base">🔔</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">
+              {position === 1 ? "You're next!" : `Almost your turn — ${position - 1} patient${position - 1 > 1 ? "s" : ""} ahead`}
+            </p>
+            <p className="mt-0.5 text-xs text-navy-mid">
+              Please make your way to the clinic now.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Ticket card */}
       <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-xl">
         {/* ── Navy header ── */}
@@ -282,6 +312,11 @@ function TicketView({
         <div className="px-6 pb-2 pt-6">
           {!isSessionDay ? (
             <CountdownView sessionDate={effectiveDate} />
+          ) : sessionNotStarted ? (
+            <SessionNotStartedView
+              startTime={booking.session.startTime}
+              sessionDate={effectiveDate}
+            />
           ) : isCalled ? (
             <CalledView />
           ) : (
@@ -349,6 +384,48 @@ function TicketView({
         </button>
       </p>
     </main>
+  );
+}
+
+// ── Session-not-started view (today but before start time / doctor hasn't pressed Start) ──
+
+function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
+  const [, rerender] = useState(0);
+
+  // Live countdown — re-render every 30 s so the displayed time stays fresh
+  useEffect(() => {
+    const id = setInterval(() => rerender((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [hh, mm] = (startTime ?? "00:00").split(":").map(Number);
+  const scheduledStart = new Date(`${sessionDate}T00:00:00`);
+  scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+  const diffMs = scheduledStart.getTime() - Date.now();
+  const diffMin = Math.max(0, Math.round(diffMs / 60_000));
+  const hours = Math.floor(diffMin / 60);
+  const mins  = diffMin % 60;
+  const countdownStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
+        ⏰
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        Session starts in {countdownStr}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        Your session is scheduled to begin at{" "}
+        <span className="font-semibold text-navy">{startTime}</span>.
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        Your queue position and wait time will appear here once the session begins.
+      </p>
+      <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
+        Arrive 10 minutes before your scheduled session.
+      </div>
+    </div>
   );
 }
 

@@ -265,6 +265,7 @@ export type DoctorBranchSchedule = {
   weeklySlots: WeeklySlot[];
   fee: number;
   avgConsultationMin: number;
+  defaultMaxBookings: number | null;
   isActive: boolean;
 };
 
