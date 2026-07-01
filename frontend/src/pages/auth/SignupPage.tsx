@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { authService, saveTokens } from "../../services/authService";
 import { createOrg, selfJoinAsDoctor as addDoctorRole } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
@@ -31,6 +32,7 @@ export function SignupPage() {
   const [searchParams] = useSearchParams();
   const { registerPatient, loginWithCredentials, isAuthLoading, authError, clearAuthError } =
     useAuth();
+  const { t } = useLanguage();
 
   const [step, setStep] = useState<Step>("role");
   const [doctorPath, setDoctorPath] = useState<DoctorPath>(null);
@@ -277,22 +279,22 @@ export function SignupPage() {
         <div className="bg-navy px-8 py-7">
           <p className="font-heading text-sm font-medium text-gold">Waitless</p>
           <h1 className="mt-1 font-heading text-3xl font-bold text-white">
-            {step === "role"        && "Create Account"}
-            {step === "patient-info" && "Patient Sign Up"}
-            {step === "doctor-info"  && "Doctor Sign Up"}
-            {step === "clinic-type"  && "How do you work?"}
-            {step === "clinic-own"   && "Set Up Your Clinic"}
-            {step === "clinic-find"  && "Find Your Clinic"}
-            {step === "pending"      && "Request Sent!"}
+            {step === "role"        && t("Create Account")}
+            {step === "patient-info" && t("Patient Sign Up")}
+            {step === "doctor-info"  && t("Doctor Sign Up")}
+            {step === "clinic-type"  && t("How do you work?")}
+            {step === "clinic-own"   && t("Set Up Your Clinic")}
+            {step === "clinic-find"  && t("Find Your Clinic")}
+            {step === "pending"      && t("Request Sent!")}
           </h1>
           <p className="mt-1 text-sm text-white/50">
-            {step === "role"        && "Join thousands using Waitless"}
-            {step === "patient-info" && "Book and track your appointments"}
-            {step === "doctor-info"  && "Tell us about yourself"}
-            {step === "clinic-type"  && "Choose the path that fits you"}
-            {step === "clinic-own"   && "You'll manage the clinic as admin and doctor"}
-            {step === "clinic-find"  && "Request to join an existing clinic"}
-            {step === "pending"      && "Waiting for clinic admin approval"}
+            {step === "role"        && t("Join thousands using Waitless")}
+            {step === "patient-info" && t("Book and track your appointments")}
+            {step === "doctor-info"  && t("Tell us about yourself")}
+            {step === "clinic-type"  && t("Choose the path that fits you")}
+            {step === "clinic-own"   && t("You'll manage the clinic as admin and doctor")}
+            {step === "clinic-find"  && t("Request to join an existing clinic")}
+            {step === "pending"      && t("Waiting for clinic admin approval")}
           </p>
 
           {/* Doctor progress steps */}
@@ -310,7 +312,7 @@ export function SignupPage() {
                     {i < doctorStepIdx() ? "✓" : i + 1}
                   </div>
                   <span className={`text-xs ${i === doctorStepIdx() ? "font-medium text-white" : "text-white/40"}`}>
-                    {s.label}
+                    {t(s.label)}
                   </span>
                   {i < doctorSteps.length - 1 && <div className="h-px w-6 bg-white/20" />}
                 </div>
@@ -330,31 +332,31 @@ export function SignupPage() {
           {/* ── STEP: role ── */}
           {step === "role" && (
             <div className="space-y-4">
-              <p className="text-sm text-navy-mid">Who are you signing up as?</p>
+              <p className="text-sm text-navy-mid">{t("Who are you signing up as?")}</p>
               <div className="grid grid-cols-2 gap-3">
                 <RoleCard
                   icon="🧑‍⚕️"
-                  title="I'm a Patient"
-                  desc="Book appointments and track your queue"
+                  title={t("I'm a Patient")}
+                  desc={t("Book appointments and track your queue")}
                   onClick={() => handleRoleSelect("patient")}
                 />
                 <RoleCard
                   icon="👨‍⚕️"
-                  title="I'm a Doctor"
-                  desc="Manage your queue and clinic operations"
+                  title={t("I'm a Doctor")}
+                  desc={t("Manage your queue and clinic operations")}
                   onClick={() => handleRoleSelect("doctor")}
                 />
               </div>
               <p className="mt-4 text-center text-xs text-navy-mid">
-                Setting up a clinic?{" "}
+                {t("Setting up a clinic?")}{" "}
                 <Link to="/org/signup" className="font-medium text-gold hover:text-gold-light">
-                  Register your organization →
+                  {t("Register your organization →")}
                 </Link>
               </p>
               <p className="text-center text-sm text-navy-mid">
-                Already have an account?{" "}
+                {t("Already have an account?")}{" "}
                 <Link to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`} className="font-medium text-gold hover:text-gold-light">
-                  Sign in →
+                  {t("Sign in →")}
                 </Link>
               </p>
             </div>
@@ -363,15 +365,15 @@ export function SignupPage() {
           {/* ── STEP: patient-info ── */}
           {step === "patient-info" && (
             <form onSubmit={handlePatientSubmit} className="space-y-4">
-              <Field label="Full Name *"      placeholder="Ahmed Mohamed"         value={name}      onChange={setName}      error={errors.name} />
-              <Field label="Email Address *"  placeholder="you@example.com"       value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label="Phone Number *"   placeholder="01XXXXXXXXX"           value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
-              <Field label="Date of Birth *"  placeholder=""                      value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" />
-              <Field label="Password *"       placeholder="Min. 8 chars + 1 number" value={password} onChange={setPassword} error={errors.password} type="password" />
+              <Field label={t("Full Name *")}      placeholder="Ahmed Mohamed"           value={name}      onChange={setName}      error={errors.name} />
+              <Field label={t("Email Address *")}  placeholder="you@example.com"         value={email}     onChange={setEmail}     error={errors.email} type="email" />
+              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"             value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
+              <Field label={t("Date of Birth *")}  placeholder=""                        value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" />
+              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword} error={errors.password} type="password" />
               <div className="flex gap-3">
-                <BackBtn onClick={() => { clearErrors(); setStep("role"); }} />
+                <BackBtn onClick={() => { clearErrors(); setStep("role"); }} t={t} />
                 <button type="submit" disabled={isAuthLoading} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
-                  {isAuthLoading ? <><Spinner /> Creating…</> : "Create Account →"}
+                  {isAuthLoading ? <><Spinner /> {t("Creating…")}</> : t("Create Account →")}
                 </button>
               </div>
             </form>
@@ -380,16 +382,16 @@ export function SignupPage() {
           {/* ── STEP: doctor-info ── */}
           {step === "doctor-info" && (
             <form onSubmit={handleDoctorBasicsNext} className="space-y-4">
-              <Field label="Full Name *"      placeholder="Dr. Khaled Hassan"     value={name}      onChange={setName}      error={errors.name} />
-              <Field label="Email Address *"  placeholder="dr@clinic.eg"          value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label="Phone Number *"   placeholder="01XXXXXXXXX"           value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
+              <Field label={t("Full Name *")}      placeholder="Dr. Khaled Hassan"     value={name}      onChange={setName}      error={errors.name} />
+              <Field label={t("Email Address *")}  placeholder="dr@clinic.eg"          value={email}     onChange={setEmail}     error={errors.email} type="email" />
+              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"           value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
               <div>
-                <label className="block text-sm font-medium text-navy">Specialty *</label>
+                <label className="block text-sm font-medium text-navy">{t("Specialty *")}</label>
                 <input
                   list="specialty-options"
                   value={specialty}
                   onChange={(e) => setSpecialty(e.target.value)}
-                  placeholder="Select or type your specialty…"
+                  placeholder={t("Select or type your specialty…")}
                   className={`mt-1.5 h-12 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${errors.specialty ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
                 />
                 <datalist id="specialty-options">
@@ -399,12 +401,12 @@ export function SignupPage() {
                 </datalist>
                 {errors.specialty && <p className="mt-1 text-xs text-danger">{errors.specialty}</p>}
               </div>
-              <Field label="Medical License Number" placeholder="EG-XXXXXX"     value={licenseNumber} onChange={setLicenseNumber} />
-              <Field label="Password *"       placeholder="Min. 8 chars + 1 number" value={password} onChange={setPassword} error={errors.password} type="password" />
+              <Field label={t("Medical License Number")} placeholder="EG-XXXXXX" value={licenseNumber} onChange={setLicenseNumber} />
+              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword} error={errors.password} type="password" />
               <div className="flex gap-3">
-                <BackBtn onClick={() => { clearErrors(); setStep("role"); }} />
+                <BackBtn onClick={() => { clearErrors(); setStep("role"); }} t={t} />
                 <button type="submit" className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light flex items-center justify-center">
-                  Continue →
+                  {t("Continue →")}
                 </button>
               </div>
             </form>
@@ -413,48 +415,48 @@ export function SignupPage() {
           {/* ── STEP: clinic-type ── */}
           {step === "clinic-type" && (
             <div className="space-y-4">
-              <p className="text-sm text-navy-mid">Do you run your own clinic or work at an existing one?</p>
+              <p className="text-sm text-navy-mid">{t("Do you run your own clinic or work at an existing one?")}</p>
               <div className="space-y-3">
                 <ClinicTypeCard
                   icon="🏥"
-                  title="I own my clinic"
-                  desc="Create a new clinic on Waitless — you'll be the admin and a doctor"
+                  title={t("I own my clinic")}
+                  desc={t("Create a new clinic on Waitless — you'll be the admin and a doctor")}
                   onClick={() => handleClinicTypeSelect("own")}
                 />
                 <ClinicTypeCard
                   icon="👔"
-                  title="I work at an existing clinic"
-                  desc="Search for your clinic and request to join — the admin will approve you"
+                  title={t("I work at an existing clinic")}
+                  desc={t("Search for your clinic and request to join — the admin will approve you")}
                   onClick={() => handleClinicTypeSelect("staff")}
                 />
               </div>
-              <BackBtn onClick={() => { clearErrors(); setStep("doctor-info"); }} />
+              <BackBtn onClick={() => { clearErrors(); setStep("doctor-info"); }} t={t} />
             </div>
           )}
 
           {/* ── STEP: clinic-own ── */}
           {step === "clinic-own" && (
             <form onSubmit={handleClinicOwnSubmit} className="space-y-4">
-              <Field label="Clinic Name *" placeholder="Cairo Medical Group" value={orgName} onChange={setOrgName} error={errors.orgName} />
+              <Field label={t("Clinic Name *")} placeholder="Cairo Medical Group" value={orgName} onChange={setOrgName} error={errors.orgName} />
               <div>
-                <label className="block text-sm font-medium text-navy">Type</label>
+                <label className="block text-sm font-medium text-navy">{t("Type")}</label>
                 <div className="mt-1.5 grid grid-cols-3 gap-2">
-                  {(["clinic", "hospital", "polyclinic"] as OrgType[]).map((t) => (
+                  {(["clinic", "hospital", "polyclinic"] as OrgType[]).map((ot) => (
                     <button
-                      key={t}
+                      key={ot}
                       type="button"
-                      onClick={() => setOrgType(t)}
+                      onClick={() => setOrgType(ot)}
                       className={`rounded-md border py-2.5 text-sm font-medium capitalize transition ${
-                        orgType === t ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40 hover:text-navy"
+                        orgType === ot ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40 hover:text-navy"
                       }`}
                     >
-                      {t}
+                      {ot}
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-navy">Country</label>
+                <label className="block text-sm font-medium text-navy">{t("Country")}</label>
                 <select value={country} onChange={(e) => setCountry(e.target.value)}
                   className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20">
                   <option value="EG">Egypt</option>
@@ -467,14 +469,14 @@ export function SignupPage() {
               <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border p-3">
                 <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="h-4 w-4 accent-gold" />
                 <div>
-                  <p className="text-sm font-medium text-navy">List on Marketplace</p>
-                  <p className="text-xs text-navy-mid">Patients can discover and book your doctors online</p>
+                  <p className="text-sm font-medium text-navy">{t("List on Marketplace")}</p>
+                  <p className="text-xs text-navy-mid">{t("Patients can discover and book your doctors online")}</p>
                 </div>
               </label>
               <div className="flex gap-3">
-                <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} />
+                <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} t={t} />
                 <button type="submit" disabled={isSubmitting} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
-                  {isSubmitting ? <><Spinner /> Creating…</> : "Create Clinic →"}
+                  {isSubmitting ? <><Spinner /> {t("Creating…")}</> : t("Create Clinic →")}
                 </button>
               </div>
             </form>
@@ -484,15 +486,15 @@ export function SignupPage() {
           {step === "clinic-find" && (
             <form onSubmit={handleJoinRequestSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-navy">Search for your clinic *</label>
+                <label className="block text-sm font-medium text-navy">{t("Search for your clinic *")}</label>
                 <input
                   value={clinicSearch}
                   onChange={(e) => { setClinicSearch(e.target.value); setSelectedClinic(null); }}
-                  placeholder="Type clinic name…"
+                  placeholder={t("Type clinic name…")}
                   className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
                 {searchLoading && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-navy-mid"><Spinner /> Searching…</p>
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-navy-mid"><Spinner /> {t("Searching…")}</p>
                 )}
                 {clinicResults.length > 0 && !selectedClinic && (
                   <ul className="mt-1.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-white shadow-md">
@@ -513,7 +515,7 @@ export function SignupPage() {
                   </ul>
                 )}
                 {clinicSearch && !searchLoading && clinicResults.length === 0 && !selectedClinic && (
-                  <p className="mt-1.5 text-xs text-navy-mid">No clinics found. Try a different name.</p>
+                  <p className="mt-1.5 text-xs text-navy-mid">{t("No clinics found. Try a different name.")}</p>
                 )}
                 {selectedClinic && (
                   <div className="mt-2 flex items-center justify-between rounded-lg border border-gold/30 bg-gold-tint px-4 py-2.5">
@@ -521,18 +523,18 @@ export function SignupPage() {
                       <p className="text-sm font-semibold text-navy">{selectedClinic.name}</p>
                       <p className="text-xs capitalize text-navy-mid">{selectedClinic.type}</p>
                     </div>
-                    <button type="button" onClick={() => { setSelectedClinic(null); setClinicSearch(""); }} className="text-xs text-danger hover:text-danger/80">Change</button>
+                    <button type="button" onClick={() => { setSelectedClinic(null); setClinicSearch(""); }} className="text-xs text-danger hover:text-danger/80">{t("Change")}</button>
                   </div>
                 )}
                 {errors.clinic && <p className="mt-1 text-xs text-danger">{errors.clinic}</p>}
               </div>
 
-              <Field label="Message to Admin (optional)" placeholder="Introduce yourself briefly…" value={joinMessage} onChange={setJoinMessage} />
+              <Field label={t("Message to Admin (optional)")} placeholder={t("Introduce yourself briefly…")} value={joinMessage} onChange={setJoinMessage} />
 
               <div className="flex gap-3">
-                <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} />
+                <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} t={t} />
                 <button type="submit" disabled={isSubmitting || !selectedClinic} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
-                  {isSubmitting ? <><Spinner /> Sending…</> : "Send Join Request →"}
+                  {isSubmitting ? <><Spinner /> {t("Sending…")}</> : t("Send Join Request →")}
                 </button>
               </div>
             </form>
@@ -544,26 +546,28 @@ export function SignupPage() {
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gold/10 text-3xl">
                 ⏳
               </div>
-              <h2 className="font-heading text-xl font-bold text-navy">Request Submitted!</h2>
+              <h2 className="font-heading text-xl font-bold text-navy">{t("Request Submitted!")}</h2>
               <p className="mt-2 text-sm text-navy-mid">
-                Your request to join <span className="font-semibold text-navy">{selectedClinic?.name}</span> has been sent.
+                {t("Your request to join")}{" "}
+                <span className="font-semibold text-navy">{selectedClinic?.name}</span>{" "}
+                {t("has been sent.")}
               </p>
               <p className="mt-1 text-sm text-navy-mid">
-                The clinic admin will review and approve your request. You'll be able to log in once approved.
+                {t("The clinic admin will review and approve your request. You'll be able to log in once approved.")}
               </p>
               <div className="mt-5 rounded-xl border border-border bg-offwhite px-4 py-3 text-left">
-                <p className="text-xs font-semibold text-navy">While you wait</p>
+                <p className="text-xs font-semibold text-navy">{t("While you wait")}</p>
                 <ul className="mt-1.5 space-y-1 text-xs text-navy-mid">
-                  <li>• Log in any time to check your request status</li>
-                  <li>• Watch for an email invitation from the clinic</li>
-                  <li>• Once approved, you'll get full doctor access</li>
+                  <li>{t("• Log in any time to check your request status")}</li>
+                  <li>{t("• Watch for an email invitation from the clinic")}</li>
+                  <li>{t("• Once approved, you'll get full doctor access")}</li>
                 </ul>
               </div>
               <button
                 onClick={() => navigate("/login")}
                 className="mt-6 flex h-12 w-full items-center justify-center rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light"
               >
-                Go to Sign In →
+                {t("Go to Sign In →")}
               </button>
             </div>
           )}
@@ -571,9 +575,9 @@ export function SignupPage() {
           {/* Footer link for role/info steps */}
           {(step === "patient-info" || step === "doctor-info") && (
             <p className="mt-5 text-center text-sm text-navy-mid">
-              Already have an account?{" "}
+              {t("Already have an account?")}{" "}
               <Link to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`} className="font-medium text-gold hover:text-gold-light">
-                Sign in →
+                {t("Sign in →")}
               </Link>
             </p>
           )}
@@ -623,14 +627,14 @@ function ClinicTypeCard({
   );
 }
 
-function BackBtn({ onClick }: { onClick: () => void }) {
+function BackBtn({ onClick, t }: { onClick: () => void; t: (s: string) => string }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className="h-12 rounded-md border border-border px-4 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
     >
-      ← Back
+      {t("← Back")}
     </button>
   );
 }

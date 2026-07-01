@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { useLanguage } from "../../context/LanguageContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { loginWithCredentials, isAuthLoading, authError, clearAuthError } = useAuth();
+  const { t } = useLanguage();
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -13,8 +15,8 @@ export function LoginPage() {
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
-    if (!phone.trim()) errs.phone = "Phone number is required.";
-    if (!password) errs.password = "Password is required.";
+    if (!phone.trim()) errs.phone = t("Phone number is required.");
+    if (!password) errs.password = t("Password is required.");
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -68,19 +70,19 @@ export function LoginPage() {
         <div className="bg-navy px-8 py-7">
           <p className="font-heading text-sm font-medium text-gold">Waitless</p>
           <h1 className="mt-1 font-heading text-3xl font-bold text-white">
-            Welcome back
+            {t("Welcome back")}
           </h1>
           <p className="mt-1 text-sm text-white/50">
-            Sign in to your account to continue
+            {t("Sign in to your account to continue")}
           </p>
         </div>
 
         <div className="px-8 py-7">
-          {/* Demo credentials hint */}
+          {/* hint */}
           <div className="mb-5 rounded-lg border border-border bg-offwhite px-4 py-3 text-xs text-navy-mid">
-            <p className="font-semibold text-navy">Sign in with phone or email</p>
+            <p className="font-semibold text-navy">{t("Sign in with phone or email")}</p>
             <p className="mt-1 text-navy-mid">
-              Use the phone number or email you registered with, along with your password.
+              {t("Use the phone number or email you registered with, along with your password.")}
             </p>
           </div>
 
@@ -92,15 +94,15 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field
-              label="Email Address or Phone number*"
-              placeholder="email@example.com or 01XXXXXXXXX"
+              label={t("Email Address or Phone number*")}
+              placeholder="email@example.com or   01XXXXXXXXX"
               value={phone}
               onChange={setPhone}
               error={errors.phone}
               inputMode="numeric"
             />
             <Field
-              label="Password *"
+              label={t("Password *")}
               type="password"
               placeholder="••••••••"
               value={password}
@@ -116,10 +118,10 @@ export function LoginPage() {
               {isAuthLoading ? (
                 <>
                   <Spinner />
-                  Signing in…
+                  {t("Signing in…")}
                 </>
               ) : (
-                "Sign In →"
+                t("Sign In →")
               )}
             </button>
           </form>
@@ -130,16 +132,16 @@ export function LoginPage() {
                 to="/forgot-password"
                 className="font-medium text-navy-mid underline-offset-2 hover:text-navy hover:underline"
               >
-                Forgot your password?
+                {t("Forgot your password?")}
               </Link>
             </p>
             <p className="text-sm text-navy-mid">
-              Don&apos;t have an account?{" "}
+              {t("Don't have an account?")}{" "}
               <Link
                 to={`/signup${searchParams.get("next") ? `?next=${searchParams.get("next")}` : ""}`}
                 className="font-medium text-gold transition hover:text-gold-light"
               >
-                Create one →
+                {t("Create one →")}
               </Link>
             </p>
           </div>

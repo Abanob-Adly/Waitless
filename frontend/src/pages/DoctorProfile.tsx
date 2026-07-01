@@ -468,20 +468,27 @@ function ClinicsTab({ clinics }: { clinics: ClinicLocation[] }) {
   );
 }
 
-// Generates a realistic star distribution from a doctor's overall rating and
-// total review count — avoids misleading percentages from tiny mock samples.
-function getRatingBreakdown(avgRating: number, total: number) {
-  const t = Math.min(1, Math.max(0, (avgRating - 3.5) / 1.5)); // 0 at 3.5 → 1 at 5.0
-  const p5 = 0.45 + t * 0.40; // 45% → 85%
-  const p4 = 0.27 - t * 0.14; // 27% → 13%
-  const p3 = 0.14 - t * 0.10; // 14% → 4%
-  const p2 = 0.08 - t * 0.06; // 8%  → 2%
-  const p1 = Math.max(0.005, 1 - p5 - p4 - p3 - p2);
-  return [p5, p4, p3, p2, p1].map((p, i) => ({
-    stars: 5 - i,
-    count: Math.round(p * total),
-    pct: Math.round(p * 100),
+type StarRow = { stars: number; count: number; pct: number };
+
+function getRatingBreakdown(reviews: MarketplaceReview[]): StarRow[] {
+  const total = reviews.length;
+  const counts: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  for (const r of reviews) {
+    const star = Math.min(5, Math.max(1, Math.round(r.rating)));
+    counts[star] = (counts[star] ?? 0) + 1;
+  }
+  const rows: StarRow[] = [5, 4, 3, 2, 1].map((stars) => ({
+    stars,
+    count: counts[stars] ?? 0,
+    pct: total > 0 ? Math.round(((counts[stars] ?? 0) / total) * 100) : 0,
   }));
+  // Absorb rounding drift into the largest bucket so pcts always sum to 100
+  if (total > 0) {
+    const drift = 100 - rows.reduce((s, r) => s + r.pct, 0);
+    const largest = rows.reduce((best, r) => (r.count > best.count ? r : best), rows[0]);
+    largest.pct += drift;
+  }
+  return rows;
 }
 
 function ReviewsTab({
@@ -495,7 +502,7 @@ function ReviewsTab({
   reviewCount: number;
   authUser: import("../types/index").AuthUser;
 }) {
-  const breakdown = getRatingBreakdown(overallRating, reviewCount);
+  const breakdown = getRatingBreakdown(reviews);
   const isPatient = authUser?.role === "patient";
 
   const [tokenInput, setTokenInput] = useState("");
@@ -545,39 +552,50 @@ function ReviewsTab({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-8 rounded-xl bg-offwhite p-5">
-        <div className="text-center">
-          <p className="font-heading text-5xl font-bold text-navy">
-            {overallRating}
+      {reviewCount === 0 ? (
+        <div className="rounded-xl bg-offwhite px-6 py-10 text-center">
+          <p className="text-4xl">⭐</p>
+          <p className="mt-3 font-heading text-base font-bold text-navy">No reviews yet</p>
+          <p className="mt-1 text-sm text-navy-mid">
+            Be the first to review this doctor after your session.
           </p>
-          <p className="mt-1 text-gold">
-            {"★".repeat(Math.floor(overallRating))}
-          </p>
-          <p className="mt-1 text-xs text-navy-mid">{reviewCount} reviews</p>
         </div>
-
-        <div className="flex-1 space-y-2">
-          {breakdown.map(({ stars, count, pct }) => (
-            <div key={stars} className="flex items-center gap-2 text-sm">
-              <span className="w-3 text-right text-navy-mid">{stars}</span>
-              <span className="text-xs text-gold">★</span>
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-gold transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <span className="w-20 text-right text-xs text-navy-mid">
-                {count.toLocaleString()} · {pct}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {reviews.length === 0 ? (
-        <p className="text-sm text-navy-mid">No reviews yet.</p>
       ) : (
+        <div className="flex items-center gap-8 rounded-xl bg-offwhite p-5">
+          <div className="text-center">
+            <p className="font-heading text-5xl font-bold text-navy">{overallRating}</p>
+            <p className="mt-1 text-gold">{"★".repeat(Math.floor(overallRating))}</p>
+            <p className="mt-1 text-xs text-navy-mid">{reviewCount.toLocaleString()} reviews</p>
+          </div>
+
+          <div className="flex-1 space-y-2">
+            {breakdown.map(({ stars, count, pct }) => (
+              <div key={stars} className="flex items-center gap-2 text-sm">
+                <span className="w-3 text-right text-navy-mid">{stars}</span>
+                <span className="text-xs text-gold">★</span>
+                <div
+                  className="h-2 flex-1 overflow-hidden rounded-full bg-border"
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`${stars} stars: ${pct}% of reviews`}
+                >
+                  <div
+                    className="h-full rounded-full bg-gold transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="w-20 text-right text-xs text-navy-mid">
+                  {count.toLocaleString()} · {pct}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {reviews.length > 0 && (
         <div className="space-y-4">
           {reviews.map((review) => (
             <ReviewCard key={review.id} review={review} />

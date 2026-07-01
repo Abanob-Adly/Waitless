@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 
 // ── Static content ─────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ const STEPS = [
 export function OrgLandingPage() {
   const navigate = useNavigate();
   const { authUser } = useAuth();
+  const { t } = useLanguage();
 
   const isAdmin = authUser?.role === "admin";
   const isDoctor = authUser?.role === "doctor";
@@ -108,17 +110,16 @@ export function OrgLandingPage() {
 
         <div className="relative mx-auto max-w-3xl animate-fade-up">
           <span className="inline-block rounded-full border border-gold/30 bg-gold/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-gold">
-            For Clinics & Healthcare Organizations
+            {t("For Clinics & Healthcare Organizations")}
           </span>
 
           <h1 className="mt-5 font-heading text-5xl font-bold leading-tight text-white sm:text-6xl">
-            Modern Queue Management<br />
-            <span className="text-gold">for Your Clinic</span>
+            {t("Modern Queue Management")}<br />
+            <span className="text-gold">{t("for Your Clinic")}</span>
           </h1>
 
           <p className="mt-5 text-lg leading-relaxed text-white/70">
-            Replace paper lists and phone calls with a digital queue system.
-            Patients track their position live. Doctors control the flow. Your clinic runs smoother — starting today.
+            {t("Replace paper lists and phone calls with a digital queue system. Patients track their position live. Doctors control the flow. Your clinic runs smoother — starting today.")}
           </p>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -126,21 +127,21 @@ export function OrgLandingPage() {
               onClick={handleGetStarted}
               className="rounded-md bg-gold px-8 py-3.5 text-base font-semibold text-navy transition hover:bg-gold-light"
             >
-              {isAdmin || isDoctor ? "Go to Admin Dashboard →" : "Get Started Free →"}
+              {isAdmin || isDoctor ? t("Go to Admin Dashboard →") : t("Get Started Free →")}
             </button>
             <button
               onClick={() => navigate("/search")}
               className="rounded-md border border-white/20 px-8 py-3.5 text-base font-medium text-white/80 transition hover:border-white/40 hover:text-white"
             >
-              Browse as Patient
+              {t("Browse as Patient")}
             </button>
           </div>
 
           <div className="mt-10 flex flex-wrap justify-center gap-8 text-sm text-white/50">
-            <span>✓ No setup fee</span>
-            <span>✓ Free starter plan</span>
-            <span>✓ Live in 10 minutes</span>
-            <span>✓ No code required</span>
+            <span>{t("✓ No setup fee")}</span>
+            <span>{t("✓ Free starter plan")}</span>
+            <span>{t("✓ Live in 10 minutes")}</span>
+            <span>{t("✓ No code required")}</span>
           </div>
         </div>
       </section>
@@ -156,7 +157,7 @@ export function OrgLandingPage() {
           ].map((s) => (
             <div key={s.label} className="text-center">
               <p className="font-heading text-3xl font-bold text-navy">{s.value}</p>
-              <p className="mt-0.5 text-xs text-navy-mid">{s.label}</p>
+              <p className="mt-0.5 text-xs text-navy-mid">{t(s.label)}</p>
             </div>
           ))}
         </div>
@@ -167,10 +168,10 @@ export function OrgLandingPage() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
             <h2 className="font-heading text-4xl font-bold text-navy">
-              Everything your clinic needs
+              {t("Everything your clinic needs")}
             </h2>
             <p className="mt-3 text-navy-mid">
-              Built specifically for Egyptian healthcare providers. No generic software.
+              {t("Built specifically for Egyptian healthcare providers. No generic software.")}
             </p>
           </div>
 
@@ -190,8 +191,8 @@ export function OrgLandingPage() {
                   <div className={`mb-4 inline-flex h-11 w-11 items-center justify-center rounded-lg border text-2xl ${themeMap[f.theme as keyof typeof themeMap]}`}>
                     {f.icon}
                   </div>
-                  <h3 className="font-heading text-base font-bold text-navy">{f.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-navy-mid">{f.desc}</p>
+                  <h3 className="font-heading text-base font-bold text-navy">{t(f.title)}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-navy-mid">{t(f.desc)}</p>
                 </div>
               );
             })}
@@ -203,15 +204,15 @@ export function OrgLandingPage() {
       <section className="bg-navy px-6 py-16">
         <div className="mx-auto max-w-4xl">
           <h2 className="mb-12 text-center font-heading text-4xl font-bold text-white">
-            Up and running in <span className="text-gold">3 steps</span>
+            Up and running in <span className="text-gold">{t("3 steps")}</span>
           </h2>
 
           <div className="grid gap-6 sm:grid-cols-3">
             {STEPS.map((step) => (
               <div key={step.num} className="rounded-xl border border-white/10 bg-white/5 p-6">
                 <p className="font-heading text-4xl font-bold text-gold">{step.num}</p>
-                <h3 className="mt-3 font-heading text-lg font-bold text-white">{step.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-white/60">{step.desc}</p>
+                <h3 className="mt-3 font-heading text-lg font-bold text-white">{t(step.title)}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">{t(step.desc)}</p>
               </div>
             ))}
           </div>
@@ -222,8 +223,8 @@ export function OrgLandingPage() {
       <section id="pricing" className="px-6 py-16">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="font-heading text-4xl font-bold text-navy">Simple, transparent pricing</h2>
-            <p className="mt-3 text-navy-mid">Start free. Upgrade when you grow.</p>
+            <h2 className="font-heading text-4xl font-bold text-navy">{t("Simple, transparent pricing")}</h2>
+            <p className="mt-3 text-navy-mid">{t("Start free. Upgrade when you grow.")}</p>
           </div>
 
           <div className="grid gap-5 sm:grid-cols-3">
@@ -238,17 +239,17 @@ export function OrgLandingPage() {
               >
                 {plan.highlight && (
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gold px-4 py-1 text-xs font-bold text-navy">
-                    Most Popular
+                    {t("Most Popular")}
                   </span>
                 )}
 
                 <div className="mb-5">
                   <p className={`font-heading text-lg font-bold ${plan.highlight ? "text-white" : "text-navy"}`}>
-                    {plan.name}
+                    {t(plan.name)}
                   </p>
                   <div className="mt-1 flex items-baseline gap-0.5">
                     <span className={`font-heading text-4xl font-bold ${plan.highlight ? "text-gold" : "text-navy"}`}>
-                      {plan.price}
+                      {t(plan.price)}
                     </span>
                     {plan.period && (
                       <span className={`text-sm ${plan.highlight ? "text-white/60" : "text-navy-mid"}`}>
@@ -263,7 +264,7 @@ export function OrgLandingPage() {
                   {plan.features.map((f) => (
                     <li key={f} className={`flex items-start gap-2 text-sm ${plan.highlight ? "text-white/80" : "text-navy-mid"}`}>
                       <span className="mt-0.5 text-success">✓</span>
-                      {f}
+                      {t(f)}
                     </li>
                   ))}
                 </ul>
@@ -285,8 +286,8 @@ export function OrgLandingPage() {
                   }`}
                 >
                   {isAdmin || isDoctor
-                    ? plan.tier === "enterprise" ? "Contact Sales" : "Manage Plan →"
-                    : plan.cta}
+                    ? plan.tier === "enterprise" ? t("Contact Sales") : t("Manage Plan →")
+                    : t(plan.cta)}
                 </button>
               </div>
             ))}
@@ -298,23 +299,23 @@ export function OrgLandingPage() {
       {(isAdmin || isDoctor) && (
         <section className="border-t border-border bg-white px-6 py-12">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="text-sm font-semibold uppercase tracking-wide text-gold">You're logged in</p>
-            <h2 className="mt-2 font-heading text-3xl font-bold text-navy">Go to your Admin Dashboard</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-gold">{t("You're logged in")}</p>
+            <h2 className="mt-2 font-heading text-3xl font-bold text-navy">{t("Go to your Admin Dashboard")}</h2>
             <p className="mt-2 text-navy-mid">
-              Manage your clinic, view your queue, update schedules, and track revenue — all in one place.
+              {t("Manage your clinic, view your queue, update schedules, and track revenue — all in one place.")}
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <button
                 onClick={() => navigate("/admin")}
                 className="rounded-md bg-navy px-8 py-3 text-sm font-semibold text-white transition hover:bg-navy-mid"
               >
-                Open Dashboard →
+                {t("Open Dashboard →")}
               </button>
               <button
                 onClick={() => navigate("/admin?tab=billing")}
                 className="rounded-md border border-border px-8 py-3 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
               >
-                View Billing Plans
+                {t("View Billing Plans")}
               </button>
             </div>
           </div>
@@ -326,18 +327,18 @@ export function OrgLandingPage() {
         <section className="bg-gold px-6 py-16 text-center">
           <div className="mx-auto max-w-2xl">
             <h2 className="font-heading text-4xl font-bold text-navy">
-              Ready to modernize your clinic?
+              {t("Ready to modernize your clinic?")}
             </h2>
             <p className="mt-3 text-navy/70">
-              Join hundreds of clinics already saving time with Waitless.
+              {t("Join hundreds of clinics already saving time with Waitless.")}
             </p>
             <button
               onClick={() => navigate("/org/signup")}
               className="mt-8 rounded-md bg-navy px-10 py-3.5 text-base font-semibold text-white transition hover:bg-navy-mid"
             >
-              Create Your Clinic Account →
+              {t("Create Your Clinic Account →")}
             </button>
-            <p className="mt-3 text-xs text-navy/50">Free to start · No credit card required</p>
+            <p className="mt-3 text-xs text-navy/50">{t("Free to start · No credit card required")}</p>
           </div>
         </section>
       )}

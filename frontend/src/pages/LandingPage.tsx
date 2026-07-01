@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useApp } from "../context/AppContext";
+import { useLanguage } from "../context/LanguageContext";
 import { SPECIALTIES, AREAS } from "../data/mockData";
 import type { Doctor, ActiveBooking } from "../context/AppContext";
 import * as marketplaceService from "../services/marketplaceService";
@@ -34,12 +35,14 @@ const STEPS = [
   },
 ];
 
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function LandingPage() {
   const navigate = useNavigate();
   const { authUser } = useAuth();
   const { bookings } = useApp();
+  const { t } = useLanguage();
   const [specialty, setSpecialty] = useState("All Specialties");
   const [area, setArea] = useState("All Areas");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -124,7 +127,7 @@ export function LandingPage() {
                   <span className="absolute inline-flex h-full w-full animate-ping-slow rounded-full bg-gold opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-gold" />
                 </span>
-                Egypt&apos;s #1 Healthcare Booking Platform
+                {t("Egypt's #1 Healthcare Booking Platform")}
               </span>
 
               <h1 className="mt-5 font-heading leading-tight text-white">
@@ -132,13 +135,13 @@ export function LandingPage() {
                   className="block animate-fade-up text-5xl font-bold md:text-6xl"
                   style={{ animationDelay: "120ms" }}
                 >
-                  Book Your Doctor.
+                  {t("Book Your Doctor.")}
                 </span>
                 <span
                   className="block animate-fade-up text-5xl font-bold text-gold md:text-6xl"
                   style={{ animationDelay: "240ms" }}
                 >
-                  Skip the Wait.
+                  {t("Skip the Wait.")}
                 </span>
               </h1>
 
@@ -146,8 +149,7 @@ export function LandingPage() {
                 className="mt-6 max-w-lg animate-fade-up text-lg leading-7 text-white/70"
                 style={{ animationDelay: "360ms" }}
               >
-                Find, compare and book appointments with Egypt&apos;s top
-                specialists — online, instantly, no phone calls.
+                {t("Find, compare and book appointments with Egypt's top specialists — online, instantly, no phone calls.")}
               </p>
 
               {/* Search widget */}
@@ -180,7 +182,7 @@ export function LandingPage() {
                     onClick={handleSearch}
                     className="h-12 rounded-md bg-gold px-6 text-sm font-medium text-navy transition hover:scale-105 hover:bg-gold-light active:scale-95"
                   >
-                    Search Doctors
+                    {t("Search Doctors")}
                   </button>
                 </div>
               </div>
@@ -196,7 +198,7 @@ export function LandingPage() {
                     <p className="font-heading text-3xl font-bold text-gold">
                       {value}
                     </p>
-                    <p className="mt-1 text-sm text-white/60">{label}</p>
+                    <p className="mt-1 text-sm text-white/60">{t(label)}</p>
                   </div>
                 ))}
               </div>
@@ -220,10 +222,10 @@ export function LandingPage() {
         <div className="mb-8 flex items-end justify-between">
           <div className="animate-fade-up">
             <p className="text-sm font-medium text-gold">
-              Highly rated — available now
+              {t("Highly rated — available now")}
             </p>
             <h2 className="font-heading text-4xl font-bold text-navy">
-              Top Specialists
+              {t("Top Specialists")}
             </h2>
           </div>
           <button
@@ -231,7 +233,7 @@ export function LandingPage() {
             className="animate-fade-up text-sm font-medium text-navy transition hover:text-gold"
             style={{ animationDelay: "100ms" }}
           >
-            View all →
+            {t("View all →")}
           </button>
         </div>
 
@@ -270,17 +272,16 @@ export function LandingPage() {
           <div className="animate-fade-up flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-white py-16 text-center">
             <p className="text-4xl">🏥</p>
             <h3 className="mt-4 font-heading text-xl font-bold text-navy">
-              Growing our network
+              {t("Growing our network")}
             </h3>
             <p className="mt-2 max-w-sm text-sm text-navy-mid">
-              Clinics and specialists are joining Waitless every week. Be
-              among the first to list your practice and reach patients near you.
+              {t("Clinics and specialists are joining Waitless every week. Be among the first to list your practice and reach patients near you.")}
             </p>
             <button
               onClick={() => navigate("/org/signup")}
               className="mt-6 rounded-md bg-navy px-6 py-2.5 text-sm font-medium text-white transition hover:bg-navy-mid"
             >
-              Register your clinic →
+              {t("Register your clinic →")}
             </button>
           </div>
         )}
@@ -290,19 +291,19 @@ export function LandingPage() {
       <section className="bg-navy py-20">
         <div className="mx-auto max-w-7xl px-6 text-center">
           <p className="animate-fade-up text-sm font-medium text-gold">
-            Simple &amp; Transparent
+            {t("Simple & Transparent")}
           </p>
           <h2
             className="mt-2 animate-fade-up font-heading text-4xl font-bold text-white"
             style={{ animationDelay: "100ms" }}
           >
-            How It Works
+            {t("How It Works")}
           </h2>
           <p
             className="mt-3 animate-fade-up text-white/60"
             style={{ animationDelay: "200ms" }}
           >
-            Three easy steps to skip the waiting room forever.
+            {t("Three easy steps to skip the waiting room forever.")}
           </p>
 
           <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -317,10 +318,10 @@ export function LandingPage() {
                 </span>
                 <div className="mt-4 text-3xl transition-transform hover:scale-110 inline-block">{step.icon}</div>
                 <h3 className="mt-3 font-heading text-xl font-bold text-white">
-                  {step.title}
+                  {t(step.title)}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-white/60">
-                  {step.desc}
+                  {t(step.desc)}
                 </p>
               </div>
             ))}
@@ -333,17 +334,17 @@ export function LandingPage() {
         <div className="animate-fade-up flex flex-col items-center justify-between gap-6 rounded-2xl bg-gold-tint px-8 py-10 transition hover:shadow-lg sm:flex-row">
           <div>
             <h3 className="font-heading text-2xl font-bold text-navy">
-              Ready to skip the wait?
+              {t("Ready to skip the wait?")}
             </h3>
             <p className="mt-1 text-sm text-navy-mid">
-              Join thousands of patients who book smarter every day.
+              {t("Join thousands of patients who book smarter every day.")}
             </p>
           </div>
           <button
             onClick={() => navigate("/search")}
             className="shrink-0 rounded-md bg-navy px-8 py-3 text-sm font-medium text-white transition hover:scale-105 hover:bg-navy-mid active:scale-95"
           >
-            Find Your Doctor →
+            {t("Find Your Doctor →")}
           </button>
         </div>
       </section>
@@ -355,6 +356,7 @@ export function LandingPage() {
 
 function TicketPreview({ booking }: { booking: ActiveBooking }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const progress = booking.queueNumber > 0
     ? Math.min(1, (booking.queueNumber - 1) / Math.max(1, booking.queueNumber))
     : 0.5;
@@ -365,9 +367,9 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
     <div className="animate-float w-full rounded-2xl border border-white/15 bg-white/5 p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-xs text-white/50">Your active booking</p>
+          <p className="text-xs text-white/50">{t("Your active booking")}</p>
           <p className="font-heading text-lg font-bold text-white">
-            Live queue ticket
+            {t("Live queue ticket")}
           </p>
         </div>
         <span className="flex items-center gap-1.5 rounded-full bg-success px-2.5 py-1 text-xs font-medium text-white">
@@ -375,7 +377,7 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
             <span className="absolute inline-flex h-full w-full animate-ping-slow rounded-full bg-white opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
           </span>
-          Live
+          {t("Live")}
         </span>
       </div>
 
@@ -418,7 +420,7 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
             <span className="font-heading text-5xl font-bold leading-none text-white">
               {booking.queueNumber}
             </span>
-            <p className="text-xs text-white/50">your position</p>
+            <p className="text-xs text-white/50">{t("your position")}</p>
           </div>
         </div>
 
@@ -427,13 +429,13 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
             <p className="font-heading text-xl font-bold text-gold">
               {booking.session.startTime}
             </p>
-            <p className="text-xs text-white/50">Session start</p>
+            <p className="text-xs text-white/50">{t("Session start")}</p>
           </div>
           <div className="rounded-lg bg-white/10 p-2.5 text-center transition hover:bg-white/15">
             <p className="font-heading text-xl font-bold text-white">
               {booking.doctor.fee > 0 ? `${booking.doctor.fee} EGP` : "—"}
             </p>
-            <p className="text-xs text-white/50">Fee</p>
+            <p className="text-xs text-white/50">{t("Fee")}</p>
           </div>
         </div>
 
@@ -441,7 +443,7 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
           onClick={() => navigate("/ticket")}
           className="mt-3 w-full rounded-lg bg-gold/20 py-2 text-xs font-medium text-gold transition hover:bg-gold/30"
         >
-          View full ticket →
+          {t("View full ticket →")}
         </button>
       </div>
     </div>
@@ -452,6 +454,7 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
 
 function DoctorCard({ doctor }: { doctor: Doctor }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   return (
     <article
@@ -470,7 +473,7 @@ function DoctorCard({ doctor }: { doctor: Doctor }) {
           <div className="mt-2 flex items-center gap-1.5 text-sm">
             <span className="text-gold">★</span>
             <span className="font-medium text-navy">
-              {doctor.rating > 0 ? doctor.rating.toFixed(1) : "New"}
+              {doctor.rating > 0 ? doctor.rating.toFixed(1) : t("New")}
             </span>
             {doctor.reviewCount > 0 && (
               <span className="text-xs text-navy-mid">({doctor.reviewCount})</span>
@@ -481,7 +484,7 @@ function DoctorCard({ doctor }: { doctor: Doctor }) {
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <span className="rounded-md bg-gold-tint px-2 py-0.5 text-xs font-medium text-navy">
-          {doctor.specialty || "General"}
+          {doctor.specialty || t("General")}
         </span>
         <span className="rounded-md bg-green-50 px-2 py-0.5 text-xs font-medium text-success">
           {doctor.availableLabel}
@@ -496,11 +499,11 @@ function DoctorCard({ doctor }: { doctor: Doctor }) {
               <span className="ml-1 font-body text-sm font-normal text-navy-mid">EGP</span>
             </>
           ) : (
-            <span className="font-body text-base font-medium text-navy-mid">Contact for fee</span>
+            <span className="font-body text-base font-medium text-navy-mid">{t("Contact for fee")}</span>
           )}
         </p>
         <span className="rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white transition group-hover:bg-navy-mid">
-          View Profile →
+          {t("View Profile →")}
         </span>
       </div>
     </article>

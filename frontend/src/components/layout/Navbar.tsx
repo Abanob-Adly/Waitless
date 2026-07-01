@@ -2,10 +2,12 @@ import { useRef, useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useApp } from "../../context/AppContext";
+import { useLanguage } from "../../context/LanguageContext";
 
 export function Navbar() {
   const { authUser, logout } = useAuth();
   const { bookings } = useApp();
+  const { locale, toggleLocale, t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -65,12 +67,12 @@ export function Navbar() {
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-8 text-sm md:flex">
-          <NavLink to="/" label="Home" active={isActive("/")} />
+          <NavLink to="/" label={t("Home")} active={isActive("/")} />
 
           {isPatient && (
             <NavLink
               to="/search"
-              label="Find Doctors"
+              label={t("Find Doctors")}
               active={isActive("/search") || isActive("/doctors")}
             />
           )}
@@ -78,7 +80,7 @@ export function Navbar() {
           {isDoctor && (
             <NavLink
               to="/doctor-dashboard"
-              label="Doctor Portal"
+              label={t("Doctor Portal")}
               active={isActive("/doctor-dashboard")}
             />
           )}
@@ -86,7 +88,7 @@ export function Navbar() {
           {isAdmin && (
             <NavLink
               to="/admin"
-              label="Admin Portal"
+              label={t("Admin Portal")}
               active={isActive("/admin")}
             />
           )}
@@ -94,19 +96,19 @@ export function Navbar() {
           {isReceptionist && (
             <NavLink
               to="/reception"
-              label="Reception"
+              label={t("Reception")}
               active={isActive("/reception")}
             />
           )}
 
           {!authUser && (
-            <NavLink to="/for-clinics" label="For Clinics" active={isActive("/for-clinics")} />
+            <NavLink to="/for-clinics" label={t("For Clinics")} active={isActive("/for-clinics")} />
           )}
 
           {isPatient && (
             <NavLink
               to="/dashboard"
-              label="My Bookings"
+              label={t("My Bookings")}
               active={isActive("/dashboard")}
             />
           )}
@@ -114,6 +116,13 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-3">
+          {/* Language toggle */}
+          <button
+            onClick={toggleLocale}
+            className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-white/40 hover:text-white"
+          >
+            {locale === "en" ? "عربي" : "English"}
+          </button>
           {authUser ? (
             <div ref={dropdownRef} className="relative">
               <button
@@ -148,15 +157,15 @@ export function Navbar() {
                 <div className="absolute right-0 mt-2 w-56 animate-slide-down overflow-hidden rounded-lg border border-border bg-white shadow-xl">
                   <div className="border-b border-border px-4 py-3">
                     <p className="text-xs text-navy-mid">
-                      Signed in as{" "}
+                      {t("Signed in as")}{" "}
                       <span className="font-medium text-navy">
                         {isDoctor
-                          ? "Doctor"
+                          ? t("Doctor")
                           : isAdmin
-                            ? "Admin"
+                            ? t("Admin")
                             : isReceptionist
-                              ? "Receptionist"
-                              : "Patient"}
+                              ? t("Receptionist")
+                              : t("Patient")}
                       </span>
                     </p>
                     <p className="truncate text-sm font-semibold text-navy">
@@ -167,7 +176,7 @@ export function Navbar() {
                     </p>
                     {birthdateLabel && (
                       <p className="mt-0.5 text-xs text-navy-mid">
-                        DOB: {birthdateLabel}
+                        {t("DOB:")} {birthdateLabel}
                       </p>
                     )}
                     {isDoctor && doctorProfile && (
@@ -180,14 +189,14 @@ export function Navbar() {
                   {isPatient && (
                     <>
                       <DropdownItem
-                        label="My Dashboard"
+                        label={t("My Dashboard")}
                         onClick={() => {
                           navigate("/dashboard");
                           setDropdownOpen(false);
                         }}
                       />
                       <DropdownItem
-                        label={`My Live Ticket${bookings.length > 0 ? ` (${bookings.length})` : ""}`}
+                        label={t("My Live Ticket") + (bookings.length > 0 ? ` (${bookings.length})` : "")}
                         onClick={() => {
                           navigate("/ticket");
                           setDropdownOpen(false);
@@ -199,7 +208,7 @@ export function Navbar() {
 
                   {isDoctor && (
                     <DropdownItem
-                      label="Doctor Portal"
+                      label={t("Doctor Portal")}
                       onClick={() => {
                         navigate("/doctor-dashboard");
                         setDropdownOpen(false);
@@ -209,7 +218,7 @@ export function Navbar() {
 
                   {isAdmin && (
                     <DropdownItem
-                      label="Admin Portal"
+                      label={t("Admin Portal")}
                       onClick={() => {
                         navigate("/admin");
                         setDropdownOpen(false);
@@ -219,7 +228,7 @@ export function Navbar() {
 
                   {isReceptionist && (
                     <DropdownItem
-                      label="Reception Portal"
+                      label={t("Reception Portal")}
                       onClick={() => {
                         navigate("/reception");
                         setDropdownOpen(false);
@@ -228,7 +237,7 @@ export function Navbar() {
                   )}
 
                   <div className="border-t border-border" />
-                  <DropdownItem label="Sign Out" onClick={signOut} danger />
+                  <DropdownItem label={t("Sign Out")} onClick={signOut} danger />
                 </div>
               )}
             </div>
@@ -237,7 +246,7 @@ export function Navbar() {
               onClick={() => navigate("/login")}
               className="hidden text-sm text-white/80 transition hover:text-white sm:block"
             >
-              Sign In
+              {t("Sign In")}
             </button>
           )}
 
@@ -246,7 +255,7 @@ export function Navbar() {
               to="/signup"
               className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
             >
-              Get Started
+              {t("Get Started")}
             </Link>
           )}
 
@@ -255,7 +264,7 @@ export function Navbar() {
               to="/search"
               className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
             >
-              Find Doctor
+              {t("Find Doctor")}
             </Link>
           )}
         </div>
