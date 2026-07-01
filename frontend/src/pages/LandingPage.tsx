@@ -82,8 +82,24 @@ export function LandingPage() {
   }, [authUser, navigate]);
 
   const isPatient = authUser?.role === "patient";
-  const activeBooking: ActiveBooking | null =
-    isPatient && bookings.length > 0 ? bookings[0] : null;
+  // Show the soonest non-closed booking on the hero widget.
+  // Sort by session start time so the earliest upcoming session always wins.
+  const activeBooking: ActiveBooking | null = isPatient
+    ? ([...bookings]
+        .filter((b) => {
+          try {
+            const [hh, mm] = (b.session.endTime ?? "00:00").split(":").map(Number);
+            const end = new Date(`${b.session.date}T00:00:00`);
+            end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+            return end >= new Date();
+          } catch { return true; }
+        })
+        .sort((a, b) => {
+          const ta = `${a.session.date}T${a.session.startTime ?? "00:00"}`;
+          const tb = `${b.session.date}T${b.session.startTime ?? "00:00"}`;
+          return ta < tb ? -1 : ta > tb ? 1 : 0;
+        })[0] ?? null)
+    : null;
 
   function handleSearch() {
     const params = new URLSearchParams();

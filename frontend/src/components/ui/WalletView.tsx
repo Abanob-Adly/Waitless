@@ -244,6 +244,7 @@ const TYPE_LABELS: Record<string, string> = {
   commission: "Organization Share",
   refund:     "Refund",
   withdrawal: "Withdrawal",
+  penalty:    "Cancellation Penalty",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -253,6 +254,7 @@ const TYPE_ICONS: Record<string, string> = {
   commission: "🏥",
   refund:     "↩️",
   withdrawal: "⬇️",
+  penalty:    "⚠️",
 };
 
 function EntryRow({ entry }: { entry: WalletEntry }) {

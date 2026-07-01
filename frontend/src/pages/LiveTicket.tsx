@@ -163,6 +163,16 @@ function TicketView({
     return scheduledStart > now;
   })();
 
+  // True when it's session day and the scheduled end time has already passed.
+  // At this point the session window is over; if the patient wasn't served they
+  // won't be — show a closed-session view instead of the queue position.
+  const sessionWindowClosed = isSessionDay && (() => {
+    const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
+    const scheduledEnd = new Date(`${effectiveDate || todayLocal}T00:00:00`);
+    scheduledEnd.setHours(hh ?? 0, mm ?? 0, 0, 0);
+    return scheduledEnd < now;
+  })();
+
   // Recommended arrival time: now + EWT − 10 min buffer (arrive early)
   const recommendedArrivalMs = now.getTime() + etaMinutes * 60_000 - 10 * 60_000;
   const recommendedArrivalTime = new Date(recommendedArrivalMs).toLocaleTimeString([], {
@@ -317,6 +327,8 @@ function TicketView({
               startTime={booking.session.startTime}
               sessionDate={effectiveDate}
             />
+          ) : sessionWindowClosed && !isCalled ? (
+            <SessionWindowClosedView endTime={booking.session.endTime} />
           ) : isCalled ? (
             <CalledView />
           ) : (
@@ -388,6 +400,27 @@ function TicketView({
 }
 
 // ── Session-not-started view (today but before start time / doctor hasn't pressed Start) ──
+
+function SessionWindowClosedView({ endTime }: { endTime: string }) {
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-5xl">
+        🔒
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">Session Closed</h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        This session ended at{" "}
+        <span className="font-semibold text-navy">{endTime}</span>.
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        If you were not seen, please contact the clinic to reschedule.
+      </p>
+      <div className="mt-5 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+        No further queue updates will be made for this session.
+      </div>
+    </div>
+  );
+}
 
 function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
   const [, rerender] = useState(0);

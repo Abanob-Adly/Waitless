@@ -50,8 +50,9 @@ api.interceptors.response.use(
           refreshToken,
         });
 
-        const newAccess: string = data.data.accessToken;
-        const newRefresh: string = data.data.refreshToken;
+        // Refresh endpoint returns { accessToken, refreshToken } directly (no data wrapper)
+        const newAccess: string = data.accessToken;
+        const newRefresh: string = data.refreshToken;
 
         localStorage.setItem("waitless_access_token", newAccess);
         localStorage.setItem("waitless_refresh_token", newRefresh);

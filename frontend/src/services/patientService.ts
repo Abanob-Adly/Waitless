@@ -182,6 +182,15 @@ export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> 
   }
 }
 
+export async function cancelOwnAppointment(
+  appointmentId: string,
+): Promise<{ penaltyApplied: boolean }> {
+  const res = await api.delete<{ penaltyApplied: boolean }>(
+    `/appointments/${appointmentId}/cancel`,
+  );
+  return { penaltyApplied: res.data.penaltyApplied ?? false };
+}
+
 export async function getPatientHistory(
   orgId: string,
   profileId: string,

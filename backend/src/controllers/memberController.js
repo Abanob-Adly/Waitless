@@ -19,6 +19,7 @@ export const memberSchemas = {
   }),
 
   update: z.object({
+    kind:               z.enum(['admin', 'doctor', 'receptionist']).optional(),
     specialties:        z.array(z.string()).optional(),
     licenseNumber:      z.string().optional(),
     bio:                z.string().max(2000).optional(),

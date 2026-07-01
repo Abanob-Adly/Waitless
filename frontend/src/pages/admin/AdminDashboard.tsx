@@ -726,15 +726,20 @@ function StaffTab() {
       {editingMember && (
         <EditMemberModal
           member={editingMember}
+          branches={branches}
           onClose={() => setEditingMember(null)}
           onSave={async (data) => {
-            const ok = await updateMember(editingMember.id, data);
-            if (ok) {
+            const result = await updateMember(editingMember.id, data);
+            if (result === true) {
               setEditingMember(null);
               setEditError(null);
             } else {
               setEditingMember(null);
-              setEditError("Failed to update member. Please try again.");
+              setEditError(
+                typeof result === "string"
+                  ? result
+                  : "Failed to update member. Please try again.",
+              );
             }
           }}
         />
@@ -1814,17 +1819,22 @@ function InviteStaffModal({
 
 function EditMemberModal({
   member,
+  branches,
   onClose,
   onSave,
 }: {
   member: Membership;
+  branches: Branch[];
   onClose: () => void;
-  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[] }) => Promise<void>;
+  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] }) => Promise<void>;
 }) {
   const [role, setRole] = useState<Membership["userRole"]>(member.userRole);
   const [specialties, setSpecialties] = useState(member.specialties?.join(", ") ?? "");
   const [bio, setBio] = useState(member.bio ?? "");
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>(
+    member.branchId ? [member.branchId] : (branches[0] ? [branches[0].id] : []),
+  );
   const [saving, setSaving] = useState(false);
 
   function togglePermission(perm: string) {
@@ -1833,13 +1843,28 @@ function EditMemberModal({
     );
   }
 
+  function toggleBranch(id: string) {
+    setSelectedBranches((prev) =>
+      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id],
+    );
+  }
+
+  const hasChanges = role !== member.userRole
+    || (role === "doctor" && specialties.trim() !== (member.specialties?.join(", ") ?? ""))
+    || bio.trim() !== (member.bio ?? "")
+    || (role === "admin" && permissions.length > 0);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[] } = {};
+    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] } = {};
     if (role !== member.userRole) data.kind = role;
-    if (role === "doctor" && specialties.trim()) {
-      data.specialties = specialties.split(",").map((s) => s.trim()).filter(Boolean);
+    if (role === "doctor") {
+      const arr = specialties.split(",").map((s) => s.trim()).filter(Boolean);
+      if (arr.length) data.specialties = arr;
+    }
+    if (role === "receptionist") {
+      data.branches = selectedBranches;
     }
     if (bio.trim()) data.bio = bio.trim();
     if (role === "admin" && permissions.length > 0) data.permissions = permissions;
@@ -1872,7 +1897,7 @@ function EditMemberModal({
             ))}
           </div>
           {role !== member.userRole && (
-            <p className="mt-1.5 text-xs text-gold">Role change will take effect immediately.</p>
+            <p className="mt-1.5 text-xs text-gold">Role change will take effect immediately (once per 30 days).</p>
           )}
         </div>
 
@@ -1883,6 +1908,28 @@ function EditMemberModal({
             onChange={setSpecialties}
             placeholder="Cardiology, Internal Medicine"
           />
+        )}
+
+        {role === "receptionist" && branches.length > 0 && (
+          <div>
+            <p className="text-sm font-medium text-navy">Assigned Branches *</p>
+            <div className="mt-1.5 space-y-1.5">
+              {branches.map((b) => (
+                <label key={b.id} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
+                  <input
+                    type="checkbox"
+                    checked={selectedBranches.includes(b.id)}
+                    onChange={() => toggleBranch(b.id)}
+                    className="rounded border-border"
+                  />
+                  {b.name}
+                </label>
+              ))}
+            </div>
+            {selectedBranches.length === 0 && (
+              <p className="mt-1 text-xs text-danger">At least one branch is required.</p>
+            )}
+          </div>
         )}
 
         {role === "admin" && (
@@ -1906,7 +1953,12 @@ function EditMemberModal({
 
         <ModalField label="Bio" value={bio} onChange={setBio} placeholder="Brief bio or notes..." />
 
-        <ModalActions onClose={onClose} saving={saving} label="Save Changes" />
+        <ModalActions
+          onClose={onClose}
+          saving={saving}
+          label="Save Changes"
+          disabled={role === "receptionist" && selectedBranches.length === 0}
+        />
       </form>
     </ModalShell>
   );
@@ -2401,7 +2453,7 @@ function ModalField({
   );
 }
 
-function ModalActions({ onClose, saving, label }: { onClose: () => void; saving: boolean; label: string }) {
+function ModalActions({ onClose, saving, label, disabled }: { onClose: () => void; saving: boolean; label: string; disabled?: boolean }) {
   return (
     <div className="flex gap-3 pt-2">
       <button
@@ -2413,7 +2465,7 @@ function ModalActions({ onClose, saving, label }: { onClose: () => void; saving:
       </button>
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || disabled}
         className="flex h-10 w-full items-center justify-center rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
       >
         {saving ? "Saving…" : label}

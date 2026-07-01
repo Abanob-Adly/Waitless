@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets } from "../services/patientService";
+import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, cancelOwnAppointment } from "../services/patientService";
 import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
@@ -12,22 +12,73 @@ import { WalletView } from "../components/ui/WalletView";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+type CancelTarget = { id: string; sessionDate: string; sessionStartTime: string };
+
 export function PatientDashboard() {
   const { bookings, removeBooking } = useApp();
   const { authUser } = useAuth();
   const navigate = useNavigate();
   const [appointmentHistory, setAppointmentHistory] = useState<OwnAppointmentItem[]>([]);
   const [serverTickets, setServerTickets] = useState<ActiveTicketItem[]>([]);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const patientProfile =
     authUser?.role === "patient" ? authUser.profile : null;
 
+  // Stable refs so the polling closure can read current values without
+  // being re-created (which would restart the interval timer).
+  const bookingsRef = useRef(bookings);
+  const removeBookingRef = useRef(removeBooking);
+  useEffect(() => { bookingsRef.current = bookings; }, [bookings]);
+  useEffect(() => { removeBookingRef.current = removeBooking; }, [removeBooking]);
+
   useEffect(() => {
-    if (authUser?.role === "patient") {
-      getOwnAppointmentHistory().then(setAppointmentHistory).catch(console.error);
-      getOwnActiveTickets().then(setServerTickets).catch(console.error);
+    if (authUser?.role !== "patient") return;
+    getOwnAppointmentHistory().then(setAppointmentHistory).catch(console.error);
+
+    async function fetchAndReconcile() {
+      try {
+        const tickets = await getOwnActiveTickets();
+        setServerTickets(tickets);
+        // Evict localStorage bookings that are no longer active on the server
+        // (session ended, doctor marked no-show, admin cancelled, etc.)
+        const activeIds = new Set(tickets.map((t) => t.id));
+        bookingsRef.current.forEach((b) => {
+          if (!activeIds.has(b.id)) removeBookingRef.current(b.id);
+        });
+      } catch { /* non-fatal */ }
     }
+
+    void fetchAndReconcile();
+    const poll = setInterval(() => { void fetchAndReconcile(); }, 30_000);
+    return () => clearInterval(poll);
   }, [authUser]);
+
+  function requestCancel(id: string, sessionDate: string, sessionStartTime: string) {
+    setCancelTarget({ id, sessionDate, sessionStartTime });
+    setCancelError(null);
+  }
+
+  async function confirmCancel() {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await cancelOwnAppointment(cancelTarget.id);
+      removeBooking(cancelTarget.id);
+      setServerTickets((prev) => prev.filter((t) => t.id !== cancelTarget.id));
+      setCancelTarget(null);
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Failed to cancel. Please try again.";
+      setCancelError(msg);
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   const dashboardTabs = useMemo(
     () => [
@@ -40,7 +91,9 @@ export function PatientDashboard() {
             serverTickets={serverTickets}
             onGoToTicket={() => navigate("/ticket")}
             onBook={() => navigate("/search")}
-            onCancel={(id) => removeBooking(id)}
+            onCancel={(id, sessionDate, sessionStartTime) =>
+              requestCancel(id, sessionDate, sessionStartTime)
+            }
           />
         ),
       },
@@ -140,7 +193,112 @@ export function PatientDashboard() {
           )}
         </div>
       </div>
+
+      {/* Cancellation confirmation modal */}
+      {cancelTarget && (
+        <CancelBookingModal
+          sessionDate={cancelTarget.sessionDate}
+          sessionStartTime={cancelTarget.sessionStartTime}
+          cancelling={cancelling}
+          error={cancelError}
+          onConfirm={confirmCancel}
+          onClose={() => { setCancelTarget(null); setCancelError(null); }}
+        />
+      )}
     </main>
+  );
+}
+
+// ── Cancellation Modal ────────────────────────────────────────────────────────
+
+function CancelBookingModal({
+  sessionDate,
+  sessionStartTime,
+  cancelling,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  sessionDate: string;
+  sessionStartTime: string;
+  cancelling: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  // Check if within 1 hour of session start
+  const withinPenaltyWindow = (() => {
+    try {
+      const startMs = new Date(`${sessionDate}T${sessionStartTime}`).getTime();
+      const diffMs = startMs - Date.now();
+      return diffMs < 60 * 60 * 1000 && diffMs > -60 * 60 * 1000;
+    } catch {
+      return false;
+    }
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="bg-danger px-6 py-4">
+          <p className="font-heading text-base font-bold text-white">Cancel Appointment</p>
+          <p className="mt-0.5 text-xs text-white/70">{sessionDate} · {sessionStartTime}</p>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {withinPenaltyWindow && (
+            <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3">
+              <p className="text-sm font-semibold text-danger">50 EGP cancellation fee applies</p>
+              <p className="mt-1 text-xs text-navy-mid">
+                Cancellations within 1 hour of the session start incur a 50 EGP penalty
+                deducted from your wallet. Make sure you have sufficient balance.
+              </p>
+              <label className="mt-3 flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={acknowledged}
+                  onChange={(e) => setAcknowledged(e.target.checked)}
+                  className="mt-0.5 rounded border-border"
+                />
+                <span className="text-xs text-navy-mid">
+                  I understand that 50 EGP will be deducted from my wallet.
+                </span>
+              </label>
+            </div>
+          )}
+
+          {!withinPenaltyWindow && (
+            <p className="text-sm text-navy-mid">
+              Are you sure you want to cancel this appointment? This action cannot be undone.
+            </p>
+          )}
+
+          {error && (
+            <p className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              disabled={cancelling}
+              className="flex-1 rounded-md border border-border py-2 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
+            >
+              Keep Booking
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={cancelling || (withinPenaltyWindow && !acknowledged)}
+              className="flex-1 rounded-md bg-danger py-2 text-sm font-medium text-white transition hover:bg-danger/90 disabled:opacity-60"
+            >
+              {cancelling ? "Cancelling…" : "Yes, Cancel"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -345,7 +503,7 @@ function ActiveBookingsTab({
   serverTickets: ActiveTicketItem[];
   onGoToTicket: () => void;
   onBook: () => void;
-  onCancel: (id: string) => void;
+  onCancel: (id: string, sessionDate: string, sessionStartTime: string) => void;
 }) {
   // Server tickets not already tracked in local bookings (e.g. logged in on new device).
   // Dedup by both appointment ID and accessToken: if bookings haven't reloaded from
@@ -371,9 +529,18 @@ function ActiveBookingsTab({
     );
   }
 
+  const hasOpenSession = bookings.some((b) => {
+    try {
+      const [hh, mm] = (b.session.endTime ?? "00:00").split(":").map(Number);
+      const end = new Date(`${b.session.date}T00:00:00`);
+      end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+      return end >= new Date();
+    } catch { return true; }
+  });
+
   return (
     <div className="space-y-5">
-      {bookings.length > 0 && (
+      {hasOpenSession && (
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
@@ -385,12 +552,16 @@ function ActiveBookingsTab({
         </div>
       )}
 
-      {bookings.map((booking) => (
+      {[...bookings].sort((a, b) => {
+        const ta = `${a.session.date}T${a.session.startTime ?? "00:00"}`;
+        const tb = `${b.session.date}T${b.session.startTime ?? "00:00"}`;
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      }).map((booking) => (
         <BookingCard
           key={booking.id}
           booking={booking}
           onGoToTicket={onGoToTicket}
-          onCancel={() => onCancel(booking.id)}
+          onCancel={() => onCancel(booking.id, booking.session.date, booking.session.startTime)}
         />
       ))}
 
@@ -495,6 +666,15 @@ function BookingCard({
     setShowNotesModal(false);
   }
 
+  const sessionWindowClosed = (() => {
+    try {
+      const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
+      const end = new Date(`${booking.session.date}T00:00:00`);
+      end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+      return end < new Date();
+    } catch { return false; }
+  })();
+
   const paymentBadge = {
     success: { label: "Paid ✓", cls: "bg-success/10 text-success" },
     failed: { label: "Failed ✕", cls: "bg-danger/10 text-danger" },
@@ -527,17 +707,29 @@ function BookingCard({
               </p>
             )}
           </div>
-          <span className="shrink-0 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-            ✓ Confirmed
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            sessionWindowClosed
+              ? "bg-danger/10 text-danger"
+              : "bg-success/10 text-success"
+          }`}>
+            {sessionWindowClosed ? "🔒 Session Closed" : "✓ Confirmed"}
           </span>
         </div>
 
         {/* Queue status row */}
-        <div className="grid grid-cols-3 divide-x divide-border border-t border-border">
-          <StatCell label="Position" value={`#${position}`} accent />
-          <StatCell label="Serving" value={`#${currentServing}`} />
-          <StatCell label="Est. Wait" value={`~${etaMinutes}m`} />
-        </div>
+        {sessionWindowClosed ? (
+          <div className="border-t border-danger/20 bg-danger/5 px-5 py-3 text-center">
+            <p className="text-xs text-danger">
+              Session window has ended — no further queue updates.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 divide-x divide-border border-t border-border">
+            <StatCell label="Position" value={`#${position}`} accent />
+            <StatCell label="Serving" value={`#${currentServing}`} />
+            <StatCell label="Est. Wait" value={`~${etaMinutes}m`} />
+          </div>
+        )}
 
         {/* Payment + fee row */}
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
@@ -570,28 +762,32 @@ function BookingCard({
         )}
 
         {/* Actions */}
-        <div className="grid grid-cols-3 gap-2 border-t border-border p-4">
+        <div className={`grid gap-2 border-t border-border p-4 ${sessionWindowClosed ? "grid-cols-1" : "grid-cols-3"}`}>
           <button
             onClick={onGoToTicket}
-            className="col-span-1 flex h-10 items-center justify-center rounded-md bg-gold text-xs font-medium text-navy transition hover:bg-gold-light"
+            className="flex h-10 items-center justify-center rounded-md bg-gold text-xs font-medium text-navy transition hover:bg-gold-light"
           >
-            Live Ticket →
+            {sessionWindowClosed ? "View Ticket →" : "Live Ticket →"}
           </button>
-          <button
-            onClick={() => {
-              setNotesText(booking.patientNotes ?? "");
-              setShowNotesModal(true);
-            }}
-            className="flex h-10 items-center justify-center rounded-md border border-border text-xs text-navy-mid transition hover:border-navy hover:text-navy"
-          >
-            Edit Notes
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex h-10 items-center justify-center rounded-md border border-danger/30 text-xs text-danger transition hover:bg-danger hover:text-white"
-          >
-            Cancel
-          </button>
+          {!sessionWindowClosed && (
+            <>
+              <button
+                onClick={() => {
+                  setNotesText(booking.patientNotes ?? "");
+                  setShowNotesModal(true);
+                }}
+                className="flex h-10 items-center justify-center rounded-md border border-border text-xs text-navy-mid transition hover:border-navy hover:text-navy"
+              >
+                Edit Notes
+              </button>
+              <button
+                onClick={onCancel}
+                className="flex h-10 items-center justify-center rounded-md border border-danger/30 text-xs text-danger transition hover:bg-danger hover:text-white"
+              >
+                Cancel
+              </button>
+            </>
+          )}
         </div>
       </div>
 

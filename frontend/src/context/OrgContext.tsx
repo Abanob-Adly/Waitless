@@ -47,7 +47,7 @@ type OrgCtx = {
     licenseNumber?: string;
     yearsOfExperience?: number | null;
     languagesSpoken?: string[];
-  }) => Promise<boolean>;
+  }) => Promise<boolean | string>;
   createSchedule: (
     data: Omit<DoctorBranchSchedule, "id">,
   ) => Promise<{ ok: boolean; sessionsGenerated?: number }>;
@@ -305,16 +305,18 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
   async function updateMember(
     memberId: string,
-    data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; avatarUrl?: string | null; websiteUrl?: string | null; acceptedInsurances?: string[]; licenseNumber?: string; yearsOfExperience?: number | null; languagesSpoken?: string[] },
-  ): Promise<boolean> {
+    data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; avatarUrl?: string | null; websiteUrl?: string | null; acceptedInsurances?: string[]; licenseNumber?: string; yearsOfExperience?: number | null; languagesSpoken?: string[]; branches?: string[] },
+  ): Promise<boolean | string> {
     if (!orgId) return false;
     try {
       await orgService.updateMember(orgId, memberId, data);
-      await refresh();
+      void backgroundRefresh();
       return true;
     } catch (err) {
-      console.error("updateMember error:", err);
-      return false;
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? null;
+      return msg ?? false;
     }
   }
 

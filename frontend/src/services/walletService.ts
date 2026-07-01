@@ -13,7 +13,7 @@ export type WalletInfo = {
 
 export type WalletEntry = {
   id: string;
-  type: "topup" | "purchase" | "earning" | "commission" | "refund" | "withdrawal";
+  type: "topup" | "purchase" | "earning" | "commission" | "refund" | "withdrawal" | "penalty";
   direction: "credit" | "debit";
   amount: number;
   balanceAfter: number;

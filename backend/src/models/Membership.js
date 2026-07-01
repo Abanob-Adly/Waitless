@@ -39,6 +39,10 @@ const membershipSchema = new Schema(
     inviteToken: { type: String, default: null, index: true, sparse: true },
     inviteEmail: { type: String, lowercase: true, trim: true, default: null },
     inviteExpiresAt: { type: Date, default: null },
+
+    // Tracks when the last role change was applied (via admin Edit).
+    // Enforces a 30-day rate limit on role changes.
+    lastRoleChangeAt: { type: Date, default: null },
   },
   baseOptions,
 );

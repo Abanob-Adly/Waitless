@@ -1,4 +1,5 @@
 import { Membership, AdminMembership, DoctorMembership, ReceptionistMembership } from '../models/Membership.js';
+import Account from '../models/Account.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { generateToken } from '../utils/otp.js';
 import { emailProvider } from './providers/email.js';
@@ -101,9 +102,72 @@ export const memberService = {
   async updateMember({ membership, data }) {
     const { kind } = membership;
 
+    // Role change: discriminator kind cannot be mutated in-place; revoke current + create new.
+    if (data.kind && data.kind !== kind) {
+      // Enforce 30-day rate limit on role changes
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      if (membership.lastRoleChangeAt) {
+        const msSinceLastChange = Date.now() - membership.lastRoleChangeAt.getTime();
+        if (msSinceLastChange < THIRTY_DAYS_MS) {
+          const nextAllowed = new Date(membership.lastRoleChangeAt.getTime() + THIRTY_DAYS_MS);
+          throw Forbidden(
+            `Role was last changed on ${membership.lastRoleChangeAt.toDateString()}. ` +
+            `Next change allowed after ${nextAllowed.toDateString()}.`
+          );
+        }
+      }
+
+      await checkMemberLimit(String(membership.organization), data.kind);
+
+      // Receptionist role requires at least one branch — fail early before revoking
+      if (data.kind === 'receptionist' && !(data.branches?.length > 0)) {
+        throw Forbidden('Receptionists must be assigned to at least one branch. Use the invite flow to set the branch.');
+      }
+
+      const prevStatus = membership.status;
+      membership.status = 'revoked';
+      await membership.save();
+
+      const MemberModel = DISCRIMINATOR_MAP[data.kind];
+      const now = new Date();
+      const newData = {
+        account:          membership.account,
+        organization:     membership.organization,
+        status:           'active',
+        acceptedAt:       now,
+        inviteEmail:      membership.inviteEmail,
+        invitedBy:        membership.invitedBy,
+        lastRoleChangeAt: now,
+      };
+
+      if (data.kind === 'doctor') {
+        newData.specialties   = data.specialties ?? [];
+        newData.bio           = data.bio ?? '';
+        newData.licenseNumber = '';
+      } else if (data.kind === 'receptionist') {
+        newData.branches = data.branches;
+      } else if (data.kind === 'admin') {
+        newData.permissions = data.permissions ?? ['*'];
+        newData.isSuper     = false;
+      }
+
+      try {
+        return await MemberModel.create(newData);
+      } catch (createErr) {
+        // Revert the revoke so the account isn't left memberless
+        membership.status = prevStatus;
+        await membership.save().catch(() => {});
+        throw createErr;
+      }
+    }
+
+    // Field update for same role
     if (kind === 'doctor') {
       const allowed = ['specialties', 'bio', 'licenseNumber', 'services', 'yearsOfExperience', 'languagesSpoken', 'websiteUrl', 'acceptedInsurances', 'avatarUrl'];
       for (const k of allowed) if (data[k] !== undefined) membership[k] = data[k];
+      if (data.avatarUrl !== undefined && membership.account) {
+        await Account.findByIdAndUpdate(membership.account, { avatarUrl: data.avatarUrl });
+      }
     } else if (kind === 'receptionist') {
       if (data.branches !== undefined) membership.branches = data.branches;
     } else if (kind === 'admin') {

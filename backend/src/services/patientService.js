@@ -1,12 +1,14 @@
 import PatientProfile from '../models/PatientProfile.js';
 import Appointment from '../models/Appointment.js';
+import { normalizePhone } from '../utils/phone.js';
 import { NotFound } from '../utils/errors.js';
 
 export const patientService = {
   async findOrCreateWalkIn({ orgId, branchId, phone, fullName }) {
+    const normalized = normalizePhone(phone);
     const profile = await PatientProfile.findOneAndUpdate(
-      { organizationId: orgId, phone },
-      { $setOnInsert: { fullName, branchId, accountId: null, organizationId: orgId, phone } },
+      { organizationId: orgId, phone: normalized },
+      { $setOnInsert: { fullName, branchId, accountId: null, organizationId: orgId, phone: normalized } },
       { upsert: true, new: true }
     );
     return profile;

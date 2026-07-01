@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizePhone } from '../utils/phone.js';
 const { Schema } = mongoose;
 
 const accountSchema = new Schema(
@@ -60,5 +61,11 @@ accountSchema.index(
     },
   }
 );
+
+accountSchema.pre('save', function () {
+  if (this.isModified('phone') && this.phone) {
+    this.phone = normalizePhone(this.phone);
+  }
+});
 
 export default mongoose.model('Account', accountSchema);

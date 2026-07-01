@@ -1,8 +1,13 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
 import { patientService } from './patientService.js';
+import { queueService } from './queueService.js';
+import { walletService } from './walletService.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
+
+const CANCELLATION_PENALTY_EGP = 50;
+const CANCELLATION_GRACE_MS    = 60 * 60 * 1000; // 1 hour
 
 const TERMINAL_STATUSES = ['completed', 'cancelled', 'no_show'];
 
@@ -135,15 +140,44 @@ export const appointmentService = {
     return Appointment.findById(appointment._id).populate('patientProfile', 'fullName phone');
   },
 
-  async cancelAppointment({ appointment, reason }) {
+  async cancelAppointment({ appointment, reason, patientAccountId }) {
     if (TERMINAL_STATUSES.includes(appointment.status)) {
       throw new AppError('Cannot cancel a closed appointment', 409);
     }
+
+    // Cancellation penalty: 50 EGP if patient cancels within 1 hour of session start.
+    // Only applies to patient self-cancellations (patientAccountId supplied).
+    // Staff cancellations (patientAccountId = null) are penalty-free.
+    let penaltyApplied = false;
+    if (patientAccountId) {
+      const session = await Session.findById(appointment.session).select('startTime').lean();
+      if (session) {
+        const msTillStart = new Date(session.startTime).getTime() - Date.now();
+        if (msTillStart < CANCELLATION_GRACE_MS && msTillStart > -CANCELLATION_GRACE_MS) {
+          // Within the 1-hour window — apply penalty regardless of balance (allows negative)
+          await walletService.cancellationPenalty({
+            accountId:     patientAccountId,
+            amount:        CANCELLATION_PENALTY_EGP,
+            appointmentId: appointment._id,
+          });
+          penaltyApplied = true;
+        }
+      }
+    }
+
     appointment.status          = 'cancelled';
     appointment.cancelledAt     = new Date();
     appointment.cancelledReason = reason || null;
     await appointment.save();
-    return appointment;
+
+    // Publish queue update so live-tracking clients recalculate positions
+    try {
+      await queueService.publishQueueUpdated(appointment.session);
+    } catch {
+      // Non-fatal: Redis unavailable
+    }
+
+    return { appointment, penaltyApplied };
   },
 
   async getOwnAppointments({ actor }) {

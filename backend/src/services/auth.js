@@ -53,7 +53,7 @@ export const authService = {
 
     await PatientProfile.create({
       accountId: account._id,
-      fullName, phone,
+      fullName, phone: normalizedPhone ?? phone,
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
     });
 

@@ -297,6 +297,10 @@ export const queueService = {
         const commissionAmt  = Math.round((fee - platformCut) * commissionPct / 100);
         const doctorNet      = fee - platformCut - commissionAmt;
 
+        if (fee === 0) {
+          console.warn('[PAYMENT] fee=0 for appointment', appointment._id, '— session.doctorBranchSchedule:', session.doctorBranchSchedule, 'scheduleDoc:', scheduleDoc);
+        }
+
         await Transaction.create({
           org:              appointment.organization,
           branch:           appointment.branch,
@@ -314,7 +318,7 @@ export const queueService = {
           status:           'settled',
         });
 
-        // ── Wallet distribution (non-fatal) ────────────────────────────────
+        // ── Wallet distribution (each op isolated so one failure doesn't block the others) ─
         if (fee > 0) {
           const apptId = appointment._id;
           const orgId  = appointment.organization;
@@ -322,35 +326,40 @@ export const queueService = {
           // Debit patient wallet — skip if already paid via wallet at booking time,
           // or if paying cash (receptionist collects physically).
           if (!['wallet', 'cash'].includes(appointment.paymentMethod) && appointment.patientProfile) {
-            const PatientProfile = (await import('../models/PatientProfile.js')).default;
-            PatientProfile.findById(appointment.patientProfile).select('accountId').lean()
-              .then((pp) => {
-                if (pp?.accountId) {
-                  return walletService.purchaseDebit({ accountId: pp.accountId, amount: fee, appointmentId: apptId });
-                }
-              })
-              .catch((e) => console.warn('[WALLET] patient debit failed:', e.message));
+            try {
+              const PatientProfile = (await import('../models/PatientProfile.js')).default;
+              const pp = await PatientProfile.findById(appointment.patientProfile).select('accountId').lean();
+              if (pp?.accountId) {
+                await walletService.purchaseDebit({ accountId: pp.accountId, amount: fee, appointmentId: apptId });
+              }
+            } catch (e) {
+              console.error('[WALLET] patient debit failed for appointment', apptId, ':', e.message);
+            }
           }
 
-          // Credit doctor wallet — look up the account behind the membership
+          // Credit doctor wallet — independent of patient debit
           if (session.doctor && doctorNet > 0) {
-            Membership.findById(session.doctor).select('account').lean()
-              .then((mem) => {
-                if (mem?.account) {
-                  return walletService.doctorEarningCredit({ accountId: mem.account, amount: doctorNet, appointmentId: apptId });
-                }
-              })
-              .catch((e) => console.warn('[WALLET] doctor credit failed:', e.message));
+            try {
+              const mem = await Membership.findById(session.doctor).select('account').lean();
+              if (mem?.account) {
+                await walletService.doctorEarningCredit({ accountId: mem.account, amount: doctorNet, appointmentId: apptId });
+              }
+            } catch (e) {
+              console.error('[WALLET] doctor credit failed for appointment', apptId, ':', e.message);
+            }
           }
 
-          // Credit org wallet
+          // Credit org wallet — independent
           if (commissionAmt > 0) {
-            walletService.orgCommissionCredit({ orgId, amount: commissionAmt, appointmentId: apptId })
-              .catch((e) => console.warn('[WALLET] org credit failed:', e.message));
+            try {
+              await walletService.orgCommissionCredit({ orgId, amount: commissionAmt, appointmentId: apptId });
+            } catch (e) {
+              console.error('[WALLET] org credit failed for appointment', apptId, ':', e.message);
+            }
           }
         }
       } catch (err) {
-        console.warn('[PAYMENT] Transaction save failed:', err.message);
+        console.error('[PAYMENT] transaction record failed for appointment', appointment._id, ':', err.message);
       }
     }
 
@@ -507,5 +516,13 @@ export const queueService = {
       doctorName:         doctorDoc?.account?.fullName ?? '',
       consultationFee:    scheduleDoc?.consultationFee?.amount ?? 0,
     };
+  },
+
+  async publishSessionEnded(sessionId) {
+    await publishUpdate(sessionId, { type: 'session_ended' });
+  },
+
+  async publishQueueUpdated(sessionId) {
+    await publishUpdate(sessionId, { type: 'updated' });
   },
 };

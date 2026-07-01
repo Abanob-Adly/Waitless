@@ -47,9 +47,11 @@ export function DoctorDashboard() {
     if (!cleaned) { setSpecialtyError("Please enter your specialty."); return; }
     if (!myMembershipForSpecialty) return;
     setSpecialtySaving(true); setSpecialtyError(null);
-    const ok = await updateMember(myMembershipForSpecialty.id, { specialties: [cleaned] });
+    const result = await updateMember(myMembershipForSpecialty.id, { specialties: [cleaned] });
     setSpecialtySaving(false);
-    if (!ok) setSpecialtyError("Failed to save. Please try again.");
+    if (result !== true) {
+      setSpecialtyError(typeof result === "string" ? result : "Failed to save. Please try again.");
+    }
     // On success, OrgContext refresh will re-evaluate `needsSpecialty` to false.
   }, [specialtyInput, myMembershipForSpecialty, updateMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -334,6 +336,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const [showBreakModal, setShowBreakModal] = useState(false);
   const [breakDuration, setBreakDuration] = useState(15);
   const [breakPending, setBreakPending] = useState(false);
+  const [breakError, setBreakError] = useState<string | null>(null);
 
   const myMembershipId =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
@@ -380,12 +383,15 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   async function handleStartBreak() {
     if (!activeBranchId || !activeSession) return;
     setBreakPending(true);
+    setBreakError(null);
     try {
       await sessionService.startBreak(orgId, activeBranchId, activeSession.id, breakDuration);
       setIsOnBreak(true);
       setShowBreakModal(false);
-    } catch {
-      // ignore
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Failed to start break. Please try again.";
+      setBreakError(msg);
     }
     setBreakPending(false);
   }
@@ -393,11 +399,14 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   async function handleResumeFromBreak() {
     if (!activeBranchId || !activeSession) return;
     setBreakPending(true);
+    setBreakError(null);
     try {
       await sessionService.resumeFromBreak(orgId, activeBranchId, activeSession.id);
       setIsOnBreak(false);
-    } catch {
-      // ignore
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Failed to resume. Please try again.";
+      setBreakError(msg);
     }
     setBreakPending(false);
   }
@@ -458,9 +467,12 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
                   ))}
                 </div>
               </div>
+              {breakError && (
+                <p className="text-xs text-danger">{breakError}</p>
+              )}
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowBreakModal(false)}
+                  onClick={() => { setShowBreakModal(false); setBreakError(null); }}
                   className="flex-1 rounded-md border border-border py-2.5 text-sm text-navy-mid hover:border-navy hover:text-navy"
                 >
                   Cancel
@@ -490,7 +502,12 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
         ))}
       </div>
 
-      {/* Break / Resume button */}
+      {/* Break / Resume button — only available when session is running */}
+      {breakError && (
+        <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
+          {breakError}
+        </div>
+      )}
       {isOnBreak ? (
         <div className="flex items-center justify-between rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
           <div>
@@ -505,13 +522,17 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
             {breakPending ? "Resuming…" : "Resume Queue"}
           </button>
         </div>
-      ) : (
+      ) : activeSession.status === "active" ? (
         <button
-          onClick={() => setShowBreakModal(true)}
+          onClick={() => { setBreakError(null); setShowBreakModal(true); }}
           className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
         >
           ☕ Take a Break
         </button>
+      ) : (
+        <div className="rounded-lg border border-border bg-offwhite px-4 py-2.5 text-center text-sm text-navy-mid">
+          Session not yet started — break unavailable
+        </div>
       )}
 
       {serving && (
@@ -1253,7 +1274,7 @@ async function handleSave(e: React.FormEvent) {
     const languagesList = form.languages.split(",").map((l) => l.trim()).filter(Boolean);
     const yoe = form.yearsOfExperience.trim() !== "" ? Number(form.yearsOfExperience) : null;
 
-    const ok = await updateMember(myMembership.id, {
+    const result = await updateMember(myMembership.id, {
       bio: form.bio.trim() || undefined,
       specialties: specialtiesList.length ? specialtiesList : undefined,
       websiteUrl: form.websiteUrl.trim() || null,
@@ -1263,9 +1284,15 @@ async function handleSave(e: React.FormEvent) {
       yearsOfExperience: yoe,
     });
 
-    // We don't even need a manual refresh here because your OrgContext does it for us!
+    // OrgContext.updateMember calls refresh() on success, no manual refresh needed.
     setSaving(false);
-    setResult({ ok, msg: ok ? "Profile updated successfully." : "Failed to save. Please try again." });
+    const ok = result === true;
+    setResult({
+      ok,
+      msg: ok
+        ? "Profile updated successfully."
+        : typeof result === "string" ? result : "Failed to save. Please try again.",
+    });
   }
 
   const initials = doctorName

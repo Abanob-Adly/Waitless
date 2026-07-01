@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizePhone } from '../utils/phone.js';
 const { Schema } = mongoose;
 
 const patientProfileSchema = new Schema(
@@ -30,5 +31,11 @@ patientProfileSchema.index(
   { unique: true, partialFilterExpression: { organizationId: { $type: 'objectId' } } });
 // marketplace patient lookup
 patientProfileSchema.index({ accountId: 1 }, { unique: true, partialFilterExpression: { accountId: { $type: "objectId" } } });
+
+patientProfileSchema.pre('save', function () {
+  if (this.isModified('phone') && this.phone) {
+    this.phone = normalizePhone(this.phone);
+  }
+});
 
 export default mongoose.model('PatientProfile', patientProfileSchema);

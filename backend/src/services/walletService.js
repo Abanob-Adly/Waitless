@@ -143,6 +143,33 @@ export const walletService = {
     return updated;
   },
 
+  /**
+   * Deduct a cancellation penalty from a patient's wallet.
+   * Bypasses the balance floor — allows the wallet to go negative so the
+   * cancellation is never blocked by a zero balance.
+   */
+  async cancellationPenalty({ accountId, amount, appointmentId }) {
+    const wallet = await getOrCreateAccountWallet(accountId, 'patient');
+    const updated = await Wallet.findOneAndUpdate(
+      { _id: wallet._id, status: 'active' },
+      { $inc: { balance: -amount } },
+      { new: true },
+    );
+    if (!updated) throw new Error('Patient wallet is not active');
+    await WalletEntry.create({
+      wallet:        wallet._id,
+      type:          'penalty',
+      direction:     'debit',
+      amount,
+      balanceAfter:  updated.balance,
+      reference:     appointmentId,
+      referenceKind: 'appointment',
+      description:   `Late cancellation fee (${amount} EGP)`,
+      status:        'settled',
+    });
+    return updated;
+  },
+
   async topUp({ accountId, ownerKind, amount }) {
     const wallet = await getOrCreateAccountWallet(accountId, ownerKind);
     return creditWallet(wallet._id, amount, {

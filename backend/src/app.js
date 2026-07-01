@@ -14,6 +14,7 @@ import { patientController, patientSchemas } from "./controllers/patientControll
 import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import { startLateStartPenaltyCron } from "./jobs/lateStartPenalty.js";
+import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 
@@ -64,6 +65,9 @@ app.patch("/patients/me", authenticate, validate(patientSchemas.updateOwn), pati
 // Patient: own appointment history
 app.get("/appointments/mine", authenticate, appointmentController.getOwn);
 
+// Patient: self-cancel — applies cancellation penalty if within 1 hour of session start
+app.delete("/appointments/:appointmentId/cancel", authenticate, appointmentController.selfCancel);
+
 // Public appointment tracking (no auth — token-based)
 app.get("/appointments/track/:token", appointmentController.track);
 
@@ -71,6 +75,7 @@ app.use(errorHandler);
 
 startSessionGeneratorCron();
 startLateStartPenaltyCron();
+startSessionAutoCloseCron();
 
 app.listen(env.port, () => {
   console.log(`Server Started on port: ${env.port}`);
