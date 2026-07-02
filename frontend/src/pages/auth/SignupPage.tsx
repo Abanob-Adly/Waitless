@@ -282,8 +282,7 @@ export function SignupPage() {
         <div className="bg-navy px-8 py-7">
           <p className="font-heading text-sm font-medium text-gold">Waitless</p>
           <h1 className="mt-1 font-heading text-3xl font-bold text-white">
-<<<<<<< HEAD
-            {step === "role"        && t("Create Account")}
+            {step === "role"         && t("Create Account")}
             {step === "patient-info" && t("Patient Sign Up")}
             {step === "doctor-info"  && t("Doctor Sign Up")}
             {step === "clinic-type"  && t("How do you work?")}
@@ -292,38 +291,17 @@ export function SignupPage() {
             {step === "pending"      && t("Request Sent!")}
           </h1>
           <p className="mt-1 text-sm text-white/50">
-            {step === "role"        && t("Join thousands using Waitless")}
+            {step === "role"         && t("Join thousands using Waitless")}
             {step === "patient-info" && t("Book and track your appointments")}
             {step === "doctor-info"  && t("Tell us about yourself")}
             {step === "clinic-type"  && t("Choose the path that fits you")}
             {step === "clinic-own"   && t("You'll manage the clinic as admin and doctor")}
             {step === "clinic-find"  && t("Request to join an existing clinic")}
             {step === "pending"      && t("Waiting for clinic admin approval")}
-=======
-            {step === "role" && "Create Account"}
-            {step === "patient-info" && "Patient Sign Up"}
-            {step === "doctor-info" && "Doctor Sign Up"}
-            {step === "clinic-type" && "How do you work?"}
-            {step === "clinic-own" && "Set Up Your Clinic"}
-            {step === "clinic-find" && "Find Your Clinic"}
-            {step === "pending" && "Request Sent!"}
-          </h1>
-          <p className="mt-1 text-sm text-white/50">
-            {step === "role" && "Join thousands using Waitless"}
-            {step === "patient-info" && "Book and track your appointments"}
-            {step === "doctor-info" && "Tell us about yourself"}
-            {step === "clinic-type" && "Choose the path that fits you"}
-            {step === "clinic-own" &&
-              "You'll manage the clinic as admin and doctor"}
-            {step === "clinic-find" && "Request to join an existing clinic"}
-            {step === "pending" && "Waiting for clinic admin approval"}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
           </p>
 
           {/* Doctor progress steps */}
-          {["doctor-info", "clinic-type", "clinic-own", "clinic-find"].includes(
-            step,
-          ) && (
+          {["doctor-info", "clinic-type", "clinic-own", "clinic-find"].includes(step) && (
             <div className="mt-4 flex items-center gap-2">
               {doctorSteps.map((s, i) => (
                 <div key={s.label} className="flex items-center gap-2">
@@ -338,15 +316,8 @@ export function SignupPage() {
                   >
                     {i < doctorStepIdx() ? "✓" : i + 1}
                   </div>
-<<<<<<< HEAD
                   <span className={`text-xs ${i === doctorStepIdx() ? "font-medium text-white" : "text-white/40"}`}>
                     {t(s.label)}
-=======
-                  <span
-                    className={`text-xs ${i === doctorStepIdx() ? "font-medium text-white" : "text-white/40"}`}
-                  >
-                    {s.label}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                   </span>
                   {i < doctorSteps.length - 1 && (
                     <div className="h-px w-6 bg-white/20" />
@@ -368,13 +339,7 @@ export function SignupPage() {
           {/* ── STEP: role ── */}
           {step === "role" && (
             <div className="space-y-4">
-<<<<<<< HEAD
               <p className="text-sm text-navy-mid">{t("Who are you signing up as?")}</p>
-=======
-              <p className="text-sm text-navy-mid">
-                Who are you signing up as?
-              </p>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
               <div className="grid grid-cols-2 gap-3">
                 <RoleCard
                   icon="🧑‍⚕️"
@@ -390,7 +355,6 @@ export function SignupPage() {
                 />
               </div>
               <p className="mt-4 text-center text-xs text-navy-mid">
-<<<<<<< HEAD
                 {t("Setting up a clinic?")}{" "}
                 <Link to="/org/signup" className="font-medium text-gold hover:text-gold-light">
                   {t("Register your organization →")}
@@ -400,23 +364,6 @@ export function SignupPage() {
                 {t("Already have an account?")}{" "}
                 <Link to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`} className="font-medium text-gold hover:text-gold-light">
                   {t("Sign in →")}
-=======
-                Setting up a clinic?{" "}
-                <Link
-                  to="/org/signup"
-                  className="font-medium text-gold hover:text-gold-light"
-                >
-                  Register your organization →
-                </Link>
-              </p>
-              <p className="text-center text-sm text-navy-mid">
-                Already have an account?{" "}
-                <Link
-                  to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`}
-                  className="font-medium text-gold hover:text-gold-light"
-                >
-                  Sign in →
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 </Link>
               </p>
             </div>
@@ -425,76 +372,15 @@ export function SignupPage() {
           {/* ── STEP: patient-info ── */}
           {step === "patient-info" && (
             <form onSubmit={handlePatientSubmit} className="space-y-4">
-<<<<<<< HEAD
-              <Field label={t("Full Name *")}      placeholder="Ahmed Mohamed"           value={name}      onChange={setName}      error={errors.name} />
-              <Field label={t("Email Address *")}  placeholder="you@example.com"         value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"             value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
-              <Field label={t("Date of Birth *")}  placeholder=""                        value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" />
-              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword} error={errors.password} type="password" />
+              <Field label={t("Full Name *")}      placeholder="Ahmed Mohamed"                value={name}      onChange={setName}      error={errors.name} />
+              <Field label={t("Email Address *")}  placeholder="you@example.com"             value={email}     onChange={setEmail}     error={errors.email} type="email" />
+              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"                 value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
+              <Field label={t("Date of Birth *")}  placeholder=""                            value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" />
+              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword}  error={errors.password} type="password" />
               <div className="flex gap-3">
                 <BackBtn onClick={() => { clearErrors(); setStep("role"); }} t={t} />
                 <button type="submit" disabled={isAuthLoading} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
                   {isAuthLoading ? <><Spinner /> {t("Creating…")}</> : t("Create Account →")}
-=======
-              <Field
-                label="Full Name *"
-                placeholder="Ahmed Mohamed"
-                value={name}
-                onChange={setName}
-                error={errors.name}
-              />
-              <Field
-                label="Email Address *"
-                placeholder="you@example.com"
-                value={email}
-                onChange={setEmail}
-                error={errors.email}
-                type="email"
-              />
-              <Field
-                label="Phone Number *"
-                placeholder="01XXXXXXXXX"
-                value={phone}
-                onChange={setPhone}
-                error={errors.phone}
-                inputMode="numeric"
-              />
-              <Field
-                label="Date of Birth *"
-                placeholder=""
-                value={birthdate}
-                onChange={setBirthdate}
-                error={errors.birthdate}
-                type="date"
-              />
-              <Field
-                label="Password *"
-                placeholder="Min. 8 chars + 1 number"
-                value={password}
-                onChange={setPassword}
-                error={errors.password}
-                type="password"
-              />
-              <div className="flex gap-3">
-                <BackBtn
-                  onClick={() => {
-                    clearErrors();
-                    setStep("role");
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isAuthLoading}
-                  className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {isAuthLoading ? (
-                    <>
-                      <Spinner /> Creating…
-                    </>
-                  ) : (
-                    "Create Account →"
-                  )}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 </button>
               </div>
             </form>
@@ -503,41 +389,11 @@ export function SignupPage() {
           {/* ── STEP: doctor-info ── */}
           {step === "doctor-info" && (
             <form onSubmit={handleDoctorBasicsNext} className="space-y-4">
-<<<<<<< HEAD
-              <Field label={t("Full Name *")}      placeholder="Dr. Khaled Hassan"     value={name}      onChange={setName}      error={errors.name} />
-              <Field label={t("Email Address *")}  placeholder="dr@clinic.eg"          value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"           value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
+              <Field label={t("Full Name *")}      placeholder="Dr. Khaled Hassan"           value={name}      onChange={setName}      error={errors.name} />
+              <Field label={t("Email Address *")}  placeholder="dr@clinic.eg"                value={email}     onChange={setEmail}     error={errors.email} type="email" />
+              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"                 value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
               <div>
                 <label className="block text-sm font-medium text-navy">{t("Specialty *")}</label>
-=======
-              <Field
-                label="Full Name *"
-                placeholder="Dr. Khaled Hassan"
-                value={name}
-                onChange={setName}
-                error={errors.name}
-              />
-              <Field
-                label="Email Address *"
-                placeholder="dr@clinic.eg"
-                value={email}
-                onChange={setEmail}
-                error={errors.email}
-                type="email"
-              />
-              <Field
-                label="Phone Number *"
-                placeholder="01XXXXXXXXX"
-                value={phone}
-                onChange={setPhone}
-                error={errors.phone}
-                inputMode="numeric"
-              />
-              <div>
-                <label className="block text-sm font-medium text-navy">
-                  Specialty
-                </label>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 <input
                   list="specialty-options"
                   value={specialty}
@@ -546,49 +402,18 @@ export function SignupPage() {
                   className={`mt-1.5 h-12 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${errors.specialty ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
                 />
                 <datalist id="specialty-options">
-                  {SPECIALTIES.filter((s) => s !== "All Specialties").map(
-                    (s) => (
-                      <option key={s} value={s} />
-                    ),
-                  )}
+                  {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
+                    <option key={s} value={s} />
+                  ))}
                 </datalist>
                 {errors.specialty && <p className="mt-1 text-xs text-danger">{errors.specialty}</p>}
               </div>
-<<<<<<< HEAD
-              <Field label={t("Medical License Number")} placeholder="EG-XXXXXX" value={licenseNumber} onChange={setLicenseNumber} />
-              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword} error={errors.password} type="password" />
+              <Field label={t("Medical License Number")} placeholder="EG-XXXXXX"            value={licenseNumber} onChange={setLicenseNumber} />
+              <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword}  error={errors.password} type="password" />
               <div className="flex gap-3">
                 <BackBtn onClick={() => { clearErrors(); setStep("role"); }} t={t} />
                 <button type="submit" className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light flex items-center justify-center">
                   {t("Continue →")}
-=======
-              <Field
-                label="Medical License Number"
-                placeholder="EG-XXXXXX"
-                value={licenseNumber}
-                onChange={setLicenseNumber}
-              />
-              <Field
-                label="Password *"
-                placeholder="Min. 8 chars + 1 number"
-                value={password}
-                onChange={setPassword}
-                error={errors.password}
-                type="password"
-              />
-              <div className="flex gap-3">
-                <BackBtn
-                  onClick={() => {
-                    clearErrors();
-                    setStep("role");
-                  }}
-                />
-                <button
-                  type="submit"
-                  className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light flex items-center justify-center"
-                >
-                  Continue →
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 </button>
               </div>
             </form>
@@ -597,13 +422,7 @@ export function SignupPage() {
           {/* ── STEP: clinic-type ── */}
           {step === "clinic-type" && (
             <div className="space-y-4">
-<<<<<<< HEAD
               <p className="text-sm text-navy-mid">{t("Do you run your own clinic or work at an existing one?")}</p>
-=======
-              <p className="text-sm text-navy-mid">
-                Do you run your own clinic or work at an existing one?
-              </p>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
               <div className="space-y-3">
                 <ClinicTypeCard
                   icon="🏥"
@@ -618,23 +437,13 @@ export function SignupPage() {
                   onClick={() => handleClinicTypeSelect("staff")}
                 />
               </div>
-<<<<<<< HEAD
               <BackBtn onClick={() => { clearErrors(); setStep("doctor-info"); }} t={t} />
-=======
-              <BackBtn
-                onClick={() => {
-                  clearErrors();
-                  setStep("doctor-info");
-                }}
-              />
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
             </div>
           )}
 
           {/* ── STEP: clinic-own ── */}
           {step === "clinic-own" && (
             <form onSubmit={handleClinicOwnSubmit} className="space-y-4">
-<<<<<<< HEAD
               <Field label={t("Clinic Name *")} placeholder="Cairo Medical Group" value={orgName} onChange={setOrgName} error={errors.orgName} />
               <div>
                 <label className="block text-sm font-medium text-navy">{t("Type")}</label>
@@ -657,47 +466,6 @@ export function SignupPage() {
                 <label className="block text-sm font-medium text-navy">{t("Country")}</label>
                 <select value={country} onChange={(e) => setCountry(e.target.value)}
                   className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20">
-=======
-              <Field
-                label="Clinic Name *"
-                placeholder="Cairo Medical Group"
-                value={orgName}
-                onChange={setOrgName}
-                error={errors.orgName}
-              />
-              <div>
-                <label className="block text-sm font-medium text-navy">
-                  Type
-                </label>
-                <div className="mt-1.5 grid grid-cols-3 gap-2">
-                  {(["clinic", "hospital", "polyclinic"] as OrgType[]).map(
-                    (t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setOrgType(t)}
-                        className={`rounded-md border py-2.5 text-sm font-medium capitalize transition ${
-                          orgType === t
-                            ? "border-navy bg-navy text-white"
-                            : "border-border text-navy-mid hover:border-navy/40 hover:text-navy"
-                        }`}
-                      >
-                        {t}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-navy">
-                  Country
-                </label>
-                <select
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                >
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                   <option value="EG">Egypt</option>
                   <option value="SA">Saudi Arabia</option>
                   <option value="AE">UAE</option>
@@ -713,7 +481,6 @@ export function SignupPage() {
                   className="h-4 w-4 accent-gold"
                 />
                 <div>
-<<<<<<< HEAD
                   <p className="text-sm font-medium text-navy">{t("List on Marketplace")}</p>
                   <p className="text-xs text-navy-mid">{t("Patients can discover and book your doctors online")}</p>
                 </div>
@@ -722,35 +489,6 @@ export function SignupPage() {
                 <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} t={t} />
                 <button type="submit" disabled={isSubmitting} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
                   {isSubmitting ? <><Spinner /> {t("Creating…")}</> : t("Create Clinic →")}
-=======
-                  <p className="text-sm font-medium text-navy">
-                    List on Marketplace
-                  </p>
-                  <p className="text-xs text-navy-mid">
-                    Patients can discover and book your doctors online
-                  </p>
-                </div>
-              </label>
-              <div className="flex gap-3">
-                <BackBtn
-                  onClick={() => {
-                    clearErrors();
-                    setStep("clinic-type");
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Spinner /> Creating…
-                    </>
-                  ) : (
-                    "Create Clinic →"
-                  )}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 </button>
               </div>
             </form>
@@ -760,38 +498,20 @@ export function SignupPage() {
           {step === "clinic-find" && (
             <form onSubmit={handleJoinRequestSubmit} className="space-y-4">
               <div>
-<<<<<<< HEAD
                 <label className="block text-sm font-medium text-navy">{t("Search for your clinic *")}</label>
-                <input
-                  value={clinicSearch}
-                  onChange={(e) => { setClinicSearch(e.target.value); setSelectedClinic(null); }}
-                  placeholder={t("Type clinic name…")}
-                  className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-                {searchLoading && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-navy-mid"><Spinner /> {t("Searching…")}</p>
-=======
-                <label className="block text-sm font-medium text-navy">
-                  Search for your clinic *
-                </label>
                 <input
                   value={clinicSearch}
                   onChange={(e) => {
                     const val = e.target.value;
                     setClinicSearch(val);
                     setSelectedClinic(null);
-                    if (!val.trim()) {
-                      setClinicResults([]);
-                    }
+                    if (!val.trim()) setClinicResults([]);
                   }}
-                  placeholder="Type clinic name…"
+                  placeholder={t("Type clinic name…")}
                   className="mt-1.5 h-12 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
                 {searchLoading && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-navy-mid">
-                    <Spinner /> Searching…
-                  </p>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-navy-mid"><Spinner /> {t("Searching…")}</p>
                 )}
                 {clinicResults.length > 0 && !selectedClinic && (
                   <ul className="mt-1.5 divide-y divide-border overflow-hidden rounded-lg border border-border bg-white shadow-md">
@@ -808,95 +528,34 @@ export function SignupPage() {
                         >
                           <div>
                             <p className="font-medium text-navy">{c.name}</p>
-                            <p className="text-xs capitalize text-navy-mid">
-                              {c.type}
-                            </p>
+                            <p className="text-xs capitalize text-navy-mid">{c.type}</p>
                           </div>
                         </button>
                       </li>
                     ))}
                   </ul>
                 )}
-<<<<<<< HEAD
                 {clinicSearch && !searchLoading && clinicResults.length === 0 && !selectedClinic && (
                   <p className="mt-1.5 text-xs text-navy-mid">{t("No clinics found. Try a different name.")}</p>
                 )}
-=======
-                {clinicSearch &&
-                  !searchLoading &&
-                  clinicResults.length === 0 &&
-                  !selectedClinic && (
-                    <p className="mt-1.5 text-xs text-navy-mid">
-                      No clinics found. Try a different name.
-                    </p>
-                  )}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 {selectedClinic && (
                   <div className="mt-2 flex items-center justify-between rounded-lg border border-gold/30 bg-gold-tint px-4 py-2.5">
                     <div>
-                      <p className="text-sm font-semibold text-navy">
-                        {selectedClinic.name}
-                      </p>
-                      <p className="text-xs capitalize text-navy-mid">
-                        {selectedClinic.type}
-                      </p>
+                      <p className="text-sm font-semibold text-navy">{selectedClinic.name}</p>
+                      <p className="text-xs capitalize text-navy-mid">{selectedClinic.type}</p>
                     </div>
-<<<<<<< HEAD
                     <button type="button" onClick={() => { setSelectedClinic(null); setClinicSearch(""); }} className="text-xs text-danger hover:text-danger/80">{t("Change")}</button>
-=======
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedClinic(null);
-                        setClinicSearch("");
-                      }}
-                      className="text-xs text-danger hover:text-danger/80"
-                    >
-                      Change
-                    </button>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                   </div>
                 )}
-                {errors.clinic && (
-                  <p className="mt-1 text-xs text-danger">{errors.clinic}</p>
-                )}
+                {errors.clinic && <p className="mt-1 text-xs text-danger">{errors.clinic}</p>}
               </div>
 
-<<<<<<< HEAD
               <Field label={t("Message to Admin (optional)")} placeholder={t("Introduce yourself briefly…")} value={joinMessage} onChange={setJoinMessage} />
 
               <div className="flex gap-3">
                 <BackBtn onClick={() => { clearErrors(); setStep("clinic-type"); }} t={t} />
                 <button type="submit" disabled={isSubmitting || !selectedClinic} className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2">
                   {isSubmitting ? <><Spinner /> {t("Sending…")}</> : t("Send Join Request →")}
-=======
-              <Field
-                label="Message to Admin (optional)"
-                placeholder="Introduce yourself briefly…"
-                value={joinMessage}
-                onChange={setJoinMessage}
-              />
-
-              <div className="flex gap-3">
-                <BackBtn
-                  onClick={() => {
-                    clearErrors();
-                    setStep("clinic-type");
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !selectedClinic}
-                  className="h-12 flex-1 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Spinner /> Sending…
-                    </>
-                  ) : (
-                    "Send Join Request →"
-                  )}
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 </button>
               </div>
             </form>
@@ -908,7 +567,6 @@ export function SignupPage() {
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gold/10 text-3xl">
                 ⏳
               </div>
-<<<<<<< HEAD
               <h2 className="font-heading text-xl font-bold text-navy">{t("Request Submitted!")}</h2>
               <p className="mt-2 text-sm text-navy-mid">
                 {t("Your request to join")}{" "}
@@ -920,26 +578,6 @@ export function SignupPage() {
               </p>
               <div className="mt-5 rounded-xl border border-border bg-offwhite px-4 py-3 text-left">
                 <p className="text-xs font-semibold text-navy">{t("While you wait")}</p>
-=======
-              <h2 className="font-heading text-xl font-bold text-navy">
-                Request Submitted!
-              </h2>
-              <p className="mt-2 text-sm text-navy-mid">
-                Your request to join{" "}
-                <span className="font-semibold text-navy">
-                  {selectedClinic?.name}
-                </span>{" "}
-                has been sent.
-              </p>
-              <p className="mt-1 text-sm text-navy-mid">
-                The clinic admin will review and approve your request. You'll be
-                able to log in once approved.
-              </p>
-              <div className="mt-5 rounded-xl border border-border bg-offwhite px-4 py-3 text-left">
-                <p className="text-xs font-semibold text-navy">
-                  While you wait
-                </p>
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
                 <ul className="mt-1.5 space-y-1 text-xs text-navy-mid">
                   <li>{t("• Log in any time to check your request status")}</li>
                   <li>{t("• Watch for an email invitation from the clinic")}</li>
@@ -958,18 +596,9 @@ export function SignupPage() {
           {/* Footer link for role/info steps */}
           {(step === "patient-info" || step === "doctor-info") && (
             <p className="mt-5 text-center text-sm text-navy-mid">
-<<<<<<< HEAD
               {t("Already have an account?")}{" "}
               <Link to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`} className="font-medium text-gold hover:text-gold-light">
                 {t("Sign in →")}
-=======
-              Already have an account?{" "}
-              <Link
-                to={`/login${nextPath !== "/" ? `?next=${nextPath}` : ""}`}
-                className="font-medium text-gold hover:text-gold-light"
-              >
-                Sign in →
->>>>>>> cf4fc9f9a747548184cd6ada883b03880d3a9e34
               </Link>
             </p>
           )}
