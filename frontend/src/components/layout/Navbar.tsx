@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useApp } from "../../context/AppContext";
 import { useLanguage } from "../../context/LanguageContext";
+import * as patientService from "../../services/patientService";
 
 export function Navbar() {
   const { authUser, logout } = useAuth();
@@ -12,6 +13,27 @@ export function Navbar() {
   const location = useLocation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [navAvatarUrl, setNavAvatarUrl] = useState(() => localStorage.getItem("waitless_avatar_url") ?? "");
+
+  // Fetch / update avatar when auth user changes
+  const userId = authUser ? (authUser.profile as { id?: string }).id ?? "" : "";
+  useEffect(() => {
+    if (!userId) { setNavAvatarUrl(""); return; }
+    if (authUser?.role === "patient") {
+      patientService.getOwnProfile().then((p) => setNavAvatarUrl(p?.avatarUrl ?? ""));
+    } else {
+      setNavAvatarUrl(localStorage.getItem("waitless_avatar_url") ?? "");
+    }
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for doctor avatar updates dispatched by DoctorDashboard
+  useEffect(() => {
+    function handleAvatarUpdate(e: Event) {
+      setNavAvatarUrl((e as CustomEvent<{ url: string }>).detail.url);
+    }
+    window.addEventListener("waitless:avatarUpdated", handleAvatarUpdate);
+    return () => window.removeEventListener("waitless:avatarUpdated", handleAvatarUpdate);
+  }, []);
 
   useEffect(() => {
     function onOutside(e: MouseEvent) {
@@ -29,6 +51,8 @@ export function Navbar() {
   function signOut() {
     logout();
     setDropdownOpen(false);
+    localStorage.removeItem("waitless_avatar_url");
+    setNavAvatarUrl("");
     navigate("/");
   }
 
@@ -129,9 +153,18 @@ export function Navbar() {
                 onClick={() => setDropdownOpen((o) => !o)}
                 className="flex items-center gap-2 rounded-md border border-white/20 px-3 py-1.5 text-sm text-white/80 transition hover:border-white/40 hover:text-white"
               >
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold font-heading text-xs font-bold text-navy">
-                  {displayInitial}
-                </span>
+                {navAvatarUrl ? (
+                  <img
+                    src={navAvatarUrl}
+                    alt={displayFirstName}
+                    className="h-6 w-6 rounded-full object-cover"
+                    onError={() => setNavAvatarUrl("")}
+                  />
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold font-heading text-xs font-bold text-navy">
+                    {displayInitial}
+                  </span>
+                )}
                 <span className="hidden sm:inline">{displayFirstName}</span>
                 {isDoctor && (
                   <span className="hidden rounded-full bg-gold/20 px-1.5 py-0.5 text-[10px] font-medium text-gold sm:inline">

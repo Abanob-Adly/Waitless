@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
+import { useLanguage } from "../../context/LanguageContext";
 import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index";
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
@@ -21,6 +22,7 @@ export function AdminDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
   const { org, isLoading, myRoles, branches, memberships, schedules } = useOrg();
+  const { t } = useLanguage();
   const [searchParams] = useSearchParams();
   const VALID_SECTIONS: AdminSection[] = ["overview","branches","staff","joinrequests","schedules","sessions","wallet","billing","whatsapp","settings"];
   const [activeSection, setActiveSection] = useState<AdminSection | null>(() => {
@@ -47,10 +49,10 @@ export function AdminDashboard() {
   const staffCount  = memberships.filter((m) => m.status === "active").length;
 
   const sectionTitle: Record<AdminSection, string> = {
-    overview: "Overview", branches: "Branches", staff: "Staff",
-    joinrequests: "Join Requests",
-    schedules: "Schedules", sessions: "Sessions", wallet: "Wallet",
-    billing: "Billing", whatsapp: "WhatsApp", settings: "Settings",
+    overview: t("Overview"), branches: t("Branches"), staff: t("Staff"),
+    joinrequests: t("Join Requests"),
+    schedules: t("Schedules"), sessions: t("Sessions"), wallet: t("My Wallet"),
+    billing: t("Billing"), whatsapp: "WhatsApp", settings: t("Settings"),
   };
 
   function renderSection() {
@@ -86,7 +88,7 @@ export function AdminDashboard() {
               )}
             </div>
             <h1 className="mt-0.5 truncate font-heading text-2xl font-bold text-navy sm:text-3xl">
-              {isLoading ? "Loading…" : org?.name ?? "Your Organization"}
+              {isLoading ? t("Loading…") : org?.name ?? t("Your Organization")}
             </h1>
             <p className="truncate text-sm text-navy-mid">{admin.name}</p>
           </div>
@@ -112,7 +114,7 @@ export function AdminDashboard() {
               className="hidden items-center gap-1.5 rounded-lg border border-navy/20 bg-navy/5 px-3 py-2 text-sm font-medium text-navy transition hover:bg-navy/10 sm:flex"
             >
               <IconQueue />
-              <span>My Queue</span>
+              <span>{t("My Queue")}</span>
             </button>
           )}
 
@@ -120,7 +122,7 @@ export function AdminDashboard() {
             onClick={() => { logout(); navigate("/"); }}
             className="rounded-lg border border-border px-3 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
           >
-            <span className="hidden sm:inline">Sign Out</span>
+            <span className="hidden sm:inline">{t("Sign Out")}</span>
             <span className="inline sm:hidden">✕</span>
           </button>
         </div>
@@ -130,7 +132,7 @@ export function AdminDashboard() {
       {activeSection && (
         <div className="mb-5 flex items-center gap-2 text-sm">
           <button onClick={() => setActiveSection(null)} className="text-navy-mid transition hover:text-navy">
-            ← Dashboard
+            {t("← Dashboard")}
           </button>
           <span className="text-navy-mid/40">/</span>
           <span className="font-medium text-navy">{sectionTitle[activeSection]}</span>
@@ -180,16 +182,17 @@ function DashboardHome({
   onSelect: (s: AdminSection) => void;
   onDoctorView: () => void;
 }) {
+  const { t } = useLanguage();
   const cards: CardDef[] = [
-    { id: "overview",  icon: <IconChart />,    title: "Overview",   desc: "Org stats, marketplace visibility and trial status", theme: "navy" },
-    { id: "branches",  icon: <IconBuilding />, title: "Branches",   desc: "Manage clinic locations and contact details",          theme: "gold",    badge: branchCount  > 0 ? String(branchCount)  : undefined },
-    { id: "staff",        icon: <IconStaff />,       title: "Staff",         desc: "Invite, edit roles, and manage team members",         theme: "navy",    badge: staffCount   > 0 ? String(staffCount)   : undefined },
-    { id: "joinrequests", icon: <IconJoinRequest />, title: "Join Requests",  desc: "Review and approve doctors requesting to join",        theme: "gold" },
-    { id: "schedules", icon: <IconCalendar />, title: "Schedules",  desc: "Set weekly doctor schedules, auto-generate sessions", theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
-    { id: "sessions",  icon: <IconClock />,    title: "Sessions",   desc: "View and cap daily patient sessions per branch",      theme: "success" },
-    { id: "settings",  icon: <IconSettings />, title: "Settings",   desc: "Edit organization name and branch commission rates",  theme: "navy" },
-    { id: "billing",   icon: <IconBilling />,  title: "Billing",    desc: "Subscription plans and feature access tiers",         theme: "navy" },
-    { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",   desc: "Automate appointment reminders via WhatsApp",         theme: "success" },
+    { id: "overview",  icon: <IconChart />,    title: t("Overview"),      desc: t("Org stats, marketplace visibility and trial status"), theme: "navy" },
+    { id: "branches",  icon: <IconBuilding />, title: t("Branches"),      desc: t("Manage clinic locations and contact details"),          theme: "gold",    badge: branchCount  > 0 ? String(branchCount)  : undefined },
+    { id: "staff",        icon: <IconStaff />,       title: t("Staff"),         desc: t("Invite, edit roles, and manage team members"),         theme: "navy",    badge: staffCount   > 0 ? String(staffCount)   : undefined },
+    { id: "joinrequests", icon: <IconJoinRequest />, title: t("Join Requests"), desc: t("Review and approve doctors requesting to join"),        theme: "gold" },
+    { id: "schedules", icon: <IconCalendar />, title: t("Schedules"),     desc: t("Set weekly doctor schedules, auto-generate sessions"), theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
+    { id: "sessions",  icon: <IconClock />,    title: t("Sessions"),      desc: t("View and cap daily patient sessions per branch"),      theme: "success" },
+    { id: "settings",  icon: <IconSettings />, title: t("Settings"),      desc: t("Edit organization name and branch commission rates"),  theme: "navy" },
+    { id: "billing",   icon: <IconBilling />,  title: t("Billing"),       desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
+    { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",         desc: t("Automate appointment reminders via WhatsApp"),         theme: "success" },
   ];
 
   const themeMap: Record<CardTheme, { ring: string; iconBg: string; badgeCls: string; arrow: string }> = {
@@ -201,20 +204,20 @@ function DashboardHome({
   return (
     <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card, i) => {
-        const t = themeMap[card.theme];
+        const cls = themeMap[card.theme];
         return (
           <button
             key={card.id}
             onClick={() => onSelect(card.id)}
             style={{ animationDelay: `${i * 40}ms` }}
-            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${t.ring}`}
+            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${cls.ring}`}
           >
             <div className="flex items-start justify-between">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${t.iconBg}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${cls.iconBg}`}>
                 {card.icon}
               </div>
               {card.badge && (
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${t.badgeCls}`}>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${cls.badgeCls}`}>
                   {card.badge}
                 </span>
               )}
@@ -223,8 +226,8 @@ function DashboardHome({
               <p className="font-heading text-base font-bold text-navy">{card.title}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">{card.desc}</p>
             </div>
-            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${t.arrow}`}>
-              Manage →
+            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${cls.arrow}`}>
+              {t("Open →")}
             </span>
           </button>
         );
@@ -240,16 +243,16 @@ function DashboardHome({
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold text-white">
               <IconQueue />
             </div>
-            <span className="rounded-full bg-gold/20 px-2.5 py-0.5 text-xs font-bold text-gold">Doctor</span>
+            <span className="rounded-full bg-gold/20 px-2.5 py-0.5 text-xs font-bold text-gold">{t("Doctor")}</span>
           </div>
           <div className="flex-1">
-            <p className="font-heading text-base font-bold text-navy">My Queue</p>
+            <p className="font-heading text-base font-bold text-navy">{t("My Queue")}</p>
             <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">
-              View and manage your patient queue as a doctor
+              {t("Doctor View →")}
             </p>
           </div>
           <span className="text-xs font-semibold text-gold opacity-0 transition-opacity group-hover:opacity-100">
-            Open Doctor View →
+            {t("Doctor View →")}
           </span>
         </button>
       )}

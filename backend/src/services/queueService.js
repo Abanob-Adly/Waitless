@@ -494,7 +494,7 @@ export const queueService = {
     );
 
     const [doctorDoc, scheduleDoc] = await Promise.all([
-      Membership.findById(session.doctor).populate('account', 'fullName').lean(),
+      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
       DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
     ]);
 
@@ -514,6 +514,7 @@ export const queueService = {
       emergencyReason:    appointment.emergencyReason ?? null,
       wasForceInserted:   appointment.wasForceInserted ?? false,
       doctorName:         doctorDoc?.account?.fullName ?? '',
+      doctorAvatarUrl:    doctorDoc?.avatarUrl ?? null,
       consultationFee:    scheduleDoc?.consultationFee?.amount ?? 0,
     };
   },

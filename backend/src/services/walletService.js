@@ -5,9 +5,11 @@ import WalletEntry from '../models/WalletEntry.js';
  * Find or create a personal wallet for an account (patient or doctor).
  */
 async function getOrCreateAccountWallet(accountId, ownerKind) {
-  const existing = await Wallet.findOne({ account: accountId });
-  if (existing) return existing;
-  return Wallet.create({ account: accountId, ownerKind, balance: 0 });
+  return Wallet.findOneAndUpdate(
+    { account: accountId },
+    { $setOnInsert: { account: accountId, ownerKind, balance: 0, currency: 'EGP', status: 'active' } },
+    { new: true, upsert: true },
+  );
 }
 
 /**

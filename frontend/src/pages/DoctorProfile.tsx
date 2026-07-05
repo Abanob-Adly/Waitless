@@ -12,6 +12,7 @@ import {
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import type { Doctor, Session, ClinicLocation } from "../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ export function DoctorProfile() {
   const location = useLocation();
   const { setBookingIntent } = useApp();
   const { authUser } = useAuth();
+  const { t } = useLanguage();
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -206,9 +208,18 @@ export function DoctorProfile() {
           {/* Doctor header card */}
           <section className="rounded-xl border border-border bg-white p-6 shadow-sm">
             <div className="flex items-start gap-5">
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-2xl font-bold text-navy">
-                {doctor.initials}
-              </div>
+              {doctor.avatarUrl ? (
+                <img
+                  src={doctor.avatarUrl}
+                  alt={doctor.name}
+                  className="h-20 w-20 shrink-0 rounded-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+              ) : (
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-2xl font-bold text-navy">
+                  {doctor.initials}
+                </div>
+              )}
 
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -264,17 +275,21 @@ export function DoctorProfile() {
           {/* Insurance */}
           <section className="rounded-xl border border-border bg-white p-6 shadow-sm">
             <h2 className="font-heading text-xl font-bold text-navy">
-              Accepted Insurance
+              {t("Accepted Insurance")}
             </h2>
             <div className="mt-4 flex flex-wrap gap-2">
-              {doctor.insurance.map((ins) => (
-                <span
-                  key={ins}
-                  className="rounded-md border border-border px-4 py-2 text-sm font-medium text-navy"
-                >
-                  {ins}
-                </span>
-              ))}
+              {doctor.insurance.length === 0 ? (
+                <p className="text-sm text-navy-mid">{t("No insurances supported")}</p>
+              ) : (
+                doctor.insurance.map((ins) => (
+                  <span
+                    key={ins}
+                    className="rounded-md border border-border px-4 py-2 text-sm font-medium text-navy"
+                  >
+                    {ins}
+                  </span>
+                ))
+              )}
             </div>
           </section>
         </div>

@@ -1,13 +1,24 @@
 import { useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { loginWithCredentials, isAuthLoading, authError, clearAuthError } = useAuth();
+  const { authUser, loginWithCredentials, isAuthLoading, authError, clearAuthError } = useAuth();
   const { t } = useLanguage();
+
+  // Already logged in — redirect to the right dashboard
+  if (authUser) {
+    const next = searchParams.get("next");
+    const safe = next && next.startsWith("/") && next !== "/login" ? next : null;
+    if (authUser.role === "patient") return <Navigate to={safe ?? "/dashboard"} replace />;
+    if (authUser.role === "doctor") return <Navigate to="/doctor-dashboard" replace />;
+    if (authUser.role === "admin") return <Navigate to="/admin" replace />;
+    if (authUser.role === "receptionist") return <Navigate to="/reception" replace />;
+    return <Navigate to="/" replace />;
+  }
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
+import { useLanguage } from "../../context/LanguageContext";
 import * as sessionService from "../../services/sessionService";
 import { bookWalkIn } from "../../services/appointmentService";
 import type { AppointmentType } from "../../services/appointmentService";
@@ -16,6 +17,7 @@ type RecSection = "sessions" | "walkin" | "checkin";
 export function ReceptionistDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [activeSection, setActiveSection] = useState<RecSection | null>(null);
 
   if (!authUser || authUser.role !== "receptionist") {
@@ -29,9 +31,9 @@ export function ReceptionistDashboard() {
   const initials = (rec.name as string).split(" ").slice(0, 2).map((w: string) => w[0] ?? "").join("").toUpperCase();
 
   const sectionTitle: Record<RecSection, string> = {
-    sessions: "Today's Sessions",
-    walkin:   "Walk-In Booking",
-    checkin:  "Patient Check-In",
+    sessions: t("Today's Sessions"),
+    walkin:   t("Walk-In Booking"),
+    checkin:  t("Patient Check-In"),
   };
 
   function renderSection() {
@@ -52,18 +54,18 @@ export function ReceptionistDashboard() {
             {initials}
           </div>
           <div>
-            <p className="text-sm font-medium text-gold">Reception Portal</p>
+            <p className="text-sm font-medium text-gold">{t("Reception Portal")}</p>
             <h1 className="font-heading text-3xl font-bold text-navy">
-              Reception Desk
+              {t("Reception Desk")}
             </h1>
-            <p className="mt-0.5 text-sm text-navy-mid">{rec.name} · Receptionist</p>
+            <p className="mt-0.5 text-sm text-navy-mid">{rec.name} · {t("Receptionist")}</p>
           </div>
         </div>
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="shrink-0 rounded-md border border-border px-4 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
         >
-          Sign Out
+          {t("Sign Out")}
         </button>
       </div>
 
@@ -74,7 +76,7 @@ export function ReceptionistDashboard() {
             onClick={() => setActiveSection(null)}
             className="font-medium text-gold transition hover:text-gold-light"
           >
-            Dashboard
+            {t("Dashboard")}
           </button>
           <span className="text-border">/</span>
           <span className="font-medium text-navy">{sectionTitle[activeSection]}</span>
@@ -95,11 +97,12 @@ export function ReceptionistDashboard() {
 // ── Reception Home card grid ──────────────────────────────────────────────────
 
 function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
+  const { t } = useLanguage();
   const cards: { id: RecSection; title: string; desc: string; icon: React.ReactNode; theme: "navy" | "gold" | "success" }[] = [
     {
       id: "sessions",
-      title: "Today's Sessions",
-      desc: "View all active doctor sessions, expand to see patient queue and manage appointments",
+      title: t("Today's Sessions"),
+      desc: t("View all active doctor sessions, expand to see patient queue and manage appointments"),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <rect x="3" y="5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
@@ -111,8 +114,8 @@ function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
     },
     {
       id: "walkin",
-      title: "Walk-In Booking",
-      desc: "Register a walk-in patient into an active session without a prior appointment",
+      title: t("Walk-In Booking"),
+      desc: t("Register a walk-in patient into an active session without a prior appointment"),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <circle cx="10" cy="6" r="3" fill="currentColor" />
@@ -124,8 +127,8 @@ function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
     },
     {
       id: "checkin",
-      title: "Patient Check-In",
-      desc: "Look up an existing appointment by phone number to confirm arrival at the clinic",
+      title: t("Patient Check-In"),
+      desc: t("Look up an existing appointment by phone number to confirm arrival at the clinic"),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <path d="M5 10l3.5 3.5L15 6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
@@ -145,23 +148,23 @@ function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
   return (
     <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-3">
       {cards.map((card, i) => {
-        const t = themeMap[card.theme];
+        const cls = themeMap[card.theme];
         return (
           <button
             key={card.id}
             onClick={() => onSelect(card.id)}
             style={{ animationDelay: `${i * 60}ms` }}
-            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${t.ring}`}
+            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${cls.ring}`}
           >
-            <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${t.iconBg}`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${cls.iconBg}`}>
               {card.icon}
             </div>
             <div className="flex-1">
               <p className="font-heading text-base font-bold text-navy">{card.title}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">{card.desc}</p>
             </div>
-            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${t.arrow}`}>
-              Open →
+            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${cls.arrow}`}>
+              {t("Open →")}
             </span>
           </button>
         );

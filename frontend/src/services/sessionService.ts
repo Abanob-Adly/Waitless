@@ -14,6 +14,7 @@ export type BackendSession = {
   branchId: string;
   doctorId: string;
   doctorName: string;
+  doctorAvatarUrl: string;
   specialty: string;
   scheduleId: string;
   date: string;
@@ -76,6 +77,9 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
       ? String(doctorObj._id ?? doctorObj.id ?? "")
       : String(s.doctor ?? ""),
     doctorName: String(doctorAccount.fullName ?? ""),
+    doctorAvatarUrl: typeof doctorObj === "object" && doctorObj !== null
+      ? String(doctorObj.avatarUrl ?? "")
+      : "",
     specialty:
       Array.isArray(doctorObj?.specialties)
         ? String((doctorObj?.specialties as string[])[0] ?? "")

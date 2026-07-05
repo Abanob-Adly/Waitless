@@ -32,6 +32,7 @@ export type MarketplaceDoctor = {
   languages: string[];
   insurance: string[];
   experienceYears: number;
+  avatarUrl?: string;
 };
 
 export type MarketplaceReview = {
@@ -81,6 +82,7 @@ function adaptDoctor(m: Record<string, unknown>): MarketplaceDoctor {
     languages: (m.languagesSpoken as string[]) ?? [],
     insurance: (m.acceptedInsurances as string[]) ?? [],
     experienceYears: Number(m.yearsOfExperience ?? 0),
+    avatarUrl: m.avatarUrl ? String(m.avatarUrl) : undefined,
   };
 }
 
@@ -170,6 +172,7 @@ export function membershipToDoctor(
       address: b.city,
       phone: b.phone,
     })),
+    avatarUrl: m.avatarUrl,
   };
 }
 

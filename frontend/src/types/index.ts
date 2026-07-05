@@ -125,6 +125,7 @@ export type Doctor = {
   availableLabel: string;
   clinics: ClinicLocation[];
   insurance: string[];
+  avatarUrl?: string;
 };
 
 export type Session = {

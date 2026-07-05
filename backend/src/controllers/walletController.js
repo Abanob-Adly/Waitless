@@ -15,25 +15,29 @@ function ownerKindFromReq(req) {
 export const walletController = {
   // ── Personal wallet (patient / doctor) ──────────────────────────────────────
 
-  async getMyWallet(req, res) {
-    const wallet = await walletService.getOrCreateAccountWallet(
-      req.actor.account._id,
-      ownerKindFromReq(req),
-    );
-    res.json({ data: { wallet: serializeWallet(wallet) } });
+  async getMyWallet(req, res, next) {
+    try {
+      const wallet = await walletService.getOrCreateAccountWallet(
+        req.actor.account._id,
+        ownerKindFromReq(req),
+      );
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
   },
 
-  async topUp(req, res) {
-    const amount = Number(req.body.amount);
-    if (!amount || amount <= 0 || amount > 50_000) {
-      return res.status(400).json({ status: 'error', message: 'Amount must be between 1 and 50,000 EGP' });
-    }
-    const wallet = await walletService.topUp({
-      accountId: req.actor.account._id,
-      ownerKind: ownerKindFromReq(req),
-      amount,
-    });
-    res.json({ data: { wallet: serializeWallet(wallet) } });
+  async topUp(req, res, next) {
+    try {
+      const amount = Number(req.body.amount);
+      if (!amount || amount <= 0 || amount > 50_000) {
+        return res.status(400).json({ status: 'error', message: 'Amount must be between 1 and 50,000 EGP' });
+      }
+      const wallet = await walletService.topUp({
+        accountId: req.actor.account._id,
+        ownerKind: ownerKindFromReq(req),
+        amount,
+      });
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
   },
 
   async purchaseAtBooking(req, res, next) {
@@ -65,14 +69,16 @@ export const walletController = {
     }
   },
 
-  async getMyEntries(req, res) {
-    const { limit = 50, page = 1 } = req.query;
-    const wallet = await walletService.getOrCreateAccountWallet(
-      req.actor.account._id,
-      ownerKindFromReq(req),
-    );
-    const { entries, total } = await walletService.getEntries({ walletId: wallet._id, limit, page });
-    res.json({ data: { entries: entries.map(serializeEntry), total, page: Number(page), limit: Number(limit) } });
+  async getMyEntries(req, res, next) {
+    try {
+      const { limit = 50, page = 1 } = req.query;
+      const wallet = await walletService.getOrCreateAccountWallet(
+        req.actor.account._id,
+        ownerKindFromReq(req),
+      );
+      const { entries, total } = await walletService.getEntries({ walletId: wallet._id, limit, page });
+      res.json({ data: { entries: entries.map(serializeEntry), total, page: Number(page), limit: Number(limit) } });
+    } catch (err) { next(err); }
   },
 
   // ── Organization wallet (admin only) ────────────────────────────────────────
