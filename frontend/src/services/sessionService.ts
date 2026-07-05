@@ -189,7 +189,7 @@ export async function getQueue(
   );
   const d = res.data.data;
   return {
-    queueNumber: Number(d.totalWaiting ?? 0),
+    queueNumber: Number(d.currentServing ?? 0),
     currentlyServing: Number(d.currentServing ?? 0),
     estimatedWaitMin: 0,
     status: String(d.status ?? ""),

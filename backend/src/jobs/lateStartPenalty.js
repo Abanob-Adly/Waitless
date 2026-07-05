@@ -22,7 +22,8 @@ export function startLateStartPenaltyCron() {
 
     let sessions;
     try {
-      sessions = await Session.find({
+      // Case 1: Sessions that never started past the grace period
+      const neverStarted = await Session.find({
         status:    'scheduled',
         startTime: { $lt: cutoff },
         'penaltyApplied.appliedAt': { $exists: false },
@@ -32,6 +33,21 @@ export function startLateStartPenaltyCron() {
           { excuse: null },
         ],
       }).lean();
+
+      // Case 2: Sessions that started late (lateStartMin > 0) and were already activated,
+      // but the penalty hasn't been applied and no approved excuse exists.
+      const startedLate = await Session.find({
+        status:      'active',
+        lateStartMin: { $gt: 0 },
+        'penaltyApplied.appliedAt': { $exists: false },
+        $or: [
+          { 'excuse.status': { $ne: 'approved' } },
+          { 'excuse.status': { $exists: false } },
+          { excuse: null },
+        ],
+      }).lean();
+
+      sessions = [...neverStarted, ...startedLate];
     } catch (err) {
       console.error('[lateStartPenalty] DB query failed:', err.message);
       return;

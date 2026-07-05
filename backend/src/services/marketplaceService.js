@@ -14,15 +14,17 @@ export const marketplaceService = {
     const filter = { isPublic: true, status: 'active' };
     if (type)  filter.type = type;
 
-    const skip = (Math.max(1, page) - 1) * Math.min(100, limit);
+    const parsedLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+    const parsedPage  = Math.max(1, Number(page) || 1);
+    const skip = (parsedPage - 1) * parsedLimit;
 
     let orgs;
     if (query) {
       orgs = await Organization.find({ ...filter, $text: { $search: query } })
         .skip(skip)
-        .limit(limit);
+        .limit(parsedLimit);
     } else {
-      orgs = await Organization.find(filter).skip(skip).limit(limit).sort({ name: 1 });
+      orgs = await Organization.find(filter).skip(skip).limit(parsedLimit).sort({ name: 1 });
     }
 
     return orgs;

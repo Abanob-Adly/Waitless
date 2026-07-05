@@ -10,6 +10,7 @@ import type {
   Subscription,
   SubscriptionPlan,
 } from "../types/index";
+import * as jr from "../services/joinRequestService";
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ type OrgCtx = {
   subscription: Subscription | null;
   plans: SubscriptionPlan[];
   isLoading: boolean;
+  pendingJoinRequestsCount: number;
   myRoles: Array<Membership["userRole"]>;
   upgradeModal: { limitType: LimitType } | null;
   clearUpgradeModal: () => void;
@@ -86,6 +88,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingJoinRequestsCount, setPendingJoinRequestsCount] = useState(0);
   const [upgradeModal, setUpgradeModal] = useState<{ limitType: LimitType } | null>(null);
 
   const myAccountId = (authUser?.profile as { id?: string } | undefined)?.id ?? "";
@@ -106,22 +109,24 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
 
   async function fetchAndApply() {
     if (!orgId) return;
-    const [o, b, m, s, p] = await Promise.all([
+    const [o, b, m, s, p, pendingRequests] = await Promise.all([
       orgService.getOrg(orgId),
       orgService.getBranches(orgId),
       orgService.getMembers(orgId),
       orgService.getSchedules(orgId),
       orgService.getPlans(),
+      jr.getOrgJoinRequests(orgId, "pending").catch(() => []),
     ]);
     setOrg(o);
     // Preserve array identity when data hasn't changed to prevent downstream
     // useCallback/useEffect chains from re-firing (Bug 2: queue jitter).
     setBranches((prev) =>
-      prev.length === b.length && prev.every((x, i) => x.id === b[i].id) ? prev : b,
+      prev.length === b.length && prev.every((x, i) => JSON.stringify(x) === JSON.stringify(b[i])) ? prev : b,
     );
     setMemberships(m);
     setSchedules(s);
     setPlans(p);
+    setPendingJoinRequestsCount(pendingRequests.length);
     try {
       const sub = await orgService.getSubscription(orgId);
       setSubscription(sub);
@@ -361,6 +366,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
         subscription,
         plans,
         isLoading,
+        pendingJoinRequestsCount,
         myRoles,
         upgradeModal,
         clearUpgradeModal,
