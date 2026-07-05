@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -210,6 +212,7 @@ export function BookingConfirmation() {
 // ── Order Summary sidebar ────────────────────────────────────────────────────
 
 function OrderSummary({ booking }: { booking: BookingState }) {
+  const { locale } = useLanguage();
   return (
     <aside className="h-fit rounded-lg border border-border bg-white p-6 shadow-sm">
       <h2 className="font-heading text-2xl font-bold text-navy">
@@ -230,7 +233,7 @@ function OrderSummary({ booking }: { booking: BookingState }) {
 
       <div className="mt-5 space-y-3 border-t border-border pt-5">
         <SummaryRow label="📅 Date" value={booking.date} />
-        <SummaryRow label="⏰ Time" value={booking.startTime} />
+        <SummaryRow label="⏰ Time" value={fmt12(booking.startTime, locale)} />
         <SummaryRow label="📍 Clinic" value={booking.clinicName} />
         <SummaryRow label="👤 Patient" value={booking.patientName} />
       </div>

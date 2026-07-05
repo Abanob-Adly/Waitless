@@ -167,6 +167,14 @@ const appointmentPolicies = {
   'appointment.book_marketplace': (actor) => {
     return actor.account.role === 'patient';
   },
+
+  'appointment.confirm_payment': (actor, appointment) => {
+    if (!appointment) return false;
+    if (!actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(appointment.organization)) return false;
+    const m = actor.activeMembership;
+    return m.kind === 'receptionist' || m.kind === 'admin';
+  },
 };
 
 const queuePolicies = {

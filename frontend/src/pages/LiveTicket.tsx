@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../services/api";
+import { initiatePaymobPayment } from "../services/paymentService";
+import { fmt12 } from "../utils/time";
 import type { ActiveBooking } from "../context/AppContext";
 
 // ── Post-Consultation Rating Popup ────────────────────────────────────────────
@@ -96,21 +98,45 @@ function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: strin
 
 export function LiveTicket() {
   const { bookings, removeBooking } = useApp();
+  const { t } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const paymentResult = searchParams.get("payment");
+
+  // Clear the query param after showing the banner
+  useEffect(() => {
+    if (paymentResult) {
+      const timer = setTimeout(() => setSearchParams({}, { replace: true }), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [paymentResult, setSearchParams]);
 
   // bookings[0] is always the earliest upcoming appointment (sorted by AppContext.addBooking)
   const booking = bookings[0] ?? null;
 
-  if (!booking) return <NoTicketView />;
-
   return (
-    <TicketView
-      booking={booking}
-      onCancel={() => {
-        removeBooking(booking.id);
-        navigate("/");
-      }}
-    />
+    <>
+      {paymentResult === "success" && (
+        <div className="bg-success px-4 py-3 text-center text-sm font-medium text-white">
+          {t("Payment confirmed! Your appointment is secured.")}
+        </div>
+      )}
+      {paymentResult === "failed" && (
+        <div className="bg-danger px-4 py-3 text-center text-sm font-medium text-white">
+          {t("Payment failed. Please try again or pay at the clinic.")}
+        </div>
+      )}
+      {!booking
+        ? <NoTicketView />
+        : <TicketView
+            booking={booking}
+            onCancel={() => {
+              removeBooking(booking.id);
+              navigate("/");
+            }}
+          />
+      }
+    </>
   );
 }
 
@@ -176,15 +202,17 @@ function TicketView({
 
   // Recommended arrival time: now + EWT − 10 min buffer (arrive early)
   const recommendedArrivalMs = now.getTime() + etaMinutes * 60_000 - 10 * 60_000;
-  const recommendedArrivalTime = new Date(recommendedArrivalMs).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const _arrivalDate = new Date(recommendedArrivalMs);
+  const recommendedArrivalTime = fmt12(
+    `${String(_arrivalDate.getHours()).padStart(2,"0")}:${String(_arrivalDate.getMinutes()).padStart(2,"0")}`,
+    locale,
+  );
 
   // Session start display from backend ISO string or booking fallback
-  const sessionStartDisplay = sessionStartTime
-    ? new Date(sessionStartTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  const _startRaw = sessionStartTime
+    ? new Date(sessionStartTime).toISOString().slice(11, 16)
     : booking.session.startTime;
+  const sessionStartDisplay = fmt12(_startRaw, locale);
 
   // SVG ring geometry — initialGap is fixed at 3 (hook starts 3 behind)
   const R = 68;
@@ -198,11 +226,27 @@ function TicketView({
     (c) => c.id === booking.session.clinicId,
   );
 
-  const paymentBadge = {
-    success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
-    failed: { label: t("Payment Failed"), cls: "bg-danger/10 text-danger" },
-    pending: { label: t("Pay at Clinic"), cls: "bg-gold-tint text-navy" },
-  }[booking.paymentStatus];
+  const [launchingPayment, setLaunchingPayment] = useState(false);
+
+  const isCardPending = booking.paymentMethod === "card" && booking.paymentStatus === "pending";
+
+  const paymentBadge = isCardPending
+    ? { label: t("Unpaid — Pay with Card"), cls: "bg-danger/10 text-danger" }
+    : {
+        success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
+        failed:  { label: t("Payment Failed"), cls: "bg-danger/10 text-danger" },
+        pending: { label: t("Pay at Clinic"), cls: "bg-gold-tint text-navy" },
+      }[booking.paymentStatus] ?? { label: booking.paymentStatus, cls: "bg-gold-tint text-navy" };
+
+  async function handlePayWithCard() {
+    setLaunchingPayment(true);
+    try {
+      const { iframeUrl } = await initiatePaymobPayment(booking.id);
+      window.location.href = iframeUrl;
+    } catch {
+      setLaunchingPayment(false);
+    }
+  }
 
   async function handleCancel() {
     if (!window.confirm(t("Cancel your appointment? This cannot be undone.")))
@@ -311,7 +355,7 @@ function TicketView({
             </span>
             <p className="text-xs text-white/40">{booking.session.date}</p>
             <p className="text-xs text-white/40">
-              {sessionStartDisplay} – {booking.session.endTime}
+              {sessionStartDisplay} – {fmt12(booking.session.endTime, locale)}
             </p>
           </div>
         </div>
@@ -345,15 +389,26 @@ function TicketView({
         </div>
 
         {/* ── Payment + fee row ── */}
-        <div className="mx-6 mb-2 flex items-center justify-between rounded-lg border border-border bg-offwhite px-4 py-3">
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${paymentBadge.cls}`}
-          >
-            {paymentBadge.label}
-          </span>
-          <span className="font-heading text-base font-bold text-navy">
-            {booking.doctor.fee} EGP
-          </span>
+        <div className="mx-6 mb-2 rounded-lg border border-border bg-offwhite px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${paymentBadge.cls}`}
+            >
+              {paymentBadge.label}
+            </span>
+            <span className="font-heading text-base font-bold text-navy">
+              {booking.doctor.fee} EGP
+            </span>
+          </div>
+          {isCardPending && (
+            <button
+              onClick={() => void handlePayWithCard()}
+              disabled={launchingPayment}
+              className="mt-2 w-full rounded-lg bg-navy py-2.5 text-sm font-semibold text-white transition hover:bg-navy/80 disabled:opacity-60"
+            >
+              {launchingPayment ? t("Redirecting…") : t("Pay with Card →")}
+            </button>
+          )}
         </div>
 
         {/* ── Patient notes preview ── */}
@@ -397,7 +452,7 @@ function TicketView({
 // ── Session-not-started view (today but before start time / doctor hasn't pressed Start) ──
 
 function SessionWindowClosedView({ endTime }: { endTime: string }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   return (
     <div className="py-4 text-center">
       <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-5xl">
@@ -406,7 +461,7 @@ function SessionWindowClosedView({ endTime }: { endTime: string }) {
       <h2 className="font-heading text-2xl font-bold text-navy">{t("Session Closed")}</h2>
       <p className="mt-3 text-sm leading-6 text-navy-mid">
         {t("This session ended at")}{" "}
-        <span className="font-semibold text-navy">{endTime}</span>.
+        <span className="font-semibold text-navy">{fmt12(endTime, locale)}</span>.
       </p>
       <p className="mt-2 text-xs text-navy-mid">
         {t("If you were not seen, please contact the clinic to reschedule.")}
@@ -419,7 +474,7 @@ function SessionWindowClosedView({ endTime }: { endTime: string }) {
 }
 
 function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const [, rerender] = useState(0);
 
   useEffect(() => {
@@ -446,7 +501,7 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
       </h2>
       <p className="mt-3 text-sm leading-6 text-navy-mid">
         {t("Your session is scheduled to begin at")}{" "}
-        <span className="font-semibold text-navy">{startTime}</span>.
+        <span className="font-semibold text-navy">{fmt12(startTime, locale)}</span>.
       </p>
       <p className="mt-2 text-xs text-navy-mid">
         {t("Your queue position and wait time will appear here once the session begins.")}

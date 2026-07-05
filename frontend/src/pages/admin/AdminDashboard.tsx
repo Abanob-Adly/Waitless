@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index";
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
@@ -22,7 +23,7 @@ export function AdminDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
   const { org, isLoading, myRoles, branches, memberships, schedules } = useOrg();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const [searchParams] = useSearchParams();
   const VALID_SECTIONS: AdminSection[] = ["overview","branches","staff","joinrequests","schedules","sessions","wallet","billing","whatsapp","settings"];
   const [activeSection, setActiveSection] = useState<AdminSection | null>(() => {
@@ -72,7 +73,7 @@ export function AdminDashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10" dir={locale === "ar" ? "rtl" : "ltr"}>
 
       {/* Header */}
       <div className="mb-8 flex animate-fade-up flex-wrap items-start justify-between gap-3">
@@ -82,9 +83,9 @@ export function AdminDashboard() {
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold">Admin</span>
+              <span className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold">{t("Admin")}</span>
               {isAlsoDoctor && (
-                <span className="rounded-full bg-navy/10 px-2.5 py-0.5 text-xs font-semibold text-navy">Doctor</span>
+                <span className="rounded-full bg-navy/10 px-2.5 py-0.5 text-xs font-semibold text-navy">{t("Doctor")}</span>
               )}
             </div>
             <h1 className="mt-0.5 truncate font-heading text-2xl font-bold text-navy sm:text-3xl">
@@ -105,7 +106,7 @@ export function AdminDashboard() {
             }`}
           >
             <IconWallet />
-            <span className="hidden sm:inline">Wallet</span>
+            <span className="hidden sm:inline">{t("My Wallet")}</span>
           </button>
 
           {isAlsoDoctor && (
@@ -380,6 +381,7 @@ function IconJoinRequest() {
 
 function OverviewTab() {
   const { org, branches, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
+  const { t } = useLanguage();
   const [toggling, setToggling] = useState(false);
   const [visResult, setVisResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -413,10 +415,10 @@ function OverviewTab() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          <StatBox key="br" label="Branches" value={branches.length.toString()} />,
-          <StatBox key="dr" label="Doctors" value={doctorCount.toString()} />,
-          <StatBox key="st" label="Total Staff" value={staffCount.toString()} accent />,
-          <StatBox key="pl" label="Plan" value={plan?.name ?? "—"} success />,
+          <StatBox key="br" label={t("Branches")} value={branches.length.toString()} />,
+          <StatBox key="dr" label={t("Doctors")} value={doctorCount.toString()} />,
+          <StatBox key="st" label={t("Total Staff")} value={staffCount.toString()} accent />,
+          <StatBox key="pl" label={t("Plan")} value={plan?.name ?? "—"} success />,
         ].map((box, i) => (
           <div key={i} className="animate-fade-up" style={{ animationDelay: `${i * 80}ms` }}>
             {box}
@@ -426,9 +428,9 @@ function OverviewTab() {
 
       {branches.length === 0 && (
         <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">Add your first branch to get started</p>
+          <p className="text-sm font-semibold text-navy">{t("Add your first branch to get started")}</p>
           <p className="mt-1 text-xs text-navy-mid">
-            Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.
+            {t("Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.")}
           </p>
         </div>
       )}
@@ -436,10 +438,10 @@ function OverviewTab() {
       {subscription?.status === "trial" && branches.length > 0 && (
         <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
           <p className="text-sm font-semibold text-navy">
-            Free Trial
+            {t("Free Trial")}
           </p>
           <p className="mt-1 text-xs text-navy-mid">
-            Upgrade to a paid plan to unlock marketplace listing and more features.
+            {t("Upgrade to a paid plan to unlock marketplace listing and more features.")}
           </p>
         </div>
       )}
@@ -452,15 +454,15 @@ function OverviewTab() {
 
       <div className="rounded-xl border border-border bg-offwhite p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
-          Organization
+          {t("Organization")}
         </p>
         <p className="mt-2 font-heading text-lg font-bold text-navy">{org?.name}</p>
         <p className="text-sm text-navy-mid capitalize">{org?.type}</p>
         <div className="mt-3 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-navy-mid">Marketplace Listing</p>
+            <p className="text-xs font-medium text-navy-mid">{t("Marketplace Listing")}</p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              {org?.isPublic ? "Visible to patients" : "Not listed publicly"}
+              {org?.isPublic ? t("Visible to patients") : t("Not listed publicly")}
             </p>
           </div>
           <button
@@ -472,7 +474,7 @@ function OverviewTab() {
                 : "bg-gold text-navy hover:bg-gold-light"
             }`}
           >
-            {toggling ? "Saving…" : org?.isPublic ? "Make Private" : "List Publicly →"}
+            {toggling ? t("Saving…") : org?.isPublic ? t("Make Private") : t("List Publicly →")}
           </button>
         </div>
       </div>
@@ -484,6 +486,7 @@ function OverviewTab() {
 
 function BranchesTab() {
   const { branches, isLoading, addBranch } = useOrg();
+  const { t, locale } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
 
@@ -492,12 +495,12 @@ function BranchesTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{branches.length} branch{branches.length !== 1 ? "es" : ""}</p>
+        <p className="text-sm text-navy-mid">{branches.length} {locale === "ar" ? "فرع" : (branches.length !== 1 ? "branches" : "branch")}</p>
         <button
           onClick={() => { setShowModal(true); setBranchError(null); }}
           className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          + Add Branch
+          {t("+ Add Branch")}
         </button>
       </div>
 
@@ -508,7 +511,7 @@ function BranchesTab() {
       )}
 
       {branches.length === 0 ? (
-        <EmptyState icon="🏢" title="No branches yet" body="Add your first branch to get started." />
+        <EmptyState icon="🏢" title={t("No branches yet")} body={t("Add your first branch to get started.")} />
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {branches.map((b) => (
@@ -519,7 +522,7 @@ function BranchesTab() {
                 <p className="text-xs text-navy-mid">{b.phone}</p>
               </div>
               <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                Active
+                {t("Active")}
               </span>
             </div>
           ))}
@@ -549,6 +552,7 @@ function BranchesTab() {
 
 function StaffTab() {
   const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin } = useOrg();
+  const { t } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -600,18 +604,18 @@ function StaffTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{activeMemberCount} member{activeMemberCount !== 1 ? "s" : ""}</p>
+        <p className="text-sm text-navy-mid">{activeMemberCount} {t("member(s)")}</p>
         <button
           onClick={() => { setShowModal(true); setGeneratedToken(null); }}
           className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          + Invite Staff
+          {t("+ Invite Staff")}
         </button>
       </div>
 
       {generatedToken && (
         <div className="rounded-xl border border-gold bg-gold-tint p-4">
-          <p className="text-xs font-semibold text-navy">Invitation link (share with invitee):</p>
+          <p className="text-xs font-semibold text-navy">{t("Invitation link (share with invitee):")}</p>
           <p className="mt-1 break-all rounded-md bg-white px-3 py-2 font-mono text-xs text-navy-mid">
             {window.location.origin}/accept-invite?token={generatedToken}
           </p>
@@ -619,7 +623,7 @@ function StaffTab() {
             onClick={() => navigator.clipboard.writeText(`${window.location.origin}/accept-invite?token=${generatedToken}`)}
             className="mt-2 text-xs font-medium text-gold hover:text-gold-light"
           >
-            Copy link →
+            {t("Copy link →")}
           </button>
         </div>
       )}
@@ -668,14 +672,14 @@ function StaffTab() {
                     onClick={() => { setEditingMember(primary); setEditError(null); }}
                     className="text-xs font-medium text-gold hover:text-gold-light"
                   >
-                    Edit
+                    {t("Edit")}
                   </button>
                   <button
                     onClick={() => handleRemove(primary.id, primary.memberName)}
                     disabled={isBusy}
                     className="text-xs font-medium text-danger hover:text-danger/70 disabled:opacity-40"
                   >
-                    {removing === primary.id ? "…" : "Remove"}
+                    {removing === primary.id ? "…" : t("Remove")}
                   </button>
                 </div>
                 {/* Make Admin — doctors only; receptionists cannot be promoted to admin */}
@@ -685,15 +689,15 @@ function StaffTab() {
                     disabled={isBusy}
                     className="rounded-md border border-navy/20 px-3 py-1 text-xs font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-40"
                   >
-                    {promoting === primary.id ? "…" : "Make Admin"}
+                    {promoting === primary.id ? "…" : t("Make Admin")}
                   </button>
                 )}
                 {!isAdmin && !isDoctor && roles.includes("receptionist") && (
                   <span
-                    title="Receptionists cannot be promoted to admin"
+                    title={t("Receptionists cannot be promoted to admin")}
                     className="cursor-not-allowed rounded-md border border-border px-3 py-1 text-xs font-medium text-navy-mid/40"
                   >
-                    Make Admin
+                    {t("Make Admin")}
                   </span>
                 )}
                 {/* Revoke Admin — for any member who holds an admin role */}
@@ -705,7 +709,7 @@ function StaffTab() {
                     disabled={isBusy}
                     className="rounded-md border border-danger/20 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/5 disabled:opacity-40"
                   >
-                    {promoting === primary.id ? "…" : "Revoke Admin"}
+                    {promoting === primary.id ? "…" : t("Revoke Admin")}
                   </button>
                 )}
               </div>
@@ -755,6 +759,7 @@ function StaffTab() {
 
 function JoinRequestsTab() {
   const { org } = useOrg();
+  const { t, locale } = useLanguage();
   const [requests, setRequests] = useState<AdminJoinRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
@@ -787,8 +792,8 @@ function JoinRequestsTab() {
     <div>
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Join Requests</h2>
-          <p className="text-sm text-navy-mid">Doctors requesting to join your organization</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Join Requests")}</h2>
+          <p className="text-sm text-navy-mid">{t("Doctors requesting to join your organization")}</p>
         </div>
         <div className="flex gap-1.5 rounded-lg border border-border p-1">
           {(["pending", "approved", "rejected"] as const).map((s) => (
@@ -817,11 +822,13 @@ function JoinRequestsTab() {
         </div>
       ) : requests.length === 0 ? (
         <div className="rounded-xl border border-border bg-offwhite px-6 py-12 text-center">
-          <p className="text-sm font-medium text-navy">No {statusFilter} requests</p>
+          <p className="text-sm font-medium text-navy">{t("No")} {t(statusFilter)} {t("requests")}</p>
           <p className="mt-1 text-xs text-navy-mid">
             {statusFilter === "pending"
-              ? "New join requests will appear here"
-              : `Previously ${statusFilter} requests will appear here`}
+              ? t("New join requests will appear here")
+              : locale === "ar"
+                ? `${t("Previously")} ${t(statusFilter)} ${t("requests will appear here")}`
+                : `Previously ${statusFilter} requests will appear here`}
           </p>
         </div>
       ) : (
@@ -858,14 +865,14 @@ function JoinRequestsTab() {
                       disabled={resolving === req.id}
                       className="rounded-lg bg-success px-4 py-2 text-xs font-semibold text-white transition hover:bg-success/90 disabled:opacity-60"
                     >
-                      {resolving === req.id ? "…" : "Approve"}
+                      {resolving === req.id ? "…" : t("Approve")}
                     </button>
                     <button
                       onClick={() => handleResolve(req.id, "reject")}
                       disabled={resolving === req.id}
                       className="rounded-lg border border-danger/30 px-4 py-2 text-xs font-semibold text-danger transition hover:bg-danger/10 disabled:opacity-60"
                     >
-                      Reject
+                      {t("Reject")}
                     </button>
                   </div>
                 )}
@@ -898,6 +905,7 @@ const DOCTOR_COLORS = [
 
 function SchedulesTab() {
   const { schedules, memberships, branches, isLoading, createSchedule, updateSchedule, addException } = useOrg();
+  const { t, locale } = useLanguage();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<DoctorBranchSchedule | null>(null);
   const [exceptionScheduleId, setExceptionScheduleId] = useState<string | null>(null);
@@ -928,20 +936,22 @@ function SchedulesTab() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Weekly Schedule</h2>
-          <p className="text-sm text-navy-mid">{schedules.length} schedule{schedules.length !== 1 ? "s" : ""} across {doctors.length} doctor{doctors.length !== 1 ? "s" : ""}</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Weekly Schedule")}</h2>
+          <p className="text-sm text-navy-mid">{schedules.length} {locale === "ar" ? "جدول لـ" : `schedule${schedules.length !== 1 ? "s" : ""} across`} {doctors.length} {locale === "ar" ? "طبيب" : `doctor${doctors.length !== 1 ? "s" : ""}`}</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
           className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          + Add Schedule
+          {t("+ Add Schedule")}
         </button>
       </div>
 
       {lastGenerated !== null && (
         <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
-          Schedule saved — {lastGenerated} session{lastGenerated !== 1 ? "s" : ""} generated for the next 14 days. Doctor Profile will reflect this within 30 seconds.
+          {locale === "ar"
+            ? `تم حفظ الجدول — تم إنشاء ${lastGenerated} جلسة للـ 14 يوماً القادمة. سيعكس الملف الشخصي للطبيب ذلك خلال 30 ثانية.`
+            : `Schedule saved — ${lastGenerated} session${lastGenerated !== 1 ? "s" : ""} generated for the next 14 days. Doctor Profile will reflect this within 30 seconds.`}
         </div>
       )}
 
@@ -962,7 +972,7 @@ function SchedulesTab() {
 
       {/* Calendar week grid */}
       {schedules.length === 0 ? (
-        <EmptyState icon="📅" title="No schedules yet" body="Add a doctor's weekly schedule to auto-generate sessions." />
+        <EmptyState icon="📅" title={t("No schedules yet")} body={t("Add a doctor's weekly schedule to auto-generate sessions.")} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-white">
           <div className="grid grid-cols-7 border-b border-border">
@@ -1015,7 +1025,7 @@ function SchedulesTab() {
                         {schedule.doctorName.split(" ")[0]}
                       </p>
                       <p className={`text-[9px] leading-tight ${c.text} opacity-80`}>
-                        {slot.startTime}–{slot.endTime}
+                        {fmt12(slot.startTime, locale)}–{fmt12(slot.endTime, locale)}
                       </p>
                     </div>
                   );
@@ -1031,7 +1041,7 @@ function SchedulesTab() {
         <div className="animate-fade-up rounded-xl border border-border bg-white p-5">
           <h3 className="mb-3 font-heading text-base font-bold text-navy">{DAYS_FULL[selectedDay]}</h3>
           {slotsForSelected.length === 0 ? (
-            <p className="text-sm text-navy-mid">No sessions scheduled on this day.</p>
+            <p className="text-sm text-navy-mid">{t("No sessions scheduled on this day.")}</p>
           ) : (
             <div className="space-y-3">
               {slotsForSelected.map(({ schedule, slot, colorIdx }) => {
@@ -1046,7 +1056,7 @@ function SchedulesTab() {
                         <span className={`text-xs opacity-70 ${c.text}`}>{schedule.specialty}</span>
                       </div>
                       <p className={`mt-1 text-xs ${c.text} opacity-80`}>
-                        {slot.startTime} – {slot.endTime} · {branch?.name ?? "Branch"}
+                        {fmt12(slot.startTime, locale)} – {fmt12(slot.endTime, locale)} · {branch?.name ?? "Branch"}
                       </p>
                       <p className={`text-xs ${c.text} opacity-70`}>
                         {schedule.fee} EGP · {schedule.avgConsultationMin} min avg
@@ -1057,13 +1067,13 @@ function SchedulesTab() {
                         onClick={(e) => { e.stopPropagation(); setEditingSchedule(schedule); }}
                         className={`rounded-md border px-3 py-1.5 text-xs font-medium transition hover:opacity-80 ${c.border} ${c.text}`}
                       >
-                        Edit
+                        {t("Edit")}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setExceptionScheduleId(schedule.id); }}
                         className="rounded-md border border-danger/20 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/5"
                       >
-                        Off Day
+                        {t("Off Day")}
                       </button>
                     </div>
                   </div>
@@ -1122,6 +1132,7 @@ type BranchConflict = { currentBranches: number; allowedBranches: number; planNa
 
 function BillingTab() {
   const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
+  const { t, locale } = useLanguage();
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1215,7 +1226,7 @@ function BillingTab() {
               onClick={() => setConflict(null)}
               className="mt-4 w-full rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
             >
-              Keep Current Plan
+              {t("Keep Current Plan")}
             </button>
           </div>
         </div>
@@ -1236,16 +1247,16 @@ function BillingTab() {
                   <p className="font-heading text-lg font-bold text-navy">{plan.name}</p>
                   <p className="mt-0.5 text-2xl font-bold text-gold">
                     {plan.pricePerMonth === 0
-                      ? plan.tier === "trial" ? "Free" : "Contact Us"
-                      : `${plan.pricePerMonth} EGP`}
+                      ? plan.tier === "trial" ? t("Free") : t("Contact Us")
+                      : `${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`}
                     {plan.pricePerMonth > 0 && (
-                      <span className="text-sm font-normal text-navy-mid">/mo</span>
+                      <span className="text-sm font-normal text-navy-mid">/{t("mo")}</span>
                     )}
                   </p>
                 </div>
                 {isCurrent && (
                   <span className="rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-navy">
-                    Current
+                    {t("Current")}
                   </span>
                 )}
               </div>
@@ -1264,12 +1275,12 @@ function BillingTab() {
                   disabled={upgrading === plan.id}
                   className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-60"
                 >
-                  {upgrading === plan.id ? "Processing…" : "Select Plan"}
+                  {upgrading === plan.id ? t("Processing…") : t("Select Plan")}
                 </button>
               )}
               {!isCurrent && plan.tier === "enterprise" && (
                 <button className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white">
-                  Contact Sales
+                  {t("Contact Sales")}
                 </button>
               )}
             </div>
@@ -1284,6 +1295,7 @@ function BillingTab() {
 
 function WhatsAppTab() {
   const { org, subscription, plans, isLoading, updateOrg } = useOrg();
+  const { t } = useLanguage();
   const [number, setNumber] = useState(org?.whatsappNumber ?? "");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -1297,12 +1309,12 @@ function WhatsAppTab() {
     return (
       <div className="rounded-xl bg-offwhite py-12 text-center">
         <p className="text-3xl">💬</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">WhatsApp Notifications</p>
+        <p className="mt-3 font-heading text-lg font-bold text-navy">{t("WhatsApp Notifications")}</p>
         <p className="mt-1 text-sm text-navy-mid">
-          Your current plan does not include WhatsApp notifications.
+          {t("Your current plan does not include WhatsApp notifications.")}
         </p>
         <p className="mt-1 text-sm text-navy-mid">
-          Upgrade to Standard or Enterprise to enable this feature.
+          {t("Upgrade to Standard or Enterprise to enable this feature.")}
         </p>
       </div>
     );
@@ -1320,7 +1332,7 @@ function WhatsAppTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-navy-mid">
-        Set a WhatsApp number to send automated appointment reminders to patients.
+        {t("Set a WhatsApp number to send automated appointment reminders to patients.")}
       </p>
 
       {result && (
@@ -1331,7 +1343,7 @@ function WhatsAppTab() {
 
       <form onSubmit={handleSave} className="space-y-4">
         <ModalField
-          label="WhatsApp Number (E.164 format)"
+          label={t("WhatsApp Number (E.164 format)")}
           value={number}
           onChange={setNumber}
           placeholder="+201XXXXXXXXX"
@@ -1341,7 +1353,7 @@ function WhatsAppTab() {
           disabled={saving}
           className="rounded-md bg-gold px-6 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Save Number"}
+          {saving ? t("Saving…") : t("Save Number")}
         </button>
       </form>
     </div>
@@ -1352,6 +1364,7 @@ function WhatsAppTab() {
 
 function WalletTab() {
   const { org, branches } = useOrg();
+  const { t, locale } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [summary, setSummary] = useState<WalletSummary | null>(null);
@@ -1420,35 +1433,35 @@ function WalletTab() {
       <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Session Revenue</h2>
-          <p className="text-sm text-navy-mid">Revenue from completed appointments</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Session Revenue")}</h2>
+          <p className="text-sm text-navy-mid">{t("Revenue from completed appointments")}</p>
         </div>
         <button
           onClick={() => setRefreshKey((k) => k + 1)}
           className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-medium text-navy-mid transition hover:border-navy hover:text-navy"
         >
-          ↻ Refresh
+          ↻ {t("Refresh")}
         </button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-          <p className="text-xs text-navy-mid">Total Earnings</p>
+          <p className="text-xs text-navy-mid">{t("Total Earnings")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-navy">
-            {loadingSummary ? "…" : `${(summary?.totalEarnings ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.totalEarnings ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
         <div className="rounded-xl border border-gold/30 bg-gold-tint p-4 text-center">
-          <p className="text-xs text-navy-mid">This Month</p>
+          <p className="text-xs text-navy-mid">{t("This Month")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-gold">
-            {loadingSummary ? "…" : `${(summary?.thisMonthEarnings ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.thisMonthEarnings ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-          <p className="text-xs text-navy-mid">Pending</p>
+          <p className="text-xs text-navy-mid">{t("Pending")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-navy-mid">
-            {loadingSummary ? "…" : `${(summary?.pendingAmount ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.pendingAmount ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
       </div>
@@ -1460,7 +1473,7 @@ function WalletTab() {
           onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
           className="h-9 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold"
         >
-          <option value="">All Branches</option>
+          <option value="">{t("All Branches")}</option>
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         <select
@@ -1468,10 +1481,10 @@ function WalletTab() {
           onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
           className="h-9 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold"
         >
-          <option value="">All Status</option>
-          <option value="settled">Settled</option>
-          <option value="pending">Pending</option>
-          <option value="refunded">Refunded</option>
+          <option value="">{t("All Status")}</option>
+          <option value="settled">{t("Settled")}</option>
+          <option value="pending">{t("Pending")}</option>
+          <option value="refunded">{t("Refunded")}</option>
         </select>
         <input
           type="date" value={filterFrom}
@@ -1488,7 +1501,7 @@ function WalletTab() {
             onClick={() => { setFilterBranch(""); setFilterStatus(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}
             className="h-9 rounded-md border border-border px-3 text-sm text-navy-mid hover:text-danger"
           >
-            Clear
+            {t("Clear")}
           </button>
         )}
       </div>
@@ -1497,15 +1510,15 @@ function WalletTab() {
       {loadingTx ? (
         <Skeleton />
       ) : transactions.length === 0 ? (
-        <EmptyState icon="💳" title="No transactions yet" body="Completed appointments will appear here as settled transactions." />
+        <EmptyState icon="💳" title={t("No transactions yet")} body={t("Completed appointments will appear here as settled transactions.")} />
       ) : (
         <>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
             <div className="grid grid-cols-5 bg-offwhite px-4 py-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">
-              <span className="col-span-2">Patient / Branch</span>
-              <span className="text-right">Gross</span>
-              <span className="text-right">Commission</span>
-              <span className="text-right">Status</span>
+              <span className="col-span-2">{t("Patient / Branch")}</span>
+              <span className="text-right">{t("Gross")}</span>
+              <span className="text-right">{t("Commission")}</span>
+              <span className="text-right">{t("Status")}</span>
             </div>
             {transactions.map((tx) => (
               <div key={tx.id} className="grid grid-cols-5 items-center gap-2 px-4 py-3">
@@ -1527,14 +1540,14 @@ function WalletTab() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-navy-mid">{total} total transactions</span>
+              <span className="text-navy-mid">{total} {t("total transactions")}</span>
               <div className="flex gap-2">
                 <button
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
                   className="rounded-md border border-border px-3 py-1.5 text-navy-mid disabled:opacity-40 hover:border-gold hover:text-gold"
                 >
-                  ← Prev
+                  {t("← Prev")}
                 </button>
                 <span className="flex items-center px-2 text-navy-mid">{page} / {totalPages}</span>
                 <button
@@ -1542,7 +1555,7 @@ function WalletTab() {
                   onClick={() => setPage((p) => p + 1)}
                   className="rounded-md border border-border px-3 py-1.5 text-navy-mid disabled:opacity-40 hover:border-gold hover:text-gold"
                 >
-                  Next →
+                  {t("Next →")}
                 </button>
               </div>
             </div>
@@ -1558,6 +1571,7 @@ function WalletTab() {
 
 function SettingsTab() {
   const { org, branches, updateOrg, refresh } = useOrg();
+  const { t } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [orgName, setOrgName] = useState(org?.name ?? "");
@@ -1574,7 +1588,7 @@ function SettingsTab() {
     setSavingName(true);
     setNameResult(null);
     const result = await updateOrg({ name: orgName.trim() });
-    setNameResult({ ok: result.ok, msg: result.ok ? "Saved!" : (result.error ?? "Failed") });
+    setNameResult({ ok: result.ok, msg: result.ok ? t("Saved!") : (result.error ?? t("Failed")) });
     setSavingName(false);
   }
 
@@ -1601,20 +1615,20 @@ function SettingsTab() {
     <div className="space-y-7">
       {/* Org name */}
       <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">Organization Name</p>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Organization Name")}</p>
         <form onSubmit={handleSaveName} className="flex gap-2">
           <input
             value={orgName}
             onChange={(e) => { setOrgName(e.target.value); setNameResult(null); }}
             className="h-10 flex-1 rounded-lg border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            placeholder="Organization name"
+            placeholder={t("Organization name")}
           />
           <button
             type="submit"
             disabled={savingName || !orgName.trim() || orgName.trim() === org?.name}
             className="h-10 rounded-lg bg-gold px-4 text-sm font-semibold text-navy disabled:opacity-50 hover:bg-gold-light"
           >
-            {savingName ? "Saving…" : "Save"}
+            {savingName ? t("Saving…") : t("Save")}
           </button>
         </form>
         {nameResult && (
@@ -1624,12 +1638,12 @@ function SettingsTab() {
 
       {/* Branch commission */}
       <div>
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">Branch Commission Rate</p>
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Branch Commission Rate")}</p>
         <p className="mb-3 text-xs text-navy-mid">
-          Percentage of post-platform revenue the organization keeps. Doctors receive the remainder.
+          {t("Percentage of post-platform revenue the organization keeps. Doctors receive the remainder.")}
         </p>
         {branches.length === 0 ? (
-          <EmptyState icon="🏢" title="No branches" body="Add branches first to configure commission rates." />
+          <EmptyState icon="🏢" title={t("No branches")} body={t("Add branches first to configure commission rates.")} />
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
             {branches.map((branch) => {
@@ -1660,11 +1674,11 @@ function SettingsTab() {
                       onClick={() => handleSaveCommission(branch)}
                       className="h-9 rounded-md bg-gold px-3 text-sm font-semibold text-navy disabled:opacity-50 hover:bg-gold-light"
                     >
-                      {isSaving ? "…" : "Save"}
+                      {isSaving ? "…" : t("Save")}
                     </button>
                     {result && (
                       <span className={`text-xs ${result.ok ? "text-success" : "text-danger"}`}>
-                        {result.ok ? "Saved!" : "Failed"}
+                        {result.ok ? t("Saved!") : t("Failed")}
                       </span>
                     )}
                   </div>
@@ -2203,6 +2217,7 @@ function ScheduleExceptionModal({
 
 function SessionsTab() {
   const { org, branches } = useOrg();
+  const { t, locale } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [branchId, setBranchId] = useState("");
@@ -2300,7 +2315,7 @@ function SessionsTab() {
         <div className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">📋</span>
           <p className="text-sm font-medium text-navy">
-            {pendingExcuseCount} pending excuse{pendingExcuseCount > 1 ? "s" : ""} require your review
+            {pendingExcuseCount} {locale === "ar" ? (pendingExcuseCount > 1 ? t("pending excuses") : t("pending excuse")) : `pending excuse${pendingExcuseCount > 1 ? "s" : ""}`} {t("require your review")}
           </p>
         </div>
       )}
@@ -2308,7 +2323,7 @@ function SessionsTab() {
       {isLoading ? (
         <Skeleton />
       ) : sessions.length === 0 ? (
-        <EmptyState icon="📅" title="No sessions" body="No sessions found for this branch and date." />
+        <EmptyState icon="📅" title={t("No sessions")} body={t("No sessions found for this branch and date.")} />
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {sessions.map((session) => {
@@ -2322,15 +2337,15 @@ function SessionsTab() {
                   <div>
                     <p className="font-medium text-navy">{session.doctorName || "Doctor"}</p>
                     <p className="mt-0.5 text-sm text-navy-mid">
-                      {session.startTime} – {session.endTime}
+                      {fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}
                     </p>
-                    <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
+                    <p className="text-xs text-navy-mid">{session.bookingsCount} {t("booked")}</p>
                   </div>
 
                   <div className="flex items-center gap-3">
                     {/* Max slots editor */}
                     <div className="flex items-center gap-1.5">
-                      <label className="text-xs text-navy-mid">Max slots</label>
+                      <label className="text-xs text-navy-mid">{t("Max slots")}</label>
                       <input
                         type="number"
                         min={1}
@@ -2368,7 +2383,7 @@ function SessionsTab() {
                   <div className="mt-3 rounded-lg border border-border bg-offwhite p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="text-xs font-semibold text-navy">Doctor excuse submitted</p>
+                        <p className="text-xs font-semibold text-navy">{t("Doctor excuse submitted")}</p>
                         <p className="mt-0.5 text-xs text-navy-mid">{excuse.reason}</p>
                       </div>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -2387,14 +2402,14 @@ function SessionsTab() {
                           disabled={!!reviewingExcuse}
                           className="rounded-md border border-success/30 bg-success/5 px-3 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
                         >
-                          {reviewingExcuse === `${session.id}-approved` ? "…" : "Approve"}
+                          {reviewingExcuse === `${session.id}-approved` ? "…" : t("Approve")}
                         </button>
                         <button
                           onClick={() => void handleReviewExcuse(session, "denied")}
                           disabled={!!reviewingExcuse}
                           className="rounded-md border border-danger/30 bg-danger/5 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
                         >
-                          {reviewingExcuse === `${session.id}-denied` ? "…" : "Deny"}
+                          {reviewingExcuse === `${session.id}-denied` ? "…" : t("Deny")}
                         </button>
                       </div>
                     )}

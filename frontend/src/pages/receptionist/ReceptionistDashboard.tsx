@@ -8,6 +8,7 @@ import { bookWalkIn } from "../../services/appointmentService";
 import type { AppointmentType } from "../../services/appointmentService";
 import { lookupPatientByPhone } from "../../services/patientService";
 import { toE164 } from "../../utils/phone";
+import { fmt12 } from "../../utils/time";
 import type { BackendSession, BackendAppointment, CashSummary } from "../../services/sessionService";
 
 type RecSection = "sessions" | "walkin" | "checkin";
@@ -176,6 +177,7 @@ function ReceptionHome({ onSelect }: { onSelect: (s: RecSection) => void }) {
 // ── Today's Sessions Tab ──────────────────────────────────────────────────────
 
 function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
+  const { locale } = useLanguage();
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -251,7 +253,7 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
                     <p className="text-sm text-navy-mid">{s.specialty}</p>
                   )}
                   <p className="text-xs text-navy-mid">
-                    {s.date} · {s.startTime} – {s.endTime}
+                    {s.date} · {fmt12(s.startTime, locale)} – {fmt12(s.endTime, locale)}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
@@ -329,6 +331,7 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 // ── Walk-In Tab ───────────────────────────────────────────────────────────────
 
 function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
+  const { locale } = useLanguage();
   const [phase, setPhase] = useState<"lookup" | "booking">("lookup");
   const [foundPatient, setFoundPatient] = useState<{ fullName: string; phone: string } | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -502,7 +505,7 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
               >
                 {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.doctorName || "Doctor"} · {s.startTime}–{s.endTime}
+                    {s.doctorName || "Doctor"} · {fmt12(s.startTime, locale)}–{fmt12(s.endTime, locale)}
                   </option>
                 ))}
               </select>
@@ -706,6 +709,15 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     setLoadingCash(false);
   }
 
+  async function handleConfirmPayment(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.confirmCashPayment(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
   const statusColor: Record<string, string> = {
     booked:      "bg-gold-tint text-gold",
     called:      "bg-success/10 text-success",
@@ -768,6 +780,16 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[p.status] ?? ""}`}>
               {p.status.replace("_", " ")}
             </span>
+            {p.paymentMethod === "clinic" && p.paymentStatus !== "success" && (
+              <button
+                onClick={() => handleConfirmPayment(p.id)}
+                disabled={actionInProgress === p.id}
+                className="rounded border border-success/40 bg-success/5 px-2 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+                title="Mark clinic cash payment as received"
+              >
+                💵 Confirm Payment
+              </button>
+            )}
             {p.status === "booked" && (
               <>
                 <button
@@ -840,8 +862,11 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
             <div className="mt-2 space-y-1">
               {cashSummary.appointments.map((a, i) => (
                 <div key={i} className="flex items-center justify-between rounded bg-white px-3 py-1.5 text-xs">
-                  <span className="text-navy-mid">#{a.queueNumber} · {a.patientName || "Patient"}</span>
-                  <span className="font-medium text-navy">{cashSummary.feePerAppointment} EGP</span>
+                  <span className="text-navy-mid">
+                    #{a.queueNumber} · {a.patientName || "Patient"}
+                    {a.paymentMethod === "clinic" && <span className="ml-1 rounded bg-gold-tint px-1 text-[10px] text-gold">Clinic</span>}
+                  </span>
+                  <span className="font-medium text-navy">{a.paidAmount ?? cashSummary.feePerAppointment} EGP</span>
                 </div>
               ))}
               <div className="flex items-center justify-between rounded-lg bg-gold-tint px-3 py-2 text-sm font-semibold text-navy">

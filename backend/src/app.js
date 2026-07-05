@@ -7,6 +7,7 @@ import orgRoutes from "./routes/orgRoutes.js";
 import marketplaceRoutes from "./routes/marketplaceRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
+import paymobRoutes from "./routes/paymobRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { validate } from "./middleware/validate.js";
@@ -57,6 +58,9 @@ app.use("/reviews", reviewRoutes);
 
 // Wallet (personal — patient / doctor)
 app.use("/wallet", walletRoutes);
+
+// Paymob payment gateway
+app.use("/payment/paymob", paymobRoutes);
 
 // Patient self-service endpoints
 app.get("/patients/me", authenticate, patientController.getOwn);

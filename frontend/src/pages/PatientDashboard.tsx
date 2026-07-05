@@ -10,6 +10,7 @@ import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../ser
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 import { WalletView } from "../components/ui/WalletView";
+import { fmt12 } from "../utils/time";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -645,6 +646,7 @@ function BookingCard({
   onCancel: () => void;
 }) {
   const { updateBookingNotes: updateNotes } = useApp();
+  const { locale } = useLanguage();
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState(booking.patientNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -699,8 +701,8 @@ function BookingCard({
               {booking.doctor.specialty} · {booking.doctor.area}
             </p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              {booking.session.date} · {booking.session.startTime} –{" "}
-              {booking.session.endTime}
+              {booking.session.date} · {fmt12(booking.session.startTime, locale)} –{" "}
+              {fmt12(booking.session.endTime, locale)}
             </p>
             <p className="text-xs text-navy-mid">{booking.session.clinicName}</p>
             {clinicDetails?.address && (

@@ -10,6 +10,7 @@ import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 import { WalletView } from "../components/ui/WalletView";
 import { SPECIALTIES } from "../data/mockData";
+import { fmt12 } from "../utils/time";
 
 type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "profile";
 
@@ -59,7 +60,7 @@ export function DoctorDashboard() {
 
   const handleSpecialtyBackfill = useCallback(async () => {
     const cleaned = specialtyInput.trim();
-    if (!cleaned) { setSpecialtyError("Please enter your specialty."); return; }
+    if (!cleaned) { setSpecialtyError("Please select your specialty."); return; }
     if (!myMembershipForSpecialty) return;
     setSpecialtySaving(true); setSpecialtyError(null);
     const result = await updateMember(myMembershipForSpecialty.id, { specialties: [cleaned] });
@@ -107,18 +108,16 @@ export function DoctorDashboard() {
               </p>
               <div>
                 <label className="block text-sm font-medium text-navy">{t("Your Specialty *")}</label>
-                <input
-                  list="backfill-specialty-options"
+                <select
                   value={specialtyInput}
                   onChange={(e) => setSpecialtyInput(e.target.value)}
-                  placeholder="e.g. Cardiology, General Practice…"
                   className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                />
-                <datalist id="backfill-specialty-options">
+                >
+                  <option value="">{t("Select your specialty…")}</option>
                   {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
-                    <option key={s} value={s} />
+                    <option key={s} value={s}>{t(s)}</option>
                   ))}
-                </datalist>
+                </select>
                 {specialtyError && <p className="mt-1 text-xs text-danger">{t(specialtyError)}</p>}
               </div>
               <button
@@ -624,7 +623,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
 
 function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
   const { branches, memberships } = useOrg();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -781,7 +780,7 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-navy">{session.date}</p>
-                    <p className="mt-0.5 text-sm text-navy-mid">{session.startTime} – {session.endTime}</p>
+                    <p className="mt-0.5 text-sm text-navy-mid">{fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}</p>
                     <p className="text-xs text-navy-mid">
                       {session.bookingsCount} booked
                       {session.maxBookings != null ? ` / ${session.maxBookings} max` : ""}
@@ -1088,7 +1087,7 @@ function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
                                                    "bg-gold/15 text-gold"
                         }`}
                       >
-                        {s.startTime}
+                        {fmt12(s.startTime, locale)}
                       </div>
                     ))}
                     {sessions.length > 2 && (
@@ -1130,7 +1129,7 @@ function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
               {(sessionsByDate.get(selectedDate) ?? []).map((s) => (
                 <div key={s.id} className="rounded-xl border border-border p-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-navy">{s.startTime} – {s.endTime}</p>
+                    <p className="text-sm font-semibold text-navy">{fmt12(s.startTime, locale)} – {fmt12(s.endTime, locale)}</p>
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       s.status === "active" ? "bg-success/10 text-success" :
                       s.status === "ended" ? "bg-border text-navy-mid" :
@@ -1275,7 +1274,7 @@ function ProfileTab({
   doctorName: string;
 }) {
   const { memberships, schedules, branches, updateMember } = useOrg();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const myMembership =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor") ??
     memberships.find((m) => m.userId === doctorAccountId);
@@ -1405,18 +1404,16 @@ async function handleSave(e: React.FormEvent) {
         </label>
         <label className="block">
           <span className="text-sm font-medium text-navy">{t("Specialties")}</span>
-          <input
-            list="profile-specialty-options"
+          <select
             value={form.specialties}
             onChange={(e) => setForm((f) => ({ ...f, specialties: e.target.value }))}
-            placeholder="e.g. Cardiology, Internal Medicine"
             className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-          />
-          <datalist id="profile-specialty-options">
+          >
+            <option value="">{t("Select specialty…")}</option>
             {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
-              <option key={s} value={s} />
+              <option key={s} value={s}>{t(s)}</option>
             ))}
-          </datalist>
+          </select>
         </label>
         <label className="block">
           <span className="text-sm font-medium text-navy">{t("Avatar URL")}</span>
@@ -1484,7 +1481,7 @@ async function handleSave(e: React.FormEvent) {
           {mySchedules.map((sched) => {
             const branch = branches.find((b) => b.id === sched.branchId);
             const fee = sched.fee ?? 0;
-            const platformCut = Math.round(fee * 0.15);
+            const platformCut = Math.round(fee * 0.10);
             const orgCut = Math.round((fee - platformCut) * 0.7);
             const doctorNet = fee - platformCut - orgCut;
             return (
@@ -1499,7 +1496,7 @@ async function handleSave(e: React.FormEvent) {
                       key={slot.dayOfWeek}
                       className="rounded-md bg-white px-2.5 py-1 text-xs text-navy-mid border border-border"
                     >
-                      {DAY_LABELS[slot.dayOfWeek]} {slot.startTime}–{slot.endTime}
+                      {DAY_LABELS[slot.dayOfWeek]} {fmt12(slot.startTime, locale)}–{fmt12(slot.endTime, locale)}
                     </span>
                   ))}
                 </div>
@@ -1511,7 +1508,7 @@ async function handleSave(e: React.FormEvent) {
                     </p>
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
-                        <p className="text-xs text-navy-mid">{t("Platform (15%)")}</p>
+                        <p className="text-xs text-navy-mid">{t("Platform (10%)")}</p>
                         <p className="font-medium text-navy">−{platformCut} {t("EGP")}</p>
                       </div>
                       <div>

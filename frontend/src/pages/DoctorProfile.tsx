@@ -13,6 +13,7 @@ import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
+import { fmt12 } from "../utils/time";
 import type { Doctor, Session, ClinicLocation } from "../types/index";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ export function DoctorProfile() {
   const location = useLocation();
   const { setBookingIntent } = useApp();
   const { authUser } = useAuth();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -169,15 +170,15 @@ export function DoctorProfile() {
       : null;
 
   const tabItems = [
-    { id: "about", label: "About", content: <AboutTab doctor={doctor} positiveRate={positiveRate} /> },
+    { id: "about", label: t("About"), content: <AboutTab doctor={doctor} positiveRate={positiveRate} /> },
     {
       id: "clinics",
-      label: "Clinic Locations",
+      label: t("Clinic Locations"),
       content: <ClinicsTab clinics={doctor.clinics} />,
     },
     {
       id: "reviews",
-      label: `Reviews (${reviews.length})`,
+      label: `${t("Reviews")} (${reviews.length})`,
       content: (
         <ReviewsTab
           reviews={reviews}
@@ -197,13 +198,13 @@ export function DoctorProfile() {
           onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 rounded-md bg-offwhite px-3 py-1.5 text-sm text-navy-mid transition hover:bg-border hover:text-navy"
         >
-          ← Back to results
+          {t("← Back to results")}
         </button>
         <button
           onClick={() => { void refreshSessions(); }}
           className="ml-auto rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy"
         >
-          ↻ Refresh
+          ↻ {t("Refresh")}
         </button>
       </div>
 
@@ -233,7 +234,7 @@ export function DoctorProfile() {
                   </h1>
                   {doctor.verified && (
                     <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                      ✓ Verified
+                      {t("✓ Verified")}
                     </span>
                   )}
                 </div>
@@ -246,11 +247,11 @@ export function DoctorProfile() {
                     ★{" "}
                     <strong className="text-navy">{doctor.rating}</strong>{" "}
                     <span className="text-navy-mid">
-                      ({doctor.reviewCount} reviews)
+                      ({doctor.reviewCount} {t("reviews")})
                     </span>
                   </span>
                   <span className="text-navy-mid">
-                    {doctor.experienceYears} years exp.
+                    {doctor.experienceYears} {t("years exp.")}
                   </span>
                   <span className="text-navy-mid">
                     {doctor.languages.join(" · ")}
@@ -305,19 +306,19 @@ export function DoctorProfile() {
             {/* Fee header */}
             <div className="border-b border-border bg-offwhite px-5 py-4">
               <p className="text-xs font-medium uppercase tracking-wide text-navy-mid">
-                Consultation fee
+                {t("Consultation fee")}
               </p>
               <p className="mt-0.5 font-heading text-4xl font-bold text-gold">
                 {doctor.fee}
                 <span className="ml-1 font-body text-lg font-medium text-navy-mid">
-                  EGP
+                  {locale === "ar" ? "ج.م" : "EGP"}
                 </span>
               </p>
             </div>
 
             <div className="p-5">
               <h3 className="font-heading text-base font-bold text-navy">
-                Available Sessions
+                {t("Available Sessions")}
               </h3>
 
               {isLoading ? (
@@ -331,7 +332,7 @@ export function DoctorProfile() {
                 </div>
               ) : sessions.length === 0 ? (
                 <p className="mt-3 text-sm text-navy-mid">
-                  No sessions currently available.
+                  {t("No sessions currently available.")}
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
@@ -359,13 +360,13 @@ export function DoctorProfile() {
                 <div className="mt-4 space-y-3">
                   <div className="rounded-lg bg-gold-tint p-3">
                     <p className="text-xs font-semibold text-navy-mid">
-                      Selected
+                      {t("Selected")}
                     </p>
                     <p className="mt-0.5 text-sm font-medium text-navy">
                       {selectedSession.date}
                     </p>
                     <p className="text-xs text-navy-mid">
-                      {selectedSession.startTime} – {selectedSession.endTime}
+                      {fmt12(selectedSession.startTime, locale)} – {fmt12(selectedSession.endTime, locale)}
                     </p>
                     <p className="text-xs text-navy-mid">
                       {selectedSession.clinicName}
@@ -376,27 +377,31 @@ export function DoctorProfile() {
                     onClick={openBookingFlow}
                     className="h-12 w-full rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light"
                   >
-                    {authUser ? "Book Appointment →" : "Sign In to Book →"}
+                    {authUser ? t("Book Appointment →") : t("Sign In to Book →")}
                   </button>
 
                   <button
                     onClick={() => setSelectedSession(null)}
                     className="w-full text-center text-sm text-navy-mid transition hover:text-navy"
                   >
-                    Choose a different session
+                    {t("Choose a different session")}
                   </button>
                 </div>
               ) : (
                 <p className="mt-4 rounded-lg bg-offwhite px-4 py-3 text-sm text-navy-mid">
-                  Select a session above to continue booking.
+                  {t("Select a session above to continue booking.")}
                 </p>
               )}
 
               <div className="mt-5 space-y-2 border-t border-border pt-4">
-                <Stat icon="⏱" text={`${doctor.experienceYears} years experience`} />
-                <Stat icon="🌐" text={doctor.languages.join(", ")} />
-                <Stat icon="🏥" text={`${doctor.clinics.length} clinic${doctor.clinics.length > 1 ? "s" : ""}`} />
-                <Stat icon="🛡" text={doctor.insurance.join(", ")} />
+                <Stat icon="⏱" text={`${doctor.experienceYears} ${t("years experience")}`} />
+                {doctor.languages.length > 0 && (
+                  <Stat icon="🌐" text={doctor.languages.join(", ")} />
+                )}
+                <Stat icon="🏥" text={`${doctor.clinics.length} ${locale === "ar" ? "عيادة" : (doctor.clinics.length !== 1 ? "clinics" : "clinic")}`} />
+                {doctor.insurance.length > 0 && (
+                  <Stat icon="🛡" text={doctor.insurance.join(", ")} />
+                )}
               </div>
             </div>
           </div>
@@ -409,19 +414,22 @@ export function DoctorProfile() {
 // ── Tab components ────────────────────────────────────────────────────────────
 
 function AboutTab({ doctor, positiveRate }: { doctor: Doctor; positiveRate: number | null }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
+  const lastName = doctor.name.split(" ").slice(-1)[0];
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="font-heading text-lg font-bold text-navy">
-          About Dr. {doctor.name.split(" ").slice(-1)[0]}
-        </h3>
-        <p className="mt-3 text-sm leading-7 text-navy-mid">{doctor.bio}</p>
-      </div>
+      {doctor.bio && (
+        <div>
+          <h3 className="font-heading text-lg font-bold text-navy">
+            {locale === "ar" ? `عن الدكتور ${lastName}` : `About Dr. ${lastName}`}
+          </h3>
+          <p className="mt-3 text-sm leading-7 text-navy-mid">{doctor.bio}</p>
+        </div>
+      )}
 
       <div>
         <h4 className="mb-3 font-heading text-base font-bold text-navy">
-          Key Credentials
+          {t("Key Credentials")}
         </h4>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard icon="⏱" value={`${doctor.experienceYears}`} label={t("Years Experience")} />
@@ -436,26 +444,29 @@ function AboutTab({ doctor, positiveRate }: { doctor: Doctor; positiveRate: numb
         </div>
       </div>
 
-      <div>
-        <h4 className="mb-2 font-heading text-base font-bold text-navy">
-          Speaks
-        </h4>
-        <div className="flex gap-2">
-          {doctor.languages.map((lang) => (
-            <span
-              key={lang}
-              className="rounded-md border border-border px-3 py-1 text-sm text-navy"
-            >
-              {lang}
-            </span>
-          ))}
+      {doctor.languages.length > 0 && (
+        <div>
+          <h4 className="mb-2 font-heading text-base font-bold text-navy">
+            {t("Speaks")}
+          </h4>
+          <div className="flex gap-2">
+            {doctor.languages.map((lang) => (
+              <span
+                key={lang}
+                className="rounded-md border border-border px-3 py-1 text-sm text-navy"
+              >
+                {lang}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function ClinicsTab({ clinics }: { clinics: ClinicLocation[] }) {
+  const { t } = useLanguage();
   return (
     <div className="space-y-3">
       {clinics.map((clinic, idx) => (
@@ -485,7 +496,7 @@ function ClinicsTab({ clinics }: { clinics: ClinicLocation[] }) {
           </div>
           {idx === 0 && (
             <span className="ml-auto shrink-0 rounded-full bg-gold px-2.5 py-0.5 text-xs font-medium text-navy">
-              Primary
+              {t("Primary")}
             </span>
           )}
         </div>
@@ -528,6 +539,7 @@ function ReviewsTab({
   reviewCount: number;
   authUser: import("../types/index").AuthUser;
 }) {
+  const { t, locale } = useLanguage();
   const breakdown = getRatingBreakdown(reviews);
   const isPatient = authUser?.role === "patient";
 
@@ -549,7 +561,7 @@ function ReviewsTab({
       );
       const d = res.data.data as Record<string, unknown>;
       if (d.alreadyReviewed) {
-        setTokenError("You have already submitted a review for this appointment.");
+        setTokenError(t("You have already submitted a review for this appointment."));
         return;
       }
       setReviewCtx({
@@ -557,7 +569,7 @@ function ReviewsTab({
         appointmentDate: String(d.appointmentDate ?? "").slice(0, 10),
       });
     } catch {
-      setTokenError("Invalid or expired token. Check your appointment confirmation.");
+      setTokenError(t("Invalid or expired token. Check your appointment confirmation."));
     }
   }
 
@@ -570,7 +582,7 @@ function ReviewsTab({
       await api.post("/reviews/submit", { token: tokenInput.trim(), rating, comment });
       setSubmitted(true);
     } catch {
-      setTokenError("Failed to submit review. Please try again.");
+      setTokenError(t("Failed to submit review. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -581,9 +593,9 @@ function ReviewsTab({
       {reviewCount === 0 ? (
         <div className="rounded-xl bg-offwhite px-6 py-10 text-center">
           <p className="text-4xl">⭐</p>
-          <p className="mt-3 font-heading text-base font-bold text-navy">No reviews yet</p>
+          <p className="mt-3 font-heading text-base font-bold text-navy">{t("No reviews yet")}</p>
           <p className="mt-1 text-sm text-navy-mid">
-            Be the first to review this doctor after your session.
+            {t("Be the first to review this doctor after your session.")}
           </p>
         </div>
       ) : (
@@ -591,7 +603,7 @@ function ReviewsTab({
           <div className="text-center">
             <p className="font-heading text-5xl font-bold text-navy">{overallRating}</p>
             <p className="mt-1 text-gold">{"★".repeat(Math.floor(overallRating))}</p>
-            <p className="mt-1 text-xs text-navy-mid">{reviewCount.toLocaleString()} reviews</p>
+            <p className="mt-1 text-xs text-navy-mid">{reviewCount.toLocaleString()} {t("reviews")}</p>
           </div>
 
           <div className="flex-1 space-y-2">
@@ -632,13 +644,15 @@ function ReviewsTab({
       {/* Patient review submission — only visible to patients */}
       {isPatient && (
         <div className="rounded-xl border border-border p-5">
-          <h4 className="font-heading text-base font-bold text-navy">Share Your Experience</h4>
+          <h4 className="font-heading text-base font-bold text-navy">{t("Share Your Experience")}</h4>
           {submitted ? (
-            <p className="mt-3 text-sm text-success">Thank you — your review has been submitted!</p>
+            <p className="mt-3 text-sm text-success">{t("Thank you — your review has been submitted!")}</p>
           ) : reviewCtx ? (
             <form onSubmit={handleSubmitReview} className="mt-3 space-y-3">
               <p className="text-xs text-navy-mid">
-                Appointment with {reviewCtx.doctorName} on {reviewCtx.appointmentDate}
+                {locale === "ar"
+                  ? `موعد مع ${reviewCtx.doctorName} بتاريخ ${reviewCtx.appointmentDate}`
+                  : `Appointment with ${reviewCtx.doctorName} on ${reviewCtx.appointmentDate}`}
               </p>
               <div className="flex gap-1">
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -657,7 +671,7 @@ function ReviewsTab({
                 onChange={(e) => setComment(e.target.value)}
                 rows={3}
                 maxLength={300}
-                placeholder="Tell us about your visit (optional)..."
+                placeholder={t("Tell us about your visit (optional)...")}
                 className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
               {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
@@ -666,20 +680,20 @@ function ReviewsTab({
                 disabled={rating === 0 || submitting}
                 className="w-full rounded-md bg-gold py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
               >
-                {submitting ? "Submitting…" : "Submit Review"}
+                {submitting ? t("Submitting…") : t("Submit Review")}
               </button>
             </form>
           ) : (
             <form onSubmit={handleVerifyToken} className="mt-3 space-y-2">
               <p className="text-xs text-navy-mid">
-                Enter the access token from your appointment confirmation to leave a review.
+                {t("Enter the access token from your appointment confirmation to leave a review.")}
               </p>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Appointment access token"
+                  placeholder={t("Appointment access token")}
                   className="flex-1 h-10 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
                 <button
@@ -687,7 +701,7 @@ function ReviewsTab({
                   disabled={!tokenInput.trim()}
                   className="rounded-md bg-navy px-4 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
                 >
-                  Verify
+                  {t("Verify")}
                 </button>
               </div>
               {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
@@ -710,8 +724,9 @@ function SessionCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t, locale } = useLanguage();
   const isUnavailable = session.status !== "scheduled";
-  const unavailableLabel = session.status === "active" ? "In Progress" : "Closed";
+  const unavailableLabel = session.status === "active" ? t("In Progress") : t("Closed");
   return (
     <button
       onClick={isUnavailable ? undefined : onSelect}
@@ -728,7 +743,7 @@ function SessionCard({
         <div>
           <p className="text-sm font-medium text-navy">{session.date}</p>
           <p className="mt-0.5 text-xs text-navy-mid">
-            {session.startTime} – {session.endTime}
+            {fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}
           </p>
           <p className="mt-0.5 text-xs text-navy-mid">{session.clinicName}</p>
         </div>
@@ -741,7 +756,7 @@ function SessionCard({
                 : "bg-green-50 text-success"
           }`}
         >
-          {isUnavailable ? unavailableLabel : selected ? "Selected ✓" : `${session.availableSlots} slots`}
+          {isUnavailable ? unavailableLabel : selected ? t("Selected ✓") : `${session.availableSlots} ${t("slots")}`}
         </span>
       </div>
     </button>

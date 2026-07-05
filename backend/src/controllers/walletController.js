@@ -73,6 +73,26 @@ export const walletController = {
     }
   },
 
+  async requestWithdrawal(req, res, next) {
+    try {
+      const amount      = Number(req.body.amount);
+      const destination = String(req.body.destination ?? '').trim();
+      if (!amount || amount < 100 || amount > 100_000) {
+        return res.status(400).json({ status: 'error', message: 'Amount must be between 100 and 100,000 EGP' });
+      }
+      if (!destination || destination.length < 5) {
+        return res.status(400).json({ status: 'error', message: 'Destination (bank account or mobile number) is required' });
+      }
+      const wallet = await walletService.withdraw({
+        accountId: req.actor.account._id,
+        ownerKind: ownerKindFromReq(req),
+        amount,
+        destination,
+      });
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
+  },
+
   async getMyEntries(req, res, next) {
     try {
       const { limit = 50, page = 1 } = req.query;

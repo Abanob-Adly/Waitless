@@ -6,9 +6,12 @@ import { mockAppointments } from "../../data/mockAppointments";
 import { useDoctorQueue } from "../../hooks/useDoctorQueue";
 import type { AppointmentStatus } from "../../types/appointment";
 import type { SessionStatus } from "../../types/session";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 export function DoctorSessionQueuePage() {
   const { sessionId } = useParams();
+  const { locale } = useLanguage();
 
   const session = mockDoctorSessions.find((item) => item.id === sessionId);
 
@@ -76,7 +79,7 @@ export function DoctorSessionQueuePage() {
             </p>
 
             <p className="mt-1 text-sm text-navy-mid">
-              {session.date} · {session.startTime} - {session.endTime}
+              {session.date} · {fmt12(session.startTime, locale)} - {fmt12(session.endTime, locale)}
             </p>
           </div>
 

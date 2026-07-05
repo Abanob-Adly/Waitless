@@ -53,6 +53,10 @@ export type BackendAppointment = {
   completedAt?: string;
   skippedAt?: string;
   notes?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  paidAt?: string;
+  paidAmount?: number;
 };
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -347,6 +351,9 @@ export type CashSummaryEntry = {
   queueNumber: number;
   patientName: string;
   completedAt: string;
+  paymentMethod?: string;
+  paidAmount?: number;
+  paidAt?: string;
 };
 
 export type CashSummary = {
@@ -367,6 +374,21 @@ export async function getCashSummary(
   return res.data.data;
 }
 
+// ── Confirm clinic cash payment ───────────────────────────────────────────────
+
+export async function confirmCashPayment(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  appointmentId: string,
+  paidAmount?: number,
+): Promise<void> {
+  await api.patch(
+    `${base(orgId, branchId)}/${sessionId}/appointments/${appointmentId}/confirm-payment`,
+    paidAmount != null ? { paidAmount } : {},
+  );
+}
+
 function adaptAppointment(a: Record<string, unknown>): BackendAppointment {
   const profile = (a.patientProfile as Record<string, unknown>) ?? {};
   return {
@@ -378,9 +400,13 @@ function adaptAppointment(a: Record<string, unknown>): BackendAppointment {
       fullName: String(profile.fullName ?? ""),
       phone: String(profile.phone ?? ""),
     },
-    calledAt: a.calledAt as string | undefined,
-    completedAt: a.completedAt as string | undefined,
-    skippedAt: a.skippedAt as string | undefined,
-    notes: a.notes as string | undefined,
+    calledAt:      a.calledAt      as string | undefined,
+    completedAt:   a.completedAt   as string | undefined,
+    skippedAt:     a.skippedAt     as string | undefined,
+    notes:         a.notes         as string | undefined,
+    paymentMethod: a.paymentMethod as string | undefined,
+    paymentStatus: a.paymentStatus as string | undefined,
+    paidAt:        a.paidAt        as string | undefined,
+    paidAmount:    a.paidAmount != null ? Number(a.paidAmount) : undefined,
   };
 }

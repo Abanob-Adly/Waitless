@@ -185,6 +185,15 @@ export const walletService = {
     });
   },
 
+  async withdraw({ accountId, ownerKind, amount, destination }) {
+    const wallet = await getOrCreateAccountWallet(accountId, ownerKind);
+    return debitWallet(wallet._id, amount, {
+      type: 'withdrawal',
+      referenceKind: 'withdrawal',
+      description: `Withdrawal to: ${destination}`,
+    });
+  },
+
   /**
    * Top-up an organization wallet.
    */

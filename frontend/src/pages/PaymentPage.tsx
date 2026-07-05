@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { useLanguage } from "../context/LanguageContext";
+import { fmt12 } from "../utils/time";
 import { bookMarketplace } from "../services/appointmentService";
 import { getMyWallet } from "../services/walletService";
 import { api } from "../services/api";
@@ -31,6 +33,7 @@ export function PaymentPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { setBookingIntent } = useApp();
+  const { locale } = useLanguage();
 
   const state = location.state as CheckoutState | null;
 
@@ -329,7 +332,7 @@ export function PaymentPage() {
                 </p>
                 <p className="mt-2">
                   Please arrive at{" "}
-                  <strong className="text-navy">{session.startTime}</strong> at{" "}
+                  <strong className="text-navy">{fmt12(session.startTime, locale)}</strong> at{" "}
                   <strong className="text-navy">{session.clinicName}</strong>.
                 </p>
               </div>
@@ -412,7 +415,7 @@ export function PaymentPage() {
               {/* Details */}
               <dl className="mt-4 space-y-2.5 border-t border-border pt-4 text-sm">
                 <SummaryRow icon="📅" label="Date" value={session.date} />
-                <SummaryRow icon="⏰" label="Time" value={session.startTime} />
+                <SummaryRow icon="⏰" label="Time" value={fmt12(session.startTime, locale)} />
                 <SummaryRow
                   icon="📍"
                   label="Clinic"

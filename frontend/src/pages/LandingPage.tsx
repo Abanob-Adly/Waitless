@@ -6,6 +6,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { SPECIALTIES, AREAS } from "../data/mockData";
 import type { Doctor, ActiveBooking } from "../context/AppContext";
 import * as marketplaceService from "../services/marketplaceService";
+import { fmt12 } from "../utils/time";
 
 const STATS = [
   { value: "2,400+", label: "Patients Served" },
@@ -356,7 +357,7 @@ export function LandingPage() {
 
 function TicketPreview({ booking }: { booking: ActiveBooking }) {
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const progress = booking.queueNumber > 0
     ? Math.min(1, (booking.queueNumber - 1) / Math.max(1, booking.queueNumber))
     : 0.5;
@@ -427,7 +428,7 @@ function TicketPreview({ booking }: { booking: ActiveBooking }) {
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg bg-white/10 p-2.5 text-center transition hover:bg-white/15">
             <p className="font-heading text-xl font-bold text-gold">
-              {booking.session.startTime}
+              {fmt12(booking.session.startTime, locale)}
             </p>
             <p className="text-xs text-white/50">{t("Session start")}</p>
           </div>

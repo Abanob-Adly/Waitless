@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { useLanguage } from "../context/LanguageContext";
+import { fmt12 } from "../utils/time";
 import type { Doctor, Session, ActiveBooking } from "../context/AppContext";
 
 // ── State shape passed from PaymentPage via navigate ──────────────────────────
@@ -70,6 +72,7 @@ function SuccessView({
   state: PaymentResultState;
   onViewTicket: () => void;
 }) {
+  const { locale } = useLanguage();
   return (
     <main className="mx-auto max-w-lg px-4 py-16 text-center">
       {/* Check icon */}
@@ -108,7 +111,7 @@ function SuccessView({
             <ReceiptRow label="Transaction ID" value={state.transactionId ?? "—"} mono />
             <ReceiptRow label="Doctor" value={state.doctor.name} />
             <ReceiptRow label="Date" value={state.session.date} />
-            <ReceiptRow label="Time" value={state.session.startTime} />
+            <ReceiptRow label="Time" value={fmt12(state.session.startTime, locale)} />
             <ReceiptRow label="Clinic" value={state.session.clinicName} />
             <ReceiptRow label="Patient" value={state.patientName} />
             {state.last4 && (

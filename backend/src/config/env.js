@@ -54,4 +54,11 @@ export const env = {
   queue: {
     gracePeriodMin: Number(process.env.QUEUE_GRACE_PERIOD_MIN) || 5,
   },
+
+  paymob: {
+    apiKey:        process.env.PAYMOB_API_KEY        || '',
+    integrationId: process.env.PAYMOB_INTEGRATION_ID || '',
+    iframeId:      process.env.PAYMOB_IFRAME_ID      || '',
+    hmacSecret:    process.env.PAYMOB_HMAC_SECRET    || '',
+  },
 };
