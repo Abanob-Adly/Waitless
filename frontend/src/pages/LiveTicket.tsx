@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
+import { useLanguage } from "../context/LanguageContext";
 import { api } from "../services/api";
 import type { ActiveBooking } from "../context/AppContext";
 
 // ── Post-Consultation Rating Popup ────────────────────────────────────────────
 
 function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: string; reviewToken: string; onDismiss: () => void }) {
+  const { t, locale } = useLanguage();
   const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
@@ -22,7 +24,6 @@ function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: strin
       setSubmitted(true);
       setTimeout(onDismiss, 2000);
     } catch {
-      // Silently dismiss on error — review isn't critical
       onDismiss();
     } finally {
       setSubmitting(false);
@@ -31,22 +32,21 @@ function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: strin
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/50 p-4 pb-8 backdrop-blur-sm sm:items-center">
-      <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-2xl" dir={locale === "ar" ? "rtl" : "ltr"}>
         {submitted ? (
           <div className="py-4 text-center">
             <p className="text-4xl">⭐</p>
-            <p className="mt-3 font-heading text-lg font-bold text-navy">Thank you!</p>
-            <p className="mt-1 text-sm text-navy-mid">Your feedback helps improve care.</p>
+            <p className="mt-3 font-heading text-lg font-bold text-navy">{t("Thank you!")}</p>
+            <p className="mt-1 text-sm text-navy-mid">{t("Your feedback helps improve care.")}</p>
           </div>
         ) : (
           <>
             <div className="mb-4 text-center">
               <p className="text-3xl">🩺</p>
-              <h3 className="mt-2 font-heading text-lg font-bold text-navy">Rate Your Consultation</h3>
-              <p className="mt-1 text-sm text-navy-mid">How was your experience with {doctorName}?</p>
+              <h3 className="mt-2 font-heading text-lg font-bold text-navy">{t("Rate Your Consultation")}</h3>
+              <p className="mt-1 text-sm text-navy-mid">{t("How was your experience with")} {doctorName}?</p>
             </div>
 
-            {/* Star rating */}
             <div className="mb-4 flex justify-center gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
@@ -75,14 +75,14 @@ function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: strin
                 onClick={onDismiss}
                 className="flex-1 rounded-md border border-border py-2.5 text-sm text-navy-mid hover:border-navy hover:text-navy"
               >
-                Skip
+                {t("Skip")}
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={rating === 0 || submitting}
                 className="flex-1 rounded-md bg-gold py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
               >
-                {submitting ? "Sending…" : "Submit Rating"}
+                {submitting ? t("Sending…") : t("Submit Rating")}
               </button>
             </div>
           </>
@@ -98,7 +98,7 @@ export function LiveTicket() {
   const { bookings, removeBooking } = useApp();
   const navigate = useNavigate();
 
-  // Show the first active booking
+  // bookings[0] is always the earliest upcoming appointment (sorted by AppContext.addBooking)
   const booking = bookings[0] ?? null;
 
   if (!booking) return <NoTicketView />;
@@ -123,6 +123,7 @@ function TicketView({
   booking: ActiveBooking;
   onCancel: () => void;
 }) {
+  const { t, locale } = useLanguage();
   const navigate = useNavigate();
   const [cancelling, setCancelling] = useState(false);
 
@@ -198,13 +199,13 @@ function TicketView({
   );
 
   const paymentBadge = {
-    success: { label: "Paid ✓", cls: "bg-success/10 text-success" },
-    failed: { label: "Payment Failed", cls: "bg-danger/10 text-danger" },
-    pending: { label: "Pay at Clinic", cls: "bg-gold-tint text-navy" },
+    success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
+    failed: { label: t("Payment Failed"), cls: "bg-danger/10 text-danger" },
+    pending: { label: t("Pay at Clinic"), cls: "bg-gold-tint text-navy" },
   }[booking.paymentStatus];
 
   async function handleCancel() {
-    if (!window.confirm("Cancel your appointment? This cannot be undone."))
+    if (!window.confirm(t("Cancel your appointment? This cannot be undone.")))
       return;
     setCancelling(true);
     // Best-effort cancel — if it fails the booking is removed from local state anyway
@@ -217,8 +218,7 @@ function TicketView({
   }
 
   return (
-    <main className="mx-auto max-w-lg px-4 pb-16 pt-8">
-      {/* Post-consultation rating popup */}
+    <main className="mx-auto max-w-lg px-4 pb-16 pt-8" dir={locale === "ar" ? "rtl" : "ltr"}>
       {isCompleted && reviewToken && !ratingDismissed && (
         <RatingPopup
           doctorName={booking.doctor.name}
@@ -227,43 +227,40 @@ function TicketView({
         />
       )}
 
-      {/* Live / scheduled indicator */}
       <div className="mb-6 flex items-center justify-center gap-2">
         <span className={`h-2 w-2 rounded-full ${isSessionDay ? "animate-pulse bg-success" : "bg-gold"}`} />
         <span className="text-sm text-navy-mid">
-          {isSessionDay ? "Live queue · syncing in real-time" : "Appointment confirmed · awaiting session day"}
+          {isSessionDay ? t("Live queue · syncing in real-time") : t("Appointment confirmed · awaiting session day")}
         </span>
       </div>
 
-      {/* Break banner — highest priority, replaces delay banner when on break */}
       {isSessionDay && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">☕</span>
           <div>
-            <p className="text-sm font-semibold text-navy">Doctor is on a short break</p>
+            <p className="text-sm font-semibold text-navy">{t("Doctor is on a short break")}</p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              Queue will resume shortly. Your estimated wait has been updated.
+              {t("Queue will resume shortly. Your estimated wait has been updated.")}
             </p>
           </div>
         </div>
       )}
 
-      {/* Delay banner — shown when not on break but running late */}
       {isSessionDay && !isOnBreak && globalDelayMin >= 5 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
           <span className="text-base">⏱</span>
           <p className="text-sm text-navy">
-            <span className="font-semibold">Doctor is running behind</span> — estimated extra delay: {Math.round(globalDelayMin)} min
+            <span className="font-semibold">{t("Doctor is running behind")}</span>{" "}
+            — {t("estimated extra delay:")} {Math.round(globalDelayMin)} {t("min")}
           </p>
         </div>
       )}
 
-      {/* Emergency insert notification */}
       {isSessionDay && wasForceInserted && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
           <span className="text-base">🚨</span>
           <div>
-            <p className="text-sm font-semibold text-navy">An emergency case was inserted ahead of you</p>
+            <p className="text-sm font-semibold text-navy">{t("An emergency case was inserted ahead of you")}</p>
             {emergencyReason && (
               <p className="mt-0.5 text-xs text-navy-mid">{emergencyReason}</p>
             )}
@@ -271,16 +268,17 @@ function TicketView({
         </div>
       )}
 
-      {/* Turn-approaching notification — shown when 2 or fewer patients ahead */}
       {isSessionDay && !isCalled && position > 0 && position <= 3 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
           <span className="text-base">🔔</span>
           <div>
             <p className="text-sm font-semibold text-navy">
-              {position === 1 ? "You're next!" : `Almost your turn — ${position - 1} patient${position - 1 > 1 ? "s" : ""} ahead`}
+              {position === 1
+                ? t("You're next!")
+                : `${t("Almost your turn —")} ${position - 1} ${position - 1 > 1 ? t("patients ahead") : t("patient ahead")}`}
             </p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              Please make your way to the clinic now.
+              {t("Please make your way to the clinic now.")}
             </p>
           </div>
         </div>
@@ -309,7 +307,7 @@ function TicketView({
           <div className="flex flex-col items-end gap-2">
             <span className="flex items-center gap-1.5 rounded-full bg-success px-3 py-1 text-xs font-medium text-white">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-              Live
+              {t("Live")}
             </span>
             <p className="text-xs text-white/40">{booking.session.date}</p>
             <p className="text-xs text-white/40">
@@ -361,13 +359,12 @@ function TicketView({
         {/* ── Patient notes preview ── */}
         {booking.patientNotes && (
           <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid">
-            <span className="font-medium text-navy">Note: </span>
+            <span className="font-medium text-navy">{t("Note:")} </span>
             {booking.patientNotes.slice(0, 80)}
             {booking.patientNotes.length > 80 ? "…" : ""}
           </div>
         )}
 
-        {/* ── Cancel button (only available on the session day while not yet called) ── */}
         {isSessionDay && !isCalled && (
           <div className="px-6 pb-6 pt-2">
             <button
@@ -375,24 +372,22 @@ function TicketView({
               disabled={cancelling}
               className="w-full rounded-md border border-danger/30 bg-white py-3 text-sm font-medium text-danger transition hover:bg-danger hover:text-white disabled:opacity-50"
             >
-              {cancelling ? "Cancelling…" : "Cancel My Booking"}
+              {cancelling ? t("Cancelling…") : t("Cancel My Booking")}
             </button>
           </div>
         )}
 
-        {/* Footer */}
         <p className="pb-5 text-center text-xs text-navy-mid">
-          Keep this page open to track your position.
+          {t("Keep this page open to track your position.")}
         </p>
       </div>
 
-      {/* Dashboard link */}
       <p className="mt-6 text-center text-sm text-navy-mid">
         <button
           onClick={() => navigate("/dashboard")}
           className="text-gold underline underline-offset-2 transition hover:text-gold-light"
         >
-          View in My Dashboard →
+          {t("View in My Dashboard →")}
         </button>
       </p>
     </main>
@@ -402,30 +397,31 @@ function TicketView({
 // ── Session-not-started view (today but before start time / doctor hasn't pressed Start) ──
 
 function SessionWindowClosedView({ endTime }: { endTime: string }) {
+  const { t } = useLanguage();
   return (
     <div className="py-4 text-center">
       <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-5xl">
         🔒
       </div>
-      <h2 className="font-heading text-2xl font-bold text-navy">Session Closed</h2>
+      <h2 className="font-heading text-2xl font-bold text-navy">{t("Session Closed")}</h2>
       <p className="mt-3 text-sm leading-6 text-navy-mid">
-        This session ended at{" "}
+        {t("This session ended at")}{" "}
         <span className="font-semibold text-navy">{endTime}</span>.
       </p>
       <p className="mt-2 text-xs text-navy-mid">
-        If you were not seen, please contact the clinic to reschedule.
+        {t("If you were not seen, please contact the clinic to reschedule.")}
       </p>
       <div className="mt-5 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-        No further queue updates will be made for this session.
+        {t("No further queue updates will be made for this session.")}
       </div>
     </div>
   );
 }
 
 function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
+  const { t } = useLanguage();
   const [, rerender] = useState(0);
 
-  // Live countdown — re-render every 30 s so the displayed time stays fresh
   useEffect(() => {
     const id = setInterval(() => rerender((n) => n + 1), 30_000);
     return () => clearInterval(id);
@@ -446,17 +442,17 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
         ⏰
       </div>
       <h2 className="font-heading text-2xl font-bold text-navy">
-        Session starts in {countdownStr}
+        {t("Session starts in")} {countdownStr}
       </h2>
       <p className="mt-3 text-sm leading-6 text-navy-mid">
-        Your session is scheduled to begin at{" "}
+        {t("Your session is scheduled to begin at")}{" "}
         <span className="font-semibold text-navy">{startTime}</span>.
       </p>
       <p className="mt-2 text-xs text-navy-mid">
-        Your queue position and wait time will appear here once the session begins.
+        {t("Your queue position and wait time will appear here once the session begins.")}
       </p>
       <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
-        Arrive 10 minutes before your scheduled session.
+        {t("Arrive 10 minutes before your scheduled session.")}
       </div>
     </div>
   );
@@ -465,13 +461,14 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
 // ── Countdown view (appointment is in the future) ────────────────────────────
 
 function CountdownView({ sessionDate }: { sessionDate: string }) {
+  const { t, locale } = useLanguage();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const session = new Date(sessionDate + "T00:00:00");
   session.setHours(0, 0, 0, 0);
   const daysLeft = Math.round((session.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-  const formatted = session.toLocaleDateString("en-GB", {
+  const formatted = session.toLocaleDateString(locale === "ar" ? "ar-EG" : "en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -484,14 +481,14 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
         📅
       </div>
       <h2 className="font-heading text-3xl font-bold text-navy">
-        {daysLeft <= 0 ? "Today!" : daysLeft === 1 ? "Tomorrow!" : `${daysLeft} days to go`}
+        {daysLeft <= 0 ? t("Today!") : daysLeft === 1 ? t("Tomorrow!") : `${daysLeft} ${t("days to go")}`}
       </h2>
       <p className="mt-4 text-sm leading-6 text-navy-mid">
-        Your appointment is scheduled for{" "}
+        {t("Your appointment is scheduled for")}{" "}
         <span className="font-semibold text-navy">{formatted}</span>.
       </p>
       <p className="mt-2 text-xs text-navy-mid">
-        Return on the day of your appointment to track your live queue position.
+        {t("Return on the day of your appointment to track your live queue position.")}
       </p>
     </div>
   );
@@ -522,17 +519,18 @@ function WaitingView({
   dashOffset,
   R,
 }: WaitingViewProps) {
+  const { t } = useLanguage();
   return (
     <div>
       <div className="mb-4 flex justify-center">
         <span className="rounded-full bg-navy px-4 py-1.5 text-sm font-medium text-white/70">
-          Your number:{" "}
+          {t("Your number:")}{" "}
           <span className="font-bold text-gold">#{queueNumber}</span>
         </span>
       </div>
 
       <p className="mb-4 text-center text-sm font-medium text-navy-mid">
-        Your position in queue
+        {t("Your position in queue")}
       </p>
 
       {/* SVG circular ring */}
@@ -571,18 +569,17 @@ function WaitingView({
       </div>
 
       <p className="mt-5 text-center text-sm text-navy-mid">
-        Currently serving{" "}
+        {t("Currently serving")}{" "}
         <span className="font-semibold text-navy">#{currentServing}</span>
       </p>
 
-      {/* Stats grid */}
       <div className="mt-6 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-gold-tint p-4 text-center">
           <p className="font-heading text-2xl font-bold text-gold">
             ~{etaMinutes}m
           </p>
           <p className="mt-1 text-xs font-medium text-navy-mid">
-            Estimated wait
+            {t("Estimated wait")}
           </p>
         </div>
         <div className="rounded-xl bg-offwhite p-4 text-center">
@@ -590,18 +587,17 @@ function WaitingView({
             {avgConsultationMin}m
           </p>
           <p className="mt-1 text-xs font-medium text-navy-mid">
-            Avg consultation
+            {t("Avg consultation")}
           </p>
         </div>
       </div>
 
-      {/* Recommended arrival time */}
       {etaMinutes > 10 && (
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-offwhite px-4 py-3">
           <span className="text-base">📍</span>
           <div>
             <p className="text-xs font-medium text-navy">
-              Best time to arrive at the clinic
+              {t("Best time to arrive at the clinic")}
             </p>
             <p className="mt-0.5 font-heading text-lg font-bold text-gold">
               {recommendedArrivalTime}
@@ -616,25 +612,26 @@ function WaitingView({
 // ── Called view ───────────────────────────────────────────────────────────────
 
 function CalledView() {
+  const { t } = useLanguage();
   return (
     <div className="py-4 text-center">
       <div className="mx-auto mb-5 flex h-24 w-24 animate-bounce items-center justify-center rounded-full bg-gold-tint text-5xl">
         🔔
       </div>
       <h2 className="font-heading text-3xl font-bold text-navy">
-        It&apos;s your turn!
+        {t("It's your turn!")}
       </h2>
       <p className="mt-4 text-sm leading-6 text-navy-mid">
-        Please proceed to reception within{" "}
-        <span className="font-semibold text-gold">5 minutes</span> or your
-        spot may be given to the next patient.
+        {t("Please proceed to reception within")}{" "}
+        <span className="font-semibold text-gold">{t("5 minutes")}</span>{" "}
+        {t("or your spot may be given to the next patient.")}
       </p>
       <div className="mt-6 rounded-xl bg-gold-tint px-5 py-4">
         <p className="font-medium text-navy">
-          Show this screen at the reception desk
+          {t("Show this screen at the reception desk")}
         </p>
         <p className="mt-1 text-xs text-navy-mid">
-          Reception staff will note your details
+          {t("Reception staff will note your details")}
         </p>
       </div>
     </div>
@@ -644,22 +641,22 @@ function CalledView() {
 // ── No ticket view ────────────────────────────────────────────────────────────
 
 function NoTicketView() {
+  const { t, locale } = useLanguage();
   const navigate = useNavigate();
   return (
-    <main className="mx-auto max-w-md px-6 py-28 text-center">
+    <main className="mx-auto max-w-md px-6 py-28 text-center" dir={locale === "ar" ? "rtl" : "ltr"}>
       <p className="text-6xl">🎫</p>
       <h2 className="mt-5 font-heading text-3xl font-bold text-navy">
-        No active ticket
+        {t("No active ticket")}
       </h2>
       <p className="mt-3 text-sm leading-6 text-navy-mid">
-        You don&apos;t have an active booking. Find a doctor and book an
-        appointment to receive your live queue ticket.
+        {t("You don't have an active booking. Find a doctor and book an appointment to receive your live queue ticket.")}
       </p>
       <button
         onClick={() => navigate("/search")}
         className="mt-8 rounded-md bg-gold px-8 py-3 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
-        Find a Doctor
+        {t("Find a Doctor")}
       </button>
     </main>
   );

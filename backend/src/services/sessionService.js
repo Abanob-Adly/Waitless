@@ -49,6 +49,13 @@ export const sessionService = {
         const endTime = new Date(current);
         endTime.setUTCHours(eh, em, 0, 0);
 
+        // Skip slots whose end time has already passed — creating them would
+        // cause the auto-close cron to immediately cancel them.
+        if (endTime <= new Date()) {
+          skipped++;
+          continue;
+        }
+
         try {
           await Session.create({
             doctorBranchSchedule: schedule._id,

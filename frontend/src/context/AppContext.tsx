@@ -91,7 +91,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   function addBooking(b: ActiveBooking) {
     setBookings((prev) => {
       const exists = prev.some((x) => x.id === b.id);
-      return exists ? prev : [...prev, b];
+      if (exists) return prev;
+      const next = [...prev, b];
+      // Always keep the earliest upcoming appointment first so LiveTicket and
+      // other consumers can safely use bookings[0] as "next appointment".
+      return next.sort((a, z) => {
+        const ta = `${a.session.date}T${a.session.startTime ?? "00:00"}`;
+        const tz = `${z.session.date}T${z.session.startTime ?? "00:00"}`;
+        return ta < tz ? -1 : ta > tz ? 1 : 0;
+      });
     });
   }
 

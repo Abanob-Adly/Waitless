@@ -163,8 +163,13 @@ export function DoctorProfile() {
     });
   }
 
+  const positiveRate =
+    reviews.length > 0
+      ? Math.round((reviews.filter((r) => r.rating >= 4).length / reviews.length) * 100)
+      : null;
+
   const tabItems = [
-    { id: "about", label: "About", content: <AboutTab doctor={doctor} /> },
+    { id: "about", label: "About", content: <AboutTab doctor={doctor} positiveRate={positiveRate} /> },
     {
       id: "clinics",
       label: "Clinic Locations",
@@ -403,7 +408,8 @@ export function DoctorProfile() {
 
 // ── Tab components ────────────────────────────────────────────────────────────
 
-function AboutTab({ doctor }: { doctor: Doctor }) {
+function AboutTab({ doctor, positiveRate }: { doctor: Doctor; positiveRate: number | null }) {
+  const { t } = useLanguage();
   return (
     <div className="space-y-6">
       <div>
@@ -418,10 +424,15 @@ function AboutTab({ doctor }: { doctor: Doctor }) {
           Key Credentials
         </h4>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard icon="⏱" value={`${doctor.experienceYears}`} label="Years Experience" />
-          <StatCard icon="★" value={`${doctor.rating}`} label="Patient Rating" />
-          <StatCard icon="💬" value={`${doctor.reviewCount}`} label="Reviews" />
-          <StatCard icon="🌐" value={doctor.languages.length.toString()} label="Languages" />
+          <StatCard icon="⏱" value={`${doctor.experienceYears}`} label={t("Years Experience")} />
+          <StatCard icon="★" value={`${doctor.rating}`} label={t("Patient Rating")} />
+          <StatCard icon="💬" value={`${doctor.reviewCount}`} label={t("Reviews")} />
+          <StatCard
+            icon="👍"
+            value={positiveRate !== null ? `${positiveRate}%` : "—"}
+            label={t("Positive Reviews")}
+            sub={positiveRate === null ? t("No ratings yet") : undefined}
+          />
         </div>
       </div>
 
@@ -750,16 +761,19 @@ function StatCard({
   icon,
   value,
   label,
+  sub,
 }: {
   icon: string;
   value: string;
   label: string;
+  sub?: string;
 }) {
   return (
     <div className="rounded-xl bg-offwhite p-3 text-center">
       <p className="text-xl">{icon}</p>
       <p className="mt-1 font-heading text-xl font-bold text-navy">{value}</p>
       <p className="text-xs text-navy-mid">{label}</p>
+      {sub && <p className="mt-0.5 text-[10px] text-navy-mid/70">{sub}</p>}
     </div>
   );
 }

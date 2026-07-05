@@ -34,7 +34,7 @@ export const marketplaceService = {
       status: 'active',
     })
       .populate('account', 'fullName avatarUrl')
-      .select('specialties bio services ratingStats account languagesSpoken acceptedInsurances yearsOfExperience');
+      .select('specialties bio services ratingStats account languagesSpoken acceptedInsurances yearsOfExperience avatarUrl');
 
     // Attach consultation fee from the doctor's active schedule
     const schedules = await DoctorBranchSchedule.find({
