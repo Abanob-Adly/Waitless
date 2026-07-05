@@ -136,7 +136,7 @@ export const sessionService = {
     await session.save();
 
     await Appointment.updateMany(
-      { session: session._id, status: { $in: ['booked', 'called', 'skipped'] } },
+      { session: session._id, status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } },
       { $set: { status: 'no_show' } }
     );
 

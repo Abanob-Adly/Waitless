@@ -55,6 +55,10 @@ export const walletController = {
       if (String(appointment.patientProfile?.accountId) !== String(accountId)) {
         return res.status(403).json({ status: 'error', message: 'Appointment does not belong to this user' });
       }
+      // Guard against double-charging — idempotency check
+      if (appointment.paymentStatus === 'success') {
+        return res.status(409).json({ status: 'error', message: 'Appointment has already been paid' });
+      }
 
       const wallet = await walletService.purchaseDebit({ accountId, amount: fee, appointmentId });
 

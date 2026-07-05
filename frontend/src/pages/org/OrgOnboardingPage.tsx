@@ -10,7 +10,7 @@ import type { OrgType } from "../../types/index";
 
 export function OrgOnboardingPage() {
   const navigate = useNavigate();
-  const { loginWithCredentials } = useAuth();
+  const { loginWithCredentials, reloadUser } = useAuth();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -99,8 +99,8 @@ export function OrgOnboardingPage() {
       const currentRefresh = localStorage.getItem("waitless_refresh_token") ?? "";
       saveTokens(orgToken, currentRefresh);
 
-      // Update user profile with new orgId from the token
-      await loginWithCredentials(workerEmail, workerPassword);
+      // Sync auth context using the org-scoped token already in localStorage — no new login needed
+      await reloadUser();
 
       setIsLoading(false);
       setStep(3);

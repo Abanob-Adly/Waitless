@@ -143,8 +143,18 @@ export const authService = {
     const account = await Account.findById(result.accountId);
     if (!account || account.status !== 'active') throw Unauthorized();
 
+    // Re-attach the worker's active org so the new token carries the same scope.
+    let activeOrgId = null;
+    if (account.role === 'staff') {
+      const membership = await Membership.findOne({
+        account: account._id,
+        status:  'active',
+      }).select('organization').lean();
+      activeOrgId = membership?.organization || null;
+    }
+
     return {
-      accessToken: tokenService.signAccessToken(account),
+      accessToken:  tokenService.signAccessToken(account, activeOrgId),
       refreshToken: result.newRaw,
     };
   },

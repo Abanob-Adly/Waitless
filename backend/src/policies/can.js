@@ -1,4 +1,4 @@
-import { Forbidden } from '../utils/errors.js';
+import { Forbidden, NotFound } from '../utils/errors.js';
 import { policies } from './policies.js';
 
 /**
@@ -28,7 +28,7 @@ export function authorize(action, loader = null) {
   return async (req, _res, next) => {
     try {
       const resource = loader ? await loader(req) : null;
-      if (loader && !resource) return next(Forbidden('Resource not found'));
+      if (loader && !resource) return next(NotFound('Resource not found'));
 
       if (!can(req.actor, action, resource)) return next(Forbidden());
 

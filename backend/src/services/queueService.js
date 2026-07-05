@@ -484,7 +484,7 @@ export const queueService = {
     // after any gap-creating events.
     const aheadAppointments = await Appointment.find({
       session:     session._id,
-      queueNumber: { $gte: currentServing, $lt: appointment.queueNumber },
+      queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
       status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
     }).select('appointmentType').lean();
 
