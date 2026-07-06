@@ -45,7 +45,7 @@ export function LiveTicket() {
     if (!token) return;
     let alive = true;
 
-    async function poll() {
+    async function fetchStatus() {
       try {
         const res = await api.get<{ data: Record<string, unknown> }>(
           `/appointments/track/${token}`,
@@ -57,16 +57,16 @@ export function LiveTicket() {
         const position = Math.max(0, queueNumber - currentlyServing);
         setQueueStatus({
           token: token,
-          patientName:         String(d.patientName ?? ""),
+          patientName:          String(d.patientName ?? ""),
           queueNumber,
           position,
-          totalInQueue:        queueNumber,
+          totalInQueue:         queueNumber,
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
-          status:              String(d.status ?? "booked") as AppointmentStatus,
-          sessionDate:         String(d.sessionDate ?? ""),
-          sessionStatus:       (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
-          isOnBreak:           Boolean(d.isOnBreak ?? false),
-          doctorAvatarUrl:     String(d.doctorAvatarUrl ?? ""),
+          status:               String(d.status ?? "booked") as AppointmentStatus,
+          sessionDate:          String(d.sessionDate ?? ""),
+          sessionStatus:        (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
+          isOnBreak:            Boolean(d.isOnBreak ?? false),
+          doctorAvatarUrl:      String(d.doctorAvatarUrl ?? ""),
           doctor: {
             name:            String(d.doctorName ?? ""),
             specialty:       "",
@@ -81,18 +81,54 @@ export function LiveTicket() {
       }
     }
 
-    poll();
-    const id = setInterval(poll, 5_000);
+    // Initial fetch
+    void fetchStatus();
+
+    // SSE for real-time updates; fall back to 30s polling if SSE unavailable
+    const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+    const sseUrl = `${apiBase}/appointments/track/${token}/sse`;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    const sse = new EventSource(sseUrl);
+    sse.onmessage = () => { void fetchStatus(); };
+    sse.onerror = () => {
+      // SSE failed — fall back to 30-second polling
+      sse.close();
+      if (!fallbackInterval) {
+        fallbackInterval = setInterval(() => { void fetchStatus(); }, 30_000);
+      }
+    };
+
     return () => {
       alive = false;
-      clearInterval(id);
+      sse.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, [token]);
 
   async function handleCancel() {
     if (!window.confirm("Are you sure you want to cancel? This cannot be undone.")) return;
     setCancelling(true);
-    navigate("/");
+    try {
+      await api.delete(`/appointments/track/${token}`);
+      // Re-poll immediately to show CancelledView instead of navigating away
+      const res = await api.get<{ data: Record<string, unknown> }>(
+        `/appointments/track/${token}`,
+      );
+      const d = res.data.data;
+      const queueNumber = Number(d.queueNumber ?? 0);
+      const currentlyServing = Number(d.currentlyServing ?? 0);
+      setQueueStatus((prev) =>
+        prev
+          ? { ...prev, status: String(d.status ?? "cancelled") as AppointmentStatus, position: Math.max(0, queueNumber - currentlyServing) }
+          : null,
+      );
+    } catch {
+      // If the cancel call fails (e.g. already cancelled), navigate home
+      navigate("/");
+    } finally {
+      setCancelling(false);
+    }
   }
 
   // ── Loading state ──
@@ -271,6 +307,15 @@ function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isO
 
   return (
     <div>
+      {queueStatus.sessionStatus === "scheduled" && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
+          <span className="text-xl">⏳</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">Session not started yet</p>
+            <p className="text-xs text-navy-mid">The doctor has not started the session. You will be notified when it begins.</p>
+          </div>
+        </div>
+      )}
       {isOnBreak && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-xl">☕</span>

@@ -39,6 +39,39 @@ export function useDoctorActiveSession(
   const branchesRef = useRef(branches);
   useEffect(() => { branchesRef.current = branches; }, [branches]);
 
+  // SSE subscription for the active session — keeps queue in sync without polling
+  const sseCleanupRef = useRef<(() => void) | null>(null);
+  const activeSessionRef = useRef<{ orgId: string; branchId: string; sessionId: string } | null>(null);
+
+  function reloadQueue(orgIdArg: string, branchId: string, sessionId: string) {
+    sessionService.getQueue(orgIdArg, branchId, sessionId)
+      .then((q) => setQueue(q.appointments))
+      .catch(() => { /* leave stale */ });
+  }
+
+  function ensureSSE(orgIdArg: string, branchId: string, sessionId: string) {
+    const cur = activeSessionRef.current;
+    if (cur && cur.orgId === orgIdArg && cur.branchId === branchId && cur.sessionId === sessionId) {
+      return; // already subscribed
+    }
+    // Tear down old subscription
+    sseCleanupRef.current?.();
+    sseCleanupRef.current = null;
+
+    const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+    const token = localStorage.getItem("waitless_access_token") ?? "";
+    const url = `${apiBase}/orgs/${orgIdArg}/branches/${branchId}/sessions/${sessionId}/queue/sse?token=${encodeURIComponent(token)}`;
+    const sse = new EventSource(url);
+    sse.onmessage = () => reloadQueue(orgIdArg, branchId, sessionId);
+    activeSessionRef.current = { orgId: orgIdArg, branchId, sessionId };
+    sseCleanupRef.current = () => { sse.close(); activeSessionRef.current = null; };
+  }
+
+  // Clean up SSE on unmount
+  useEffect(() => {
+    return () => { sseCleanupRef.current?.(); };
+  }, []);
+
   const reload = useCallback(async () => {
     const currentBranches = branchesRef.current;
     // Wait until OrgContext has finished loading and we know the doctor's
@@ -66,6 +99,7 @@ export function useDoctorActiveSession(
         if (found) {
           setActiveSession(found);
           setActiveBranchId(branch.id);
+          ensureSSE(orgId, branch.id, found.id);
           try {
             const q = await sessionService.getQueue(orgId, branch.id, found.id);
             setQueue(q.appointments);

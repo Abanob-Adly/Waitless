@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authService } from '../services/auth.js';
+import Account from '../models/Account.js';
 
 // schema validation
 const Email = z.string().email().toLowerCase();
@@ -121,6 +122,23 @@ export const authController = {
     async confirmPasswordReset(req, res) {
         await authService.confirmPasswordReset(req.body);
         res.json({ ok: true });
+    },
+
+    async checkAvailability(req, res) {
+        const { email, phone } = req.query;
+        const result = { emailTaken: false, phoneTaken: false };
+        if (email) {
+            result.emailTaken = !!(await Account.exists({ email: String(email).toLowerCase().trim() }));
+        }
+        if (phone) {
+            const normalized = String(phone).trim();
+            const e164 = normalized.startsWith('+') ? normalized
+                : normalized.startsWith('201') ? `+${normalized}`
+                : normalized.startsWith('01') ? `+2${normalized}`
+                : normalized;
+            result.phoneTaken = !!(await Account.exists({ phone: e164 }));
+        }
+        res.json(result);
     },
 };
 

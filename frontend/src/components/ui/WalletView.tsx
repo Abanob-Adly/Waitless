@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import * as walletService from "../../services/walletService";
 import type { WalletInfo, WalletEntry } from "../../services/walletService";
 import { useLanguage } from "../../context/LanguageContext";
+import { validateCardNumber, validateExpiry, validateCVV } from "../../utils/validation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,14 +54,15 @@ function TopUpModal({
   async function handleCardSubmit(e: React.FormEvent) {
     e.preventDefault();
     const raw = cardNumber.replace(/\s/g, "");
-    if (raw.length < 16) { setError("Enter a valid 16-digit card number."); return; }
-    if (!expiry.match(/^\d{2}\/\d{2}$/)) { setError("Enter expiry as MM/YY."); return; }
-    if (cvv.length < 3) { setError("Enter a valid CVV."); return; }
+    const cnResult = validateCardNumber(raw);
+    if (!cnResult.valid) { setError(cnResult.error); return; }
+    const expResult = validateExpiry(expiry);
+    if (!expResult.valid) { setError(expResult.error); return; }
+    const cvvResult = validateCVV(cvv);
+    if (!cvvResult.valid) { setError(cvvResult.error); return; }
     if (!cardName.trim()) { setError("Cardholder name is required."); return; }
     setError(null);
     setStep("processing");
-    // Simulate gateway delay then call real top-up
-    await new Promise((r) => setTimeout(r, 1800));
     try {
       await onConfirm(Number(amount));
       setStep("success");
@@ -391,6 +393,7 @@ export function WalletView({ mode, orgId }: Props) {
   const LIMIT = 15;
   const totalPages = Math.ceil(total / LIMIT);
 
+  const [reloadKey, setReloadKey] = useState(0);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [showTopUp, setShowTopUp] = useState(false);
@@ -427,7 +430,7 @@ export function WalletView({ mode, orgId }: Props) {
   }
 
   useEffect(() => { void loadWallet(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { void loadEntries(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadEntries(); }, [page, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleTopUp(amount: number) {
     const w = mode === "org" && orgId
@@ -436,7 +439,7 @@ export function WalletView({ mode, orgId }: Props) {
     setWallet(w);
     setTopUpSuccess(`${amount.toLocaleString()} EGP added to your wallet.`);
     setPage(1);
-    void loadEntries();
+    setReloadKey((k) => k + 1);
     setTimeout(() => setTopUpSuccess(null), 4000);
   }
 
@@ -444,7 +447,7 @@ export function WalletView({ mode, orgId }: Props) {
     const w = await walletService.withdrawFromWallet(amount, destination);
     setWallet(w);
     setPage(1);
-    void loadEntries();
+    setReloadKey((k) => k + 1);
   }
 
   const currency = wallet?.currency ?? "EGP";

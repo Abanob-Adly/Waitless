@@ -193,6 +193,25 @@ export async function endSession(
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Opens an SSE stream for real-time queue updates for staff.
+ * Calls `onUpdate` whenever the backend publishes a queue change.
+ * Returns a cleanup function to close the EventSource.
+ */
+export function subscribeQueue(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  onUpdate: () => void,
+): () => void {
+  const token = localStorage.getItem("waitless_access_token");
+  const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  const url = `${apiBase}${base(orgId, branchId)}/${sessionId}/queue/sse`;
+  const sse = new EventSource(url + (token ? `?token=${encodeURIComponent(token)}` : ""));
+  sse.onmessage = onUpdate;
+  return () => sse.close();
+}
+
 export async function getQueue(
   orgId: string,
   branchId: string,

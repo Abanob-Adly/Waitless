@@ -72,8 +72,10 @@ app.get("/appointments/mine", authenticate, appointmentController.getOwn);
 // Patient: self-cancel — applies cancellation penalty if within 1 hour of session start
 app.delete("/appointments/:appointmentId/cancel", authenticate, appointmentController.selfCancel);
 
-// Public appointment tracking (no auth — token-based)
+// Public appointment tracking & self-cancel (no auth — token-based)
 app.get("/appointments/track/:token", appointmentController.track);
+app.get("/appointments/track/:token/sse", appointmentController.trackSSE);
+app.delete("/appointments/track/:token", appointmentController.cancelByToken);
 
 app.use(errorHandler);
 

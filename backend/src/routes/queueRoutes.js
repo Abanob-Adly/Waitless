@@ -26,6 +26,13 @@ router.get(
   queueController.getStatus
 );
 
+router.get(
+  '/sse',
+  authenticate,
+  authorize('queue.view', loadSession),
+  queueController.subscribe
+);
+
 router.post(
   '/call-next',
   authenticate,

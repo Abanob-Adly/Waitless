@@ -5,7 +5,7 @@ const organizationSchema = new Schema(
   {
     name: { type: String, required: true, trim: true, index: true },
     slug: { type: String, required: true, lowercase: true, trim: true },
-    type: { type: String, enum: ['clinic', 'hospital'], required: true },
+    type: { type: String, enum: ['clinic', 'hospital', 'polyclinic'], required: true },
 
     // Branding (used in dashboard + marketplace)
     description: { type: String, maxlength: 2000 },

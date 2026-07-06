@@ -11,6 +11,7 @@ import { paymobService } from './paymobService.js';
 import { AppError, Conflict, Forbidden } from '../utils/errors.js';
 import Branch from '../models/Branch.js';
 import { walletService } from './walletService.js';
+import { env } from '../config/env.js';
 
 // ── Plan fallback defaults (used only when DB has no plans) ──────────────────
 
@@ -262,12 +263,29 @@ export const orgService = {
       postal_code:  '00000',
     };
 
-    const { iframeUrl, orderId } = await paymobService.initiatePayment({
-      amountCents:  plan.priceMonthly * 100,
-      currency:     'EGP',
-      appointmentId: merchantOrderId,
-      billingData,
-    });
+    if (!env.paymob.apiKey) {
+      throw new AppError(
+        'Card payment is not available in this environment. Please add funds to your wallet first.',
+        402,
+        'PAYMOB_NOT_CONFIGURED',
+      );
+    }
+
+    let iframeUrl, orderId;
+    try {
+      ({ iframeUrl, orderId } = await paymobService.initiatePayment({
+        amountCents:   plan.priceMonthly * 100,
+        currency:      'EGP',
+        appointmentId: merchantOrderId,
+        billingData,
+      }));
+    } catch {
+      throw new AppError(
+        'Card payment initiation failed. Please try again or add funds to your wallet.',
+        502,
+        'PAYMOB_ERROR',
+      );
+    }
 
     return {
       method:       'card',

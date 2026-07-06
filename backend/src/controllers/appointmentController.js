@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { appointmentService } from '../services/appointmentService.js';
 import { queueService } from '../services/queueService.js';
+import redis from '../config/redis.js';
 
 export const appointmentSchemas = {
   confirmPayment: z.object({
@@ -80,6 +81,27 @@ export const appointmentController = {
     res.json({ data: result });
   },
 
+  // Token-based self-cancel — no auth required; token ownership is the proof
+  async cancelByToken(req, res) {
+    const Appointment  = (await import('../models/Appointment.js')).default;
+    const { AppError } = await import('../utils/errors.js');
+
+    const appointment = await Appointment.findOne({ accessToken: req.params.token })
+      .populate('patientProfile', 'accountId');
+    if (!appointment) throw new AppError('Appointment not found', 404);
+
+    const patientAccountId = appointment.patientProfile?.accountId
+      ? String(appointment.patientProfile.accountId)
+      : null;
+
+    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+      appointment,
+      reason:           'Patient self-cancelled',
+      patientAccountId,
+    });
+    res.json({ data: updated, penaltyApplied });
+  },
+
   async getOwn(req, res) {
     const result = await appointmentService.getOwnAppointments({ actor: req.actor });
     res.json({ data: result });
@@ -133,5 +155,42 @@ export const appointmentController = {
       patientAccountId: String(req.actor.account._id),
     });
     res.json({ data: updated, penaltyApplied });
+  },
+
+  // SSE endpoint: streams queue updates to the patient's live ticket (token-based, no auth)
+  async trackSSE(req, res) {
+    const Appointment = (await import('../models/Appointment.js')).default;
+    const appointment = await Appointment.findOne({ accessToken: req.params.token })
+      .select('session').lean();
+    if (!appointment) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Appointment not found' });
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type':    'text/event-stream',
+      'Cache-Control':   'no-cache',
+      'Connection':      'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write(': connected\n\n');
+
+    const channel = `queue.session.${appointment.session}`;
+    const sub = redis.duplicate();
+    await sub.subscribe(channel);
+
+    sub.on('message', (_ch, message) => {
+      res.write(`data: ${message}\n\n`);
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sub.unsubscribe().catch(() => {});
+      sub.quit().catch(() => {});
+    });
   },
 };

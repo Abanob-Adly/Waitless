@@ -171,11 +171,27 @@ export function SignupPage() {
     if (ok) navigate(nextPath !== "/" ? nextPath : "/dashboard", { replace: true });
   }
 
-  function handleDoctorBasicsNext(e: { preventDefault(): void }) {
+  async function handleDoctorBasicsNext(e: { preventDefault(): void }) {
     e.preventDefault();
     clearErrors();
     if (!validateBasics(true)) return;
-    setStep("clinic-type");
+    setIsSubmitting(true);
+    try {
+      const { emailTaken, phoneTaken } = await authService.checkAvailability(
+        email.trim(),
+        toE164(phone.trim()),
+      );
+      const errs: Record<string, string> = {};
+      if (emailTaken) errs.email = t("This email is already registered.");
+      if (phoneTaken) errs.phone = t("This phone number is already registered.");
+      if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+      setStep("clinic-type");
+    } catch {
+      // Network failure — proceed optimistically; server will reject on submit if taken
+      setStep("clinic-type");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleClinicTypeSelect(path: "own" | "staff") {

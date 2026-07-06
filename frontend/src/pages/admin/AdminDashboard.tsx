@@ -4,6 +4,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { fmt12 } from "../../utils/time";
+import { validatePhone } from "../../utils/validation";
+import { toE164 } from "../../utils/phone";
 import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index";
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
@@ -485,11 +487,12 @@ function OverviewTab() {
 // ── Branches Tab ──────────────────────────────────────────────────────────────
 
 function BranchesTab() {
-  const { branches, isLoading, addBranch, subscription, plans } = useOrg();
+  const { org, branches, isLoading, addBranch, subscription, plans } = useOrg();
   const { t, locale } = useLanguage();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
 
   if (isLoading) return <Skeleton />;
 
@@ -550,12 +553,20 @@ function BranchesTab() {
             <div key={b.id} className="flex items-center justify-between px-5 py-4">
               <div>
                 <p className="font-medium text-navy">{b.name}</p>
-                <p className="text-sm text-navy-mid">{b.address}, {b.city}</p>
-                <p className="text-xs text-navy-mid">{b.phone}</p>
+                <p className="text-sm text-navy-mid">{b.address}{b.city ? `, ${b.city}` : ""}</p>
+                {b.phone && <p className="text-xs text-navy-mid">{b.phone}</p>}
               </div>
-              <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                {t("Active")}
-              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setEditingBranch(b)}
+                  className="text-xs font-medium text-gold hover:text-gold-light transition"
+                >
+                  {t("Edit")}
+                </button>
+                <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
+                  {t("Active")}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -574,6 +585,15 @@ function BranchesTab() {
               setShowModal(false);
             }
           }}
+        />
+      )}
+
+      {editingBranch && org && (
+        <EditBranchModal
+          branch={editingBranch}
+          orgId={org.id}
+          onClose={() => setEditingBranch(null)}
+          onSaved={() => { setEditingBranch(null); }}
         />
       )}
     </div>
@@ -1321,8 +1341,15 @@ function BillingTab() {
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
-      if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
+      const errCode = e?.response?.data?.error;
+      if (errCode === "BRANCH_LIMIT_EXCEEDED" && e?.response?.data?.details) {
         setConflict({ ...e.response!.data!.details, planId });
+      } else if (errCode === "PAYMOB_NOT_CONFIGURED" || errCode === "PAYMOB_ERROR") {
+        showToast(false,
+          locale === "ar"
+            ? "الدفع بالبطاقة غير متاح حالياً. يرجى إضافة رصيد إلى محفظتك أولاً."
+            : "Card payment is unavailable. Please add funds to your wallet first."
+        );
       } else {
         showToast(false, e?.response?.data?.message ?? t("Payment failed"));
       }
@@ -2174,13 +2201,19 @@ function AddBranchModal({
   const [address, setAddress] = useState("");
   const [city, setCity] = useState<CityKey>("cairo");
   const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (phone.trim()) {
+      const ph = validatePhone(phone.trim());
+      if (!ph.valid) { setPhoneError(t(ph.error)); return; }
+    }
+    setPhoneError("");
     setSaving(true);
-    await onSave({ name: name.trim(), address: address.trim(), city, phone: phone.trim() });
+    await onSave({ name: name.trim(), address: address.trim(), city, phone: phone.trim() ? toE164(phone.trim()) : "" });
     setSaving(false);
   }
 
@@ -2203,8 +2236,65 @@ function AddBranchModal({
             ))}
           </select>
         </div>
-        <ModalField label={t("Phone")} value={phone} onChange={setPhone} placeholder="02-XXXXXXXX" inputMode="numeric" />
+        <div>
+          <ModalField label={t("Phone")} value={phone} onChange={(v) => { setPhone(v); setPhoneError(""); }} placeholder="01XXXXXXXXX" inputMode="numeric" />
+          {phoneError && <p className="mt-1 text-xs text-danger">{phoneError}</p>}
+        </div>
         <ModalActions onClose={onClose} saving={saving} label={t("Add Branch")} />
+      </form>
+    </ModalShell>
+  );
+}
+
+function EditBranchModal({
+  branch, orgId, onClose, onSaved,
+}: {
+  branch: Branch;
+  orgId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useLanguage();
+  const { refresh } = useOrg();
+  const [name, setName] = useState(branch.name);
+  const [phone, setPhone] = useState(branch.phone ?? "");
+  const [phoneError, setPhoneError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    if (phone.trim()) {
+      const ph = validatePhone(phone.trim());
+      if (!ph.valid) { setPhoneError(t(ph.error)); return; }
+    }
+    setPhoneError("");
+    setSaving(true);
+    try {
+      await orgService.updateBranch(orgId, branch.id, {
+        name: name.trim(),
+        phone: phone.trim() ? toE164(phone.trim()) : "",
+      });
+      await refresh();
+      onSaved();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? t("Failed to save.");
+      setError(msg);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <ModalShell title={t("Edit Branch")} onClose={onClose}>
+      <form onSubmit={handleSave} className="space-y-4">
+        <ModalField label={t("Branch Name *")} value={name} onChange={setName} placeholder="Maadi Branch" />
+        <div>
+          <ModalField label={t("Phone")} value={phone} onChange={(v) => { setPhone(v); setPhoneError(""); }} placeholder="01XXXXXXXXX" inputMode="numeric" />
+          {phoneError && <p className="mt-1 text-xs text-danger">{phoneError}</p>}
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+        <ModalActions onClose={onClose} saving={saving} label={t("Save Changes")} />
       </form>
     </ModalShell>
   );

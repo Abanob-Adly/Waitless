@@ -125,6 +125,8 @@ export const sessionService = {
     session.status = 'active';
     await session.save();
     await queueService.populateRedis({ session });
+    // Notify waiting patients that the session has started
+    await queueService.publishQueueUpdated(session._id);
     return session;
   },
 
