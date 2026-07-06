@@ -1325,28 +1325,30 @@ async function handleSave(e: React.FormEvent) {
     if (!myMembership) return;
     setSaving(true);
     setResult(null);
-    const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
-    const languagesList = form.languages.split(",").map((l) => l.trim()).filter(Boolean);
-    const yoe = form.yearsOfExperience.trim() !== "" ? Number(form.yearsOfExperience) : null;
+    try {
+      const specialtiesList = form.specialties.split(",").map((s) => s.trim()).filter(Boolean);
+      const languagesList = form.languages.split(",").map((l) => l.trim()).filter(Boolean);
+      const yoe = form.yearsOfExperience.trim() !== "" ? Number(form.yearsOfExperience) : null;
 
-    const result = await updateMember(myMembership.id, {
-      bio: form.bio.trim() || undefined,
-      specialties: specialtiesList.length ? specialtiesList : undefined,
-      avatarUrl: form.avatarUrl.trim() || null,
-      acceptedInsurances: form.insurances,
-      languagesSpoken: languagesList,
-      yearsOfExperience: yoe,
-    });
+      const result = await updateMember(myMembership.id, {
+        bio: form.bio.trim() || undefined,
+        specialties: specialtiesList.length ? specialtiesList : undefined,
+        avatarUrl: form.avatarUrl.trim() || null,
+        acceptedInsurances: form.insurances,
+        languagesSpoken: languagesList,
+        yearsOfExperience: yoe,
+      });
 
-    // OrgContext.updateMember calls refresh() on success, no manual refresh needed.
-    setSaving(false);
-    const ok = result === true;
-    setResult({
-      ok,
-      msg: ok
-        ? "Profile updated successfully."
-        : typeof result === "string" ? result : "Failed to save. Please try again.",
-    });
+      const ok = result === true;
+      setResult({
+        ok,
+        msg: ok
+          ? t("Profile updated successfully.")
+          : typeof result === "string" ? result : t("Failed to save. Please try again."),
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   const initials = doctorName
@@ -1418,7 +1420,7 @@ async function handleSave(e: React.FormEvent) {
         <label className="block">
           <span className="text-sm font-medium text-navy">{t("Avatar URL")}</span>
           <input
-            type="url"
+            type="text"
             value={form.avatarUrl}
             onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
             placeholder="https://..."

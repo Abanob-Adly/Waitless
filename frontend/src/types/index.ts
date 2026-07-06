@@ -279,7 +279,7 @@ export type ScheduleException = {
 
 // ── Billing domain ────────────────────────────────────────────────────────────
 
-export type PlanTier = "trial" | "starter" | "growth" | "enterprise";
+export type PlanTier = "trial" | "starter" | "growth" | "enterprise" | "business+";
 
 export type SubscriptionPlan = {
   id: string;
@@ -290,6 +290,7 @@ export type SubscriptionPlan = {
   maxAdmins: number;
   maxReceptionists: number;
   maxBranches: number;
+  maxWhatsappNumbers: number;
   features: string[];
   marketplaceListing?: boolean;
   whatsappNotifications?: boolean;

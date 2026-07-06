@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
@@ -8,7 +8,7 @@ import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
 import * as orgService from "../../services/orgService";
-import type { WalletSummary, WalletTransaction } from "../../services/orgService";
+import type { WalletSummary, WalletTransaction, Invoice } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import type { AdminJoinRequest } from "../../services/joinRequestService";
 import { WalletView } from "../../components/ui/WalletView";
@@ -1186,99 +1186,424 @@ function SchedulesTab() {
 // ── Billing Tab ───────────────────────────────────────────────────────────────
 
 type BranchConflict = { currentBranches: number; allowedBranches: number; planName: string };
+type PaymentModal = { planId: string; planName: string; planPrice: number; walletBalance: number };
+type IframeModal  = { iframeUrl: string; planName: string; planPrice: number };
 
 function BillingTab() {
   const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
   const { t, locale } = useLanguage();
-  const [upgrading, setUpgrading] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<(BranchConflict & { planId: string }) | null>(null);
-  const [removingBranchId, setRemovingBranchId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [toast, setToast]           = useState<{ ok: boolean; msg: string } | null>(null);
+  const [conflict, setConflict]     = useState<(BranchConflict & { planId: string }) | null>(null);
+  const [removingBranch, setRemovingBranch] = useState<string | null>(null);
+  const [paymentModal, setPaymentModal]     = useState<PaymentModal | null>(null);
+  const [iframeModal, setIframeModal]       = useState<IframeModal | null>(null);
+
+  // Invoices (billing history)
+  const [invoices, setInvoices]       = useState<Invoice[]>([]);
+  const [invoiceTotal, setInvoiceTotal] = useState(0);
+  const [invoicePage, setInvoicePage]   = useState(1);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+
+  function showToast(ok: boolean, msg: string) {
+    setToast({ ok, msg });
+    setTimeout(() => setToast(null), 4000);
+  }
+
+  // Load invoices
+  const loadInvoices = useCallback(async (page = 1) => {
+    if (!org) return;
+    setInvoicesLoading(true);
+    try {
+      const { invoices: list, total } = await orgService.getInvoices(org.id, page);
+      setInvoices(list);
+      setInvoiceTotal(total);
+      setInvoicePage(page);
+    } catch { /* silent */ }
+    setInvoicesLoading(false);
+  }, [org]);
+
+  useEffect(() => { loadInvoices(1); }, [loadInvoices]);
+
+  // Handle Paymob redirect back to billing tab (?payment=success/failed)
+  useEffect(() => {
+    const paymentResult = searchParams.get("payment");
+    if (paymentResult === "success") {
+      showToast(true, t("Payment successful"));
+      void refresh();
+      void loadInvoices(1);
+    } else if (paymentResult === "failed") {
+      showToast(false, t("Payment failed"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (isLoading) return <Skeleton />;
 
-  async function handleUpgrade(planId: string) {
+  // ── Initiate plan purchase ────────────────────────────────────────────────
+  async function handleSelectPlan(planId: string) {
+    if (!org) return;
     const plan = plans.find((p) => p.id === planId);
-    const priceMsg = (plan?.pricePerMonth ?? 0) > 0 ? ` You will be billed ${plan!.pricePerMonth} EGP/month.` : "";
-    if (!window.confirm(`Switch to ${plan?.name ?? "this plan"}?${priceMsg} This takes effect immediately.`)) return;
-    setUpgrading(planId);
-    setSuccess(null);
-    setError(null);
-    setConflict(null);
-    const result = await upgradePlan(planId);
-    if (result.ok) {
-      setSuccess(`Switched to ${plan?.name ?? planId}. Changes take effect immediately.`);
-    } else if (result.conflict) {
-      setConflict({ ...result.conflict, planId });
-    } else {
-      setError("Failed to change plan. Please try again.");
+    if (!plan) return;
+
+    // For free plan, skip modal and activate immediately
+    if (plan.pricePerMonth === 0) {
+      setProcessing(planId);
+      try {
+        const result = await orgService.purchasePlan(org.id, planId);
+        if (result.method === "free") {
+          await refresh();
+          await loadInvoices(1);
+          showToast(true, t("Plan activated successfully"));
+        }
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
+        if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
+          setConflict({ ...e.response!.data!.details, planId });
+        } else {
+          showToast(false, e?.response?.data?.message ?? t("Failed to activate plan. Please try again."));
+        }
+      }
+      setProcessing(null);
+      return;
     }
-    setUpgrading(null);
+
+    // For paid plans: wallet-first, Paymob card fallback
+    setProcessing(planId);
+    try {
+      const result = await orgService.purchasePlan(org.id, planId);
+      if (result.method === "wallet") {
+        await refresh();
+        await loadInvoices(1);
+        showToast(true, `${t("Payment successful")} — ${t("Pay from Wallet")}: ${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`);
+      } else if (result.method === "card") {
+        setIframeModal({ iframeUrl: result.iframeUrl, planName: result.planName, planPrice: result.planPrice });
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
+      if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
+        setConflict({ ...e.response!.data!.details, planId });
+      } else {
+        showToast(false, e?.response?.data?.message ?? t("Payment failed"));
+      }
+    }
+    setProcessing(null);
   }
 
   async function handleRemoveBranchForConflict(branchId: string) {
     if (!conflict || !org) return;
-    setRemovingBranchId(branchId);
+    setRemovingBranch(branchId);
     try {
       await orgService.deleteBranch(org.id, branchId);
       await refresh();
-      // Re-check: if we now have enough space, retry the plan change
-      const updatedBranchCount = branches.filter((b) => b.id !== branchId).length;
-      if (updatedBranchCount <= conflict.allowedBranches) {
+      const updatedCount = branches.filter((b) => b.id !== branchId).length;
+      if (updatedCount <= conflict.allowedBranches) {
         setConflict(null);
-        await handleUpgrade(conflict.planId);
+        await handleSelectPlan(conflict.planId);
       } else {
-        setConflict((prev) => prev ? { ...prev, currentBranches: updatedBranchCount } : null);
+        setConflict((prev) => prev ? { ...prev, currentBranches: updatedCount } : null);
       }
     } catch {
-      setError("Failed to remove branch. Please try again.");
+      showToast(false, t("Failed to remove branch. Please try again."));
     }
-    setRemovingBranchId(null);
+    setRemovingBranch(null);
   }
 
+  // ── PDF receipt download (jsPDF) ──────────────────────────────────────────
+  async function handleDownloadReceipt(inv: Invoice) {
+    const { default: jsPDF } = await import("jspdf");
+    const doc = new jsPDF();
+    const isAr = locale === "ar";
+    const currency = isAr ? "ج.م" : "EGP";
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("Waitless", 105, 22, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text("Clinic Queue Management Platform", 105, 30, { align: "center" });
+
+    doc.setDrawColor(220);
+    doc.line(14, 36, 196, 36);
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(isAr ? "فاتورة" : "Invoice", 14, 47);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(80);
+
+    const rows: [string, string][] = [
+      [isAr ? "رقم الفاتورة" : "Invoice Number", inv.invoiceNumber || "-"],
+      [isAr ? "التاريخ" : "Date",               new Date(inv.createdAt).toLocaleDateString("en-EG")],
+      [isAr ? "الخطة" : "Plan",                 inv.planName],
+      [isAr ? "طريقة الدفع" : "Payment Method",
+        inv.paymentMethod === "wallet" ? (isAr ? "محفظة" : "Wallet")
+        : inv.paymentMethod === "card"  ? (isAr ? "بطاقة ائتمان" : "Credit Card")
+        : (isAr ? "يدوي" : "Manual")],
+      [isAr ? "بداية الفترة" : "Period Start",  new Date(inv.periodStart).toLocaleDateString("en-EG")],
+      [isAr ? "نهاية الفترة" : "Period End",    new Date(inv.periodEnd).toLocaleDateString("en-EG")],
+      [isAr ? "الحالة" : "Status",              inv.status === "paid" ? (isAr ? "مدفوعة" : "Paid") : inv.status],
+    ];
+
+    let y = 58;
+    rows.forEach(([label, value]) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(label + ":", 14, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(value, 80, y);
+      y += 9;
+    });
+
+    if (inv.paymobTransactionId) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Transaction ID:", 14, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(inv.paymobTransactionId, 80, y);
+      y += 9;
+    }
+
+    doc.setDrawColor(220);
+    doc.line(14, y + 4, 196, y + 4);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(isAr ? "الإجمالي:" : "Total:", 14, y + 16);
+    doc.setTextColor(180, 140, 0);
+    doc.text(`${inv.amount} ${currency}`, 196, y + 16, { align: "right" });
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(150);
+    doc.text("Waitless • support@waitless.app", 105, 285, { align: "center" });
+
+    doc.save(`invoice-${inv.invoiceNumber || inv.id}.pdf`);
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const tierOrder: Record<string, number> = { trial: 0, starter: 1, growth: 2, enterprise: 3, "business+": 4 };
+  const sortedPlans = [...plans].sort((a, b) => (tierOrder[a.tier] ?? 99) - (tierOrder[b.tier] ?? 99));
+
   return (
-    <div className="space-y-4">
-      {success && (
-        <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
-          {success}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          {error}
+    <div className="space-y-6">
+
+      {/* Toast */}
+      {toast && (
+        <div className={`rounded-xl border px-4 py-3 text-sm ${
+          toast.ok
+            ? "border-success/30 bg-success/5 text-success"
+            : "border-danger/30 bg-danger/5 text-danger"
+        }`}>
+          {toast.msg}
         </div>
       )}
 
-      {/* Branch conflict modal */}
+      {/* ── Plan cards ─────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Subscription Plans")}</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
+          {sortedPlans.map((plan) => {
+            const isCurrent = subscription?.planId === plan.id;
+            const isBusy    = processing === plan.id;
+            return (
+              <div
+                key={plan.id}
+                className={`flex flex-col rounded-xl border p-5 transition ${
+                  isCurrent
+                    ? "border-gold bg-gold-tint shadow-md"
+                    : plan.tier === "business+"
+                      ? "border-navy/30 bg-navy/5"
+                      : "border-border bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-heading text-base font-bold text-navy">
+                      {plan.name}
+                      {plan.tier === "business+" && (
+                        <span className="ml-1.5 rounded-full bg-navy px-2 py-0.5 text-xs font-semibold text-white">
+                          {t("Top")}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-xl font-bold text-gold">
+                      {plan.pricePerMonth === 0
+                        ? t("Free")
+                        : `${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`}
+                      {plan.pricePerMonth > 0 && (
+                        <span className="text-xs font-normal text-navy-mid">/{t("mo")}</span>
+                      )}
+                    </p>
+                  </div>
+                  {isCurrent && (
+                    <span className="shrink-0 rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-navy">
+                      {t("Current Plan")}
+                    </span>
+                  )}
+                </div>
+
+                <ul className="mt-3 flex-1 space-y-1.5">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-xs text-navy-mid">
+                      <span className="mt-0.5 shrink-0 text-success">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-4">
+                  {isCurrent ? (
+                    <div className="w-full rounded-md border border-gold/40 py-2 text-center text-sm font-medium text-gold">
+                      {t("Current Plan")}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleSelectPlan(plan.id)}
+                      disabled={isBusy}
+                      className={`w-full rounded-md border px-4 py-2 text-sm font-medium transition disabled:opacity-60 ${
+                        plan.tier === "business+"
+                          ? "border-navy bg-navy text-white hover:bg-navy/90"
+                          : "border-navy text-navy hover:bg-navy hover:text-white"
+                      }`}
+                    >
+                      {isBusy ? t("Processing…") : t("Select Plan")}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Billing History ─────────────────────────────────────────────── */}
+      <div>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Billing History")}</h2>
+
+        {invoicesLoading ? (
+          <Skeleton />
+        ) : invoices.length === 0 ? (
+          <div className="rounded-xl border border-border bg-offwhite py-10 text-center">
+            <p className="text-2xl">🧾</p>
+            <p className="mt-2 text-sm text-navy-mid">{t("No invoices yet.")}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-offwhite text-xs font-semibold uppercase tracking-wide text-navy-mid">
+                <tr>
+                  <th className="px-4 py-3 text-left">{t("Invoice")}</th>
+                  <th className="px-4 py-3 text-left">{t("Date")}</th>
+                  <th className="px-4 py-3 text-left">{t("Plan")}</th>
+                  <th className="px-4 py-3 text-right">{t("Amount")}</th>
+                  <th className="px-4 py-3 text-left">{t("Payment Method")}</th>
+                  <th className="px-4 py-3 text-left">{t("Status")}</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-white">
+                {invoices.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-offwhite/50 transition">
+                    <td className="px-4 py-3 font-mono text-xs text-navy">{inv.invoiceNumber || "—"}</td>
+                    <td className="px-4 py-3 text-navy-mid">
+                      {new Date(inv.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-EG", { day: "numeric", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-navy">{inv.planName}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-gold">
+                      {inv.amount} {locale === "ar" ? "ج.م" : "EGP"}
+                    </td>
+                    <td className="px-4 py-3 text-navy-mid">
+                      {inv.paymentMethod === "wallet"
+                        ? t("Pay from Wallet")
+                        : inv.paymentMethod === "card"
+                          ? t("Add Credit Card")
+                          : t("Manual")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        inv.status === "paid"     ? "bg-success/10 text-success"
+                        : inv.status === "failed" ? "bg-danger/10 text-danger"
+                        : "bg-navy/10 text-navy"
+                      }`}>
+                        {inv.status === "paid"     ? t("Paid")
+                         : inv.status === "failed" ? t("Failed")
+                         : t("Refunded")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleDownloadReceipt(inv)}
+                        className="text-xs font-medium text-gold hover:text-gold-light transition"
+                      >
+                        {t("Download Receipt")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination */}
+            {invoiceTotal > 20 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-navy-mid">
+                <span>{t("Showing")} {invoices.length} / {invoiceTotal}</span>
+                <div className="flex gap-2">
+                  <button
+                    disabled={invoicePage <= 1}
+                    onClick={() => loadInvoices(invoicePage - 1)}
+                    className="rounded border border-border px-2 py-1 hover:bg-offwhite disabled:opacity-40"
+                  >
+                    ←
+                  </button>
+                  <button
+                    disabled={invoicePage * 20 >= invoiceTotal}
+                    onClick={() => loadInvoices(invoicePage + 1)}
+                    className="rounded border border-border px-2 py-1 hover:bg-offwhite disabled:opacity-40"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Branch conflict modal ────────────────────────────────────────── */}
       {conflict && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="font-heading text-xl font-bold text-navy">Branch Limit Exceeded</h2>
+            <h2 className="font-heading text-xl font-bold text-navy">{t("Branch Limit Exceeded")}</h2>
             <p className="mt-2 text-sm text-navy-mid">
-              You have <strong className="text-navy">{conflict.currentBranches} active branches</strong>, but the{" "}
-              <strong className="text-navy">{conflict.planName}</strong> plan allows only{" "}
-              <strong className="text-navy">{conflict.allowedBranches}</strong>. Remove{" "}
-              {conflict.currentBranches - conflict.allowedBranches} branch
-              {conflict.currentBranches - conflict.allowedBranches > 1 ? "es" : ""} to downgrade.
+              {t("You have")} <strong className="text-navy">{conflict.currentBranches}</strong>{" "}
+              {t("active branches, but the")}{" "}
+              <strong className="text-navy">{conflict.planName}</strong>{" "}
+              {t("plan allows only")}{" "}
+              <strong className="text-navy">{conflict.allowedBranches}</strong>.{" "}
+              {t("Remove")} {conflict.currentBranches - conflict.allowedBranches}{" "}
+              {t("branch(es) to continue.")}
             </p>
-
             <div className="mt-4 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">Select a branch to remove</p>
               {branches.map((b) => (
                 <div key={b.id} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
                   <p className="text-sm font-medium text-navy">{b.name}</p>
                   <button
                     onClick={() => handleRemoveBranchForConflict(b.id)}
-                    disabled={removingBranchId === b.id}
+                    disabled={removingBranch === b.id}
                     className="rounded-md bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger hover:text-white disabled:opacity-50"
                   >
-                    {removingBranchId === b.id ? "Removing…" : "Remove"}
+                    {removingBranch === b.id ? "…" : t("Remove")}
                   </button>
                 </div>
               ))}
             </div>
-
             <button
               onClick={() => setConflict(null)}
               className="mt-4 w-full rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
@@ -1289,61 +1614,35 @@ function BillingTab() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {plans.map((plan) => {
-          const isCurrent = subscription?.planId === plan.id;
-          return (
-            <div
-              key={plan.id}
-              className={`rounded-xl border p-5 transition ${
-                isCurrent ? "border-gold bg-gold-tint" : "border-border bg-white"
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-heading text-lg font-bold text-navy">{plan.name}</p>
-                  <p className="mt-0.5 text-2xl font-bold text-gold">
-                    {plan.pricePerMonth === 0
-                      ? plan.tier === "trial" ? t("Free") : t("Contact Us")
-                      : `${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`}
-                    {plan.pricePerMonth > 0 && (
-                      <span className="text-sm font-normal text-navy-mid">/{t("mo")}</span>
-                    )}
-                  </p>
-                </div>
-                {isCurrent && (
-                  <span className="rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-navy">
-                    {t("Current")}
-                  </span>
-                )}
+      {/* ── Paymob iframe modal (card payment) ───────────────────────────── */}
+      {iframeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl animate-fade-up rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <p className="font-heading text-base font-bold text-navy">{t("Add Credit Card")}</p>
+                <p className="text-xs text-navy-mid">
+                  {iframeModal.planName} — {iframeModal.planPrice} {locale === "ar" ? "ج.م" : "EGP"}/{t("mo")}
+                </p>
               </div>
-
-              <ul className="mt-3 space-y-1.5">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-xs text-navy-mid">
-                    <span className="text-success">✓</span> {f}
-                  </li>
-                ))}
-              </ul>
-
-              {!isCurrent && plan.tier !== "enterprise" && (
-                <button
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={upgrading === plan.id}
-                  className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-60"
-                >
-                  {upgrading === plan.id ? t("Processing…") : t("Select Plan")}
-                </button>
-              )}
-              {!isCurrent && plan.tier === "enterprise" && (
-                <button className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white">
-                  {t("Contact Sales")}
-                </button>
-              )}
+              <button
+                onClick={() => setIframeModal(null)}
+                className="rounded-md px-3 py-1.5 text-sm text-navy-mid hover:bg-offwhite"
+              >
+                {t("Cancel")}
+              </button>
             </div>
-          );
-        })}
-      </div>
+            <div className="h-[480px] w-full">
+              <iframe
+                src={iframeModal.iframeUrl}
+                className="h-full w-full rounded-b-2xl border-0"
+                title="Paymob Payment"
+                allow="payment"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

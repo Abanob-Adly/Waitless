@@ -15,6 +15,7 @@ const subscriptionPlanSchema = new Schema({
     maxDoctors:           { type: Number, default: 1 },
     maxAdmins:            { type: Number, default: 1 },
     maxReceptionists:     { type: Number, default: 0 },
+    maxWhatsappNumbers:   { type: Number, default: 0 },
     marketplaceListing:   { type: Boolean, default: false },
     whatsappNotifications:{ type: Boolean, default: false },
   },

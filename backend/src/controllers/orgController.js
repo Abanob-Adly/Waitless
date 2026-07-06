@@ -37,6 +37,10 @@ export const orgSchemas = {
   upgrade: z.object({
     planId: z.string().min(1),
   }),
+
+  purchase: z.object({
+    planId: z.string().min(1),
+  }),
 };
 
 export const orgController = {
@@ -76,5 +80,24 @@ export const orgController = {
   async upgradePlan(req, res) {
     const sub = await orgService.upgradePlan({ org: req.resource, planId: req.body.planId });
     res.json({ data: sub });
+  },
+
+  // POST /orgs/:orgId/subscription/purchase
+  // Wallet-first payment; returns iframeUrl if wallet is insufficient.
+  async purchasePlan(req, res) {
+    const result = await orgService.purchasePlan({
+      org:    req.resource,
+      planId: req.body.planId,
+      actor:  req.actor,
+    });
+    res.json({ data: result });
+  },
+
+  // GET /orgs/:orgId/invoices
+  async getInvoices(req, res) {
+    const page  = Math.max(1, Number(req.query.page ?? 1));
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20)));
+    const { invoices, total } = await orgService.getInvoices({ org: req.resource, page, limit });
+    res.json({ data: { invoices, total, page, limit } });
   },
 };

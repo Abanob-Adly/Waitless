@@ -29,7 +29,7 @@ export const memberSchemas = {
     yearsOfExperience:  z.number().int().min(0).optional(),
     languagesSpoken:    z.array(z.string()).optional(),
     websiteUrl:         z.string().url().nullable().optional(),
-    avatarUrl:          z.string().url().nullable().optional(),
+    avatarUrl:          z.string().max(2048).nullable().optional(),
     acceptedInsurances: z.array(z.string().max(100)).optional(),
   }),
 };

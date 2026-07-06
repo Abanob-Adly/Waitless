@@ -2,7 +2,9 @@ import { AppError } from '../utils/errors.js';
 
 export function errorHandler(err, _req, res, _next) {
   if (err instanceof AppError) {
-    return res.status(err.status).json({ error: err.code, message: err.message });
+    const body = { error: err.code, message: err.message };
+    if (err.details) body.details = err.details;
+    return res.status(err.status).json(body);
   }
   // Mongo duplicate key
   if (err?.code === 11000) {

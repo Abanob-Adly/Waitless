@@ -321,6 +321,7 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? null;
+      console.error("updateMember error:", err);
       return msg ?? false;
     }
   }
