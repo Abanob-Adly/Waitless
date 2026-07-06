@@ -114,24 +114,39 @@ function adaptPlan(p: Record<string, unknown>): SubscriptionPlan {
 
   let tier: SubscriptionPlan["tier"] = "trial";
   if (price === 0) tier = "trial";
+  else if (nameLower.includes("business+") || nameLower.includes("business plus")) tier = "business+";
   else if (nameLower.includes("enterprise")) tier = "enterprise";
   else if (nameLower.includes("standard") || nameLower.includes("growth") || nameLower.includes("premium")) tier = "growth";
   else tier = "starter";
 
+  const maxDoctors = Number(limits.maxDoctors ?? 1);
+  const maxAdmins = Number(limits.maxAdmins ?? 1);
+  const maxReceptionists = Number(limits.maxReceptionists ?? 0);
+  const maxBranches = Number(limits.maxBranches ?? 1);
+  const maxWhatsappNumbers = Number(limits.maxWhatsappNumbers ?? 0);
+
   const features: string[] = [];
-  if (Number(limits.maxBranches) > 0) features.push(`Up to ${limits.maxBranches} branch${Number(limits.maxBranches) !== 1 ? "es" : ""}`);
-  if (Number(limits.maxDoctors) > 0) features.push(`Up to ${limits.maxDoctors} doctors`);
-  if (Number(limits.maxReceptionists) > 0) features.push(`Up to ${limits.maxReceptionists} receptionists`);
+  features.push(`Up to ${maxBranches} branch${maxBranches !== 1 ? "es" : ""}`);
+  features.push(`Up to ${maxDoctors} doctor${maxDoctors !== 1 ? "s" : ""}`);
+  features.push(`Up to ${maxAdmins} admin${maxAdmins !== 1 ? "s" : ""}`);
+  if (maxReceptionists > 0) features.push(`Up to ${maxReceptionists} receptionist${maxReceptionists !== 1 ? "s" : ""}`);
+  else features.push("No receptionists");
   if (Boolean(limits.marketplaceListing)) features.push("Marketplace listing");
-  if (Boolean(limits.whatsappNotifications)) features.push("WhatsApp notifications");
+  if (Boolean(limits.whatsappNotifications) && maxWhatsappNumbers > 0)
+    features.push(`WhatsApp notifications (up to ${maxWhatsappNumbers} numbers)`);
+  else if (Boolean(limits.whatsappNotifications))
+    features.push("WhatsApp notifications");
 
   return {
     id: String(p._id ?? p.id),
     tier,
     name: String(p.name ?? ""),
     pricePerMonth: price,
-    maxDoctors: Number(limits.maxDoctors ?? 5),
-    maxBranches: Number(limits.maxBranches ?? 1),
+    maxDoctors,
+    maxAdmins,
+    maxReceptionists,
+    maxBranches,
+    maxWhatsappNumbers,
     features,
     marketplaceListing: Boolean(limits.marketplaceListing),
     whatsappNotifications: Boolean(limits.whatsappNotifications),
@@ -194,6 +209,85 @@ export async function getPlans(): Promise<SubscriptionPlan[]> {
     console.error("[getPlans]", err);
     return [];
   }
+}
+
+// ── Plan purchase types ───────────────────────────────────────────────────────
+
+export type PurchasePlanResult =
+  | { method: "free";   subscription: Subscription }
+  | { method: "wallet"; subscription: Subscription; invoice: Invoice; walletBalance: number }
+  | { method: "card";   iframeUrl: string; orderId: string; walletBalance: number; planPrice: number; planName: string };
+
+export type Invoice = {
+  id: string;
+  invoiceNumber: string;
+  planName: string;
+  amount: number;
+  currency: string;
+  paymentMethod: "wallet" | "card" | "manual";
+  paymobTransactionId: string | null;
+  status: "paid" | "failed" | "refunded";
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+};
+
+function adaptInvoice(inv: Record<string, unknown>): Invoice {
+  return {
+    id:                  String(inv._id ?? inv.id),
+    invoiceNumber:       String(inv.invoiceNumber ?? ""),
+    planName:            String(inv.planName ?? ""),
+    amount:              Number(inv.amount ?? 0),
+    currency:            String(inv.currency ?? "EGP"),
+    paymentMethod:       (inv.paymentMethod as Invoice["paymentMethod"]) ?? "manual",
+    paymobTransactionId: (inv.paymobTransactionId as string | null) ?? null,
+    status:              (inv.status as Invoice["status"]) ?? "paid",
+    periodStart:         String(inv.periodStart ?? ""),
+    periodEnd:           String(inv.periodEnd ?? ""),
+    createdAt:           String(inv.createdAt ?? ""),
+  };
+}
+
+export async function purchasePlan(orgId: string, planId: string): Promise<PurchasePlanResult> {
+  const res = await api.post<{ data: Record<string, unknown> }>(
+    `/orgs/${orgId}/subscription/purchase`,
+    { planId },
+  );
+  const d = res.data.data;
+  const method = d.method as string;
+
+  if (method === "free") {
+    return { method: "free", subscription: adaptSubscription(d.subscription as Record<string, unknown>) };
+  }
+  if (method === "wallet") {
+    return {
+      method:       "wallet",
+      subscription: adaptSubscription(d.subscription as Record<string, unknown>),
+      invoice:      adaptInvoice(d.invoice as Record<string, unknown>),
+      walletBalance: Number(d.walletBalance ?? 0),
+    };
+  }
+  // card
+  return {
+    method:       "card",
+    iframeUrl:    String(d.iframeUrl ?? ""),
+    orderId:      String(d.orderId ?? ""),
+    walletBalance: Number(d.walletBalance ?? 0),
+    planPrice:    Number(d.planPrice ?? 0),
+    planName:     String(d.planName ?? ""),
+  };
+}
+
+export async function getInvoices(
+  orgId: string,
+  page = 1,
+): Promise<{ invoices: Invoice[]; total: number }> {
+  const res = await api.get<{ data: { invoices: Record<string, unknown>[]; total: number } }>(
+    `/orgs/${orgId}/invoices`,
+    { params: { page, limit: 20 } },
+  );
+  const { invoices, total } = res.data.data;
+  return { invoices: invoices.map((i) => adaptInvoice(i)), total };
 }
 
 export async function upgradePlan(orgId: string, planId: string): Promise<Subscription | null> {
@@ -308,20 +402,15 @@ export async function updateMember(
     kind?: "admin" | "doctor" | "receptionist";
     bio?: string;
     specialties?: string[];
-    avatarUrl?: string;
+    avatarUrl?: string | null;
     permissions?: string[];
     websiteUrl?: string | null;
     acceptedInsurances?: string[];
     yearsOfExperience?: number | null;
     languagesSpoken?: string[];
   },
-): Promise<boolean> {
-  try {
-    await api.put(`/orgs/${orgId}/members/${memberId}`, data);
-    return true;
-  } catch {
-    return false;
-  }
+): Promise<void> {
+  await api.put(`/orgs/${orgId}/members/${memberId}`, data);
 }
 
 export async function grantMemberAdmin(orgId: string, memberId: string): Promise<boolean> {

@@ -5,7 +5,7 @@ const isTest = env.nodeEnv === 'test';
 
 const redis = new IORedis(env.redis.url, {
   lazyConnect:          true,
-  maxRetriesPerRequest: isTest ? 0 : 3,
+  maxRetriesPerRequest: isTest ? 0 : 300,
   // Disable reconnect loop in test environment so ECONNREFUSED doesn't flood output.
   retryStrategy:        isTest ? () => null : undefined,
 });

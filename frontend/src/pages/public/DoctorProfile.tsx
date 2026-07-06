@@ -4,6 +4,8 @@ import { Navbar } from "../../components/layout/Navbar";
 import { mockDoctors } from "../../data/mockDoctors";
 import { mockSessions, type Session } from "../../data/mockSessions";
 import type { Doctor } from "../../types/doctor";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 // ── Auth helpers (localStorage-backed mock) ──────────────────────────────────
 
@@ -38,6 +40,7 @@ type SignupForm = {
 export function DoctorProfile() {
   const { doctorId } = useParams();
   const navigate = useNavigate();
+  const { locale } = useLanguage();
 
   const doctor = mockDoctors.find((d) => d.id === doctorId);
   const sessions = mockSessions.filter((s) => s.doctorId === doctorId);
@@ -245,7 +248,7 @@ export function DoctorProfile() {
                         {selectedSession.date}
                       </p>
                       <p className="text-sm text-navy-mid">
-                        {selectedSession.startTime} – {selectedSession.endTime}
+                        {fmt12(selectedSession.startTime, locale)} – {fmt12(selectedSession.endTime, locale)}
                       </p>
                       <p className="mt-1 text-sm text-navy-mid">
                         {selectedSession.clinicName}
@@ -391,6 +394,7 @@ function SessionCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { locale } = useLanguage();
   const lowSlots = session.availableSlots <= 3;
 
   return (
@@ -407,7 +411,7 @@ function SessionCard({
             📅 {session.date}
           </p>
           <p className="mt-1 text-sm text-navy-mid">
-            {session.startTime} – {session.endTime}
+            {fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}
           </p>
           <p className="mt-1 text-sm text-navy-mid">{session.clinicName}</p>
           <p

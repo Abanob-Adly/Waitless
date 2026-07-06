@@ -125,6 +125,7 @@ export type Doctor = {
   availableLabel: string;
   clinics: ClinicLocation[];
   insurance: string[];
+  avatarUrl?: string;
 };
 
 export type Session = {
@@ -278,7 +279,7 @@ export type ScheduleException = {
 
 // ── Billing domain ────────────────────────────────────────────────────────────
 
-export type PlanTier = "trial" | "starter" | "growth" | "enterprise";
+export type PlanTier = "trial" | "starter" | "growth" | "enterprise" | "business+";
 
 export type SubscriptionPlan = {
   id: string;
@@ -286,7 +287,10 @@ export type SubscriptionPlan = {
   name: string;
   pricePerMonth: number; // EGP; 0 = contact sales
   maxDoctors: number;
+  maxAdmins: number;
+  maxReceptionists: number;
   maxBranches: number;
+  maxWhatsappNumbers: number;
   features: string[];
   marketplaceListing?: boolean;
   whatsappNotifications?: boolean;

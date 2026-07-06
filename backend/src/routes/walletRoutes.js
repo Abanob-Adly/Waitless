@@ -15,6 +15,7 @@ router.post('/me/topup',      authenticate, paymentController.walletTopup);
 router.post('/:orgId/topup',  authenticate, authorize('organization.manage', loadOrg), paymentController.orgWalletTopup);
 
 router.post ('/me/purchase',  authenticate, walletController.purchaseAtBooking);
+router.post ('/me/withdraw',  authenticate, walletController.requestWithdrawal);
 router.get  ('/me/entries',   authenticate, walletController.getMyEntries);
 
 export default router;

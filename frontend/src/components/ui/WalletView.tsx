@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import * as walletService from "../../services/walletService";
 import type { WalletInfo, WalletEntry } from "../../services/walletService";
+import { useLanguage } from "../../context/LanguageContext";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -235,6 +236,101 @@ function TopUpModal({
   );
 }
 
+// ── Withdraw Modal ────────────────────────────────────────────────────────────
+
+function WithdrawModal({
+  maxAmount,
+  currency,
+  onClose,
+  onConfirm,
+}: {
+  maxAmount: number;
+  currency: string;
+  onClose: () => void;
+  onConfirm: (amount: number, destination: string) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState("");
+  const [destination, setDestination] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const num = Number(amount);
+    if (!num || num < 100) { setError("Minimum withdrawal is 100 EGP."); return; }
+    if (num > maxAmount)   { setError(`Insufficient balance (max ${maxAmount.toLocaleString()} EGP).`); return; }
+    if (destination.trim().length < 5) { setError("Enter a valid bank account or mobile number."); return; }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onConfirm(num, destination.trim());
+      setDone(true);
+      setTimeout(onClose, 2000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Withdrawal failed.";
+      setError(msg);
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
+        {done ? (
+          <div className="py-10 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-4xl">✓</div>
+            <p className="font-heading text-lg font-bold text-navy">Withdrawal Requested</p>
+            <p className="mt-1 text-sm text-navy-mid">Processing within 1–3 business days.</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-heading text-lg font-bold text-navy">Withdraw Funds</h2>
+              <button onClick={onClose} className="text-navy-mid hover:text-navy">✕</button>
+            </div>
+            <div className="mb-4 rounded-xl bg-offwhite px-4 py-3">
+              <p className="text-xs text-navy-mid">Available</p>
+              <p className="font-heading text-2xl font-bold text-navy">{maxAmount.toLocaleString()} <span className="text-base font-normal text-navy-mid">{currency}</span></p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-navy">Amount ({currency})</label>
+                <input
+                  type="number" min="100" max={maxAmount}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Minimum 100 EGP"
+                  className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-navy">Bank Account or Mobile Wallet Number</label>
+                <input
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  placeholder="e.g. Instapay number, Vodafone Cash, IBAN"
+                  className="h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-danger">{error}</p>}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-lg bg-navy py-3 text-sm font-semibold text-white transition hover:bg-navy/80 disabled:opacity-60"
+              >
+                {submitting ? "Processing…" : "Request Withdrawal"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Entry row ─────────────────────────────────────────────────────────────────
 
 const TYPE_LABELS: Record<string, string> = {
@@ -287,6 +383,7 @@ function EntryRow({ entry }: { entry: WalletEntry }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function WalletView({ mode, orgId }: Props) {
+  const { t } = useLanguage();
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [entries, setEntries] = useState<WalletEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -297,6 +394,7 @@ export function WalletView({ mode, orgId }: Props) {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [topUpSuccess, setTopUpSuccess] = useState<string | null>(null);
 
@@ -342,6 +440,13 @@ export function WalletView({ mode, orgId }: Props) {
     setTimeout(() => setTopUpSuccess(null), 4000);
   }
 
+  async function handleWithdraw(amount: number, destination: string) {
+    const w = await walletService.withdrawFromWallet(amount, destination);
+    setWallet(w);
+    setPage(1);
+    void loadEntries();
+  }
+
   const currency = wallet?.currency ?? "EGP";
 
   return (
@@ -370,13 +475,22 @@ export function WalletView({ mode, orgId }: Props) {
               disabled={wallet?.status !== "active"}
               className="rounded-lg bg-gold px-5 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
             >
-              + Add Funds
+              {t("+ Add Funds")}
             </button>
+            {mode === "personal" && (
+              <button
+                onClick={() => setShowWithdraw(true)}
+                disabled={wallet?.status !== "active" || (wallet?.balance ?? 0) < 100}
+                className="rounded-lg border border-white/20 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/40 hover:text-white disabled:opacity-50"
+              >
+                {t("↓ Withdraw")}
+              </button>
+            )}
             <button
               onClick={() => { void loadWallet(); void loadEntries(); }}
               className="rounded-lg border border-white/20 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/40 hover:text-white"
             >
-              ↻ Refresh
+              ↻ {t("Refresh")}
             </button>
           </div>
         </div>
@@ -443,6 +557,15 @@ export function WalletView({ mode, orgId }: Props) {
           currency={currency}
           onClose={() => setShowTopUp(false)}
           onConfirm={handleTopUp}
+        />
+      )}
+
+      {showWithdraw && (
+        <WithdrawModal
+          maxAmount={wallet?.balance ?? 0}
+          currency={currency}
+          onClose={() => setShowWithdraw(false)}
+          onConfirm={handleWithdraw}
         />
       )}
     </div>

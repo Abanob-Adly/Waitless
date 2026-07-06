@@ -48,4 +48,12 @@ router.post(
   appointmentController.bookOverride
 );
 
+router.patch(
+  '/:appointmentId/confirm-payment',
+  authenticate,
+  authorize('appointment.confirm_payment', loadAppointment),
+  validate(appointmentSchemas.confirmPayment),
+  appointmentController.confirmPayment
+);
+
 export default router;

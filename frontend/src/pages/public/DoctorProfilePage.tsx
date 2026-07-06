@@ -1,10 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
-<<<<<<< HEAD
 import { BookingWidget } from "../../components/doctors/BookingWidget";
-=======
-import { BookingWidget } from "../../components/doctor/BookingWidget";
->>>>>>> 7a83634e1ffa21b7db94c8ad5290d61944d50e3c
 import { mockDoctors } from "../../data/mockDoctors";
 
 export function DoctorProfilePage() {

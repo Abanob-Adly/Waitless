@@ -22,6 +22,8 @@ type QueueStatus = {
   status: AppointmentStatus;
   sessionDate: string;
   sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
+  isOnBreak: boolean;
+  doctorAvatarUrl: string;
   doctor: {
     name: string;
     specialty: string;
@@ -63,6 +65,8 @@ export function LiveTicket() {
           status:              String(d.status ?? "booked") as AppointmentStatus,
           sessionDate:         String(d.sessionDate ?? ""),
           sessionStatus:       (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
+          isOnBreak:           Boolean(d.isOnBreak ?? false),
+          doctorAvatarUrl:     String(d.doctorAvatarUrl ?? ""),
           doctor: {
             name:            String(d.doctorName ?? ""),
             specialty:       "",
@@ -144,13 +148,27 @@ export function LiveTicket() {
         <div className="overflow-hidden rounded-lg border border-border bg-white shadow-md">
           {/* Navy header band */}
           <div className="flex items-center justify-between bg-navy px-5 py-4">
-            <div>
-              <p className="font-heading text-lg font-bold text-white">
-                {queueStatus.doctor.name}
-              </p>
-              <p className="mt-0.5 text-xs text-white/60">
-                {queueStatus.doctor.specialty} · {queueStatus.doctor.area}
-              </p>
+            <div className="flex items-center gap-3">
+              {queueStatus.doctorAvatarUrl ? (
+                <img
+                  src={queueStatus.doctorAvatarUrl}
+                  alt={queueStatus.doctor.name}
+                  className="h-10 w-10 rounded-full object-cover ring-2 ring-white/20"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+              ) : (
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 font-heading text-sm font-bold text-white">
+                  {queueStatus.doctor.name.split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase() || "Dr"}
+                </div>
+              )}
+              <div>
+                <p className="font-heading text-lg font-bold text-white">
+                  {queueStatus.doctor.name}
+                </p>
+                <p className="mt-0.5 text-xs text-white/60">
+                  {queueStatus.doctor.specialty} · {queueStatus.doctor.area}
+                </p>
+              </div>
             </div>
 
             {isSessionDay && queueStatus.sessionStatus === "active" && (
@@ -172,7 +190,7 @@ export function LiveTicket() {
             ) : (
               <>
                 {queueStatus.status === "booked" && (
-                  <WaitingView queueStatus={queueStatus} />
+                  <WaitingView queueStatus={queueStatus} isOnBreak={queueStatus.isOnBreak} />
                 )}
                 {queueStatus.status === "called" && <CalledView />}
                 {queueStatus.status === "in_progress" && <InProgressView />}
@@ -241,7 +259,7 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
 
 // ── Waiting view (status: "booked") ─────────────────────────────────────────
 
-function WaitingView({ queueStatus }: { queueStatus: QueueStatus }) {
+function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isOnBreak: boolean }) {
   const radius = 68;
   const circumference = 2 * Math.PI * radius;
   // Arc progress: 0 = first in queue, 1 = all ahead have been served
@@ -253,6 +271,15 @@ function WaitingView({ queueStatus }: { queueStatus: QueueStatus }) {
 
   return (
     <div>
+      {isOnBreak && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
+          <span className="text-xl">☕</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">Doctor is on a break</p>
+            <p className="text-xs text-navy-mid">The queue will resume shortly. Your position is held.</p>
+          </div>
+        </div>
+      )}
       <p className="mb-5 text-center text-sm font-medium text-navy-mid">
         Your position in queue
       </p>

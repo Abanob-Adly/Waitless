@@ -56,16 +56,33 @@ router.patch(
 router.get(
   '/:orgId/subscription',
   authenticate,
-  authorize('organization.view', loadOrg),
+  authorize('subscription.manage', loadOrg),
   orgController.getSubscription
 );
 
 router.post(
   '/:orgId/subscription/upgrade',
   authenticate,
-  authorize('organization.update', loadOrg),
+  authorize('subscription.manage', loadOrg),
   validate(orgSchemas.upgrade),
   orgController.upgradePlan
+);
+
+// POST /orgs/:orgId/subscription/purchase — wallet-first / Paymob fallback
+router.post(
+  '/:orgId/subscription/purchase',
+  authenticate,
+  authorize('subscription.manage', loadOrg),
+  validate(orgSchemas.purchase),
+  orgController.purchasePlan
+);
+
+// GET /orgs/:orgId/invoices — billing history
+router.get(
+  '/:orgId/invoices',
+  authenticate,
+  authorize('subscription.manage', loadOrg),
+  orgController.getInvoices
 );
 
 // Nested resource routers

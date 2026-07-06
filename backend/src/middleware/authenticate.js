@@ -26,11 +26,13 @@ export async function authenticate(req, _res, next) {
 
         let activeMembership = null;
         if (payload.activeOrg) {
+            // Sort by kind ascending (admin < doctor < receptionist) so that when a user
+            // holds multiple roles the highest-privilege one is consistently selected.
             activeMembership = await Membership.findOne({
                 account: account._id,
                 organization: payload.activeOrg,
                 status: 'active',
-            });
+            }).sort({ kind: 1 });
             if (!activeMembership) throw Unauthorized('Org membership invalid');
         }
 

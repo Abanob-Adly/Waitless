@@ -133,21 +133,30 @@ export const queueController = {
 
     const fee = session.doctorBranchSchedule?.consultationFee?.amount ?? 0;
 
+    // Include walk-in cash AND clinic appointments confirmed as paid
     const appointments = await Appointment.find({
-      session:       req.params.sessionId,
-      status:        'completed',
-      paymentMethod: 'cash',
+      session: req.params.sessionId,
+      status:  'completed',
+      $or: [
+        { paymentMethod: 'cash' },
+        { paymentMethod: 'clinic', paymentStatus: 'success' },
+      ],
     }).populate('patientProfile', 'fullName').lean();
+
+    const totalCash = appointments.reduce((sum, a) => sum + (a.paidAmount ?? fee), 0);
 
     res.json({
       data: {
-        totalCash:          appointments.length * fee,
-        count:              appointments.length,
-        feePerAppointment:  fee,
-        appointments:       appointments.map((a) => ({
-          queueNumber: a.queueNumber,
-          patientName: a.patientProfile?.fullName ?? '',
-          completedAt: a.completedAt,
+        totalCash,
+        count:             appointments.length,
+        feePerAppointment: fee,
+        appointments:      appointments.map((a) => ({
+          queueNumber:   a.queueNumber,
+          patientName:   a.patientProfile?.fullName ?? '',
+          completedAt:   a.completedAt,
+          paymentMethod: a.paymentMethod,
+          paidAmount:    a.paidAmount ?? fee,
+          paidAt:        a.paidAt,
         })),
       },
     });

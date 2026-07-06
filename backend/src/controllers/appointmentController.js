@@ -3,6 +3,10 @@ import { appointmentService } from '../services/appointmentService.js';
 import { queueService } from '../services/queueService.js';
 
 export const appointmentSchemas = {
+  confirmPayment: z.object({
+    paidAmount: z.number().positive().optional(),
+  }),
+
   bookWalkIn: z.object({
     patientPhone:    z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
     patientName:     z.string().min(2).max(100),
@@ -79,6 +83,33 @@ export const appointmentController = {
   async getOwn(req, res) {
     const result = await appointmentService.getOwnAppointments({ actor: req.actor });
     res.json({ data: result });
+  },
+
+  async confirmPayment(req, res) {
+    const appointment = req.resource;
+    if (appointment.paymentMethod !== 'clinic') {
+      return res.status(422).json({ error: 'Only clinic (pay-at-desk) appointments can be confirmed this way' });
+    }
+    if (appointment.paymentStatus === 'success') {
+      return res.status(409).json({ error: 'Payment already confirmed' });
+    }
+
+    const DoctorBranchSchedule = (await import('../models/DoctorBranchSchedule.js')).default;
+    const Session              = (await import('../models/QueueSession.js')).default;
+
+    const session = await Session.findById(appointment.session).select('doctorBranchSchedule').lean();
+    const scheduleDoc = session
+      ? await DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean()
+      : null;
+    const fee = req.body.paidAmount ?? (scheduleDoc?.consultationFee?.amount ?? 0);
+
+    appointment.paymentStatus = 'success';
+    appointment.paidAt        = new Date();
+    appointment.receivedBy    = req.actor.activeMembership._id;
+    appointment.paidAmount    = fee;
+    await appointment.save();
+
+    res.json({ data: appointment });
   },
 
   // Patient self-cancel: verifies the appointment belongs to the authenticated patient.

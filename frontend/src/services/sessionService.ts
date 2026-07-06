@@ -14,6 +14,7 @@ export type BackendSession = {
   branchId: string;
   doctorId: string;
   doctorName: string;
+  doctorAvatarUrl: string;
   specialty: string;
   scheduleId: string;
   date: string;
@@ -52,6 +53,10 @@ export type BackendAppointment = {
   completedAt?: string;
   skippedAt?: string;
   notes?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  paidAt?: string;
+  paidAmount?: number;
 };
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -76,6 +81,9 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
       ? String(doctorObj._id ?? doctorObj.id ?? "")
       : String(s.doctor ?? ""),
     doctorName: String(doctorAccount.fullName ?? ""),
+    doctorAvatarUrl: typeof doctorObj === "object" && doctorObj !== null
+      ? String(doctorObj.avatarUrl ?? "")
+      : "",
     specialty:
       Array.isArray(doctorObj?.specialties)
         ? String((doctorObj?.specialties as string[])[0] ?? "")
@@ -189,7 +197,7 @@ export async function getQueue(
   );
   const d = res.data.data;
   return {
-    queueNumber: Number(d.totalWaiting ?? 0),
+    queueNumber: Number(d.currentServing ?? 0),
     currentlyServing: Number(d.currentServing ?? 0),
     estimatedWaitMin: 0,
     status: String(d.status ?? ""),
@@ -343,6 +351,9 @@ export type CashSummaryEntry = {
   queueNumber: number;
   patientName: string;
   completedAt: string;
+  paymentMethod?: string;
+  paidAmount?: number;
+  paidAt?: string;
 };
 
 export type CashSummary = {
@@ -363,6 +374,21 @@ export async function getCashSummary(
   return res.data.data;
 }
 
+// ── Confirm clinic cash payment ───────────────────────────────────────────────
+
+export async function confirmCashPayment(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  appointmentId: string,
+  paidAmount?: number,
+): Promise<void> {
+  await api.patch(
+    `${base(orgId, branchId)}/${sessionId}/appointments/${appointmentId}/confirm-payment`,
+    paidAmount != null ? { paidAmount } : {},
+  );
+}
+
 function adaptAppointment(a: Record<string, unknown>): BackendAppointment {
   const profile = (a.patientProfile as Record<string, unknown>) ?? {};
   return {
@@ -374,9 +400,13 @@ function adaptAppointment(a: Record<string, unknown>): BackendAppointment {
       fullName: String(profile.fullName ?? ""),
       phone: String(profile.phone ?? ""),
     },
-    calledAt: a.calledAt as string | undefined,
-    completedAt: a.completedAt as string | undefined,
-    skippedAt: a.skippedAt as string | undefined,
-    notes: a.notes as string | undefined,
+    calledAt:      a.calledAt      as string | undefined,
+    completedAt:   a.completedAt   as string | undefined,
+    skippedAt:     a.skippedAt     as string | undefined,
+    notes:         a.notes         as string | undefined,
+    paymentMethod: a.paymentMethod as string | undefined,
+    paymentStatus: a.paymentStatus as string | undefined,
+    paidAt:        a.paidAt        as string | undefined,
+    paidAmount:    a.paidAmount != null ? Number(a.paidAmount) : undefined,
   };
 }

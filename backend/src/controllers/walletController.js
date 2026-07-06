@@ -15,25 +15,29 @@ function ownerKindFromReq(req) {
 export const walletController = {
   // ── Personal wallet (patient / doctor) ──────────────────────────────────────
 
-  async getMyWallet(req, res) {
-    const wallet = await walletService.getOrCreateAccountWallet(
-      req.actor.account._id,
-      ownerKindFromReq(req),
-    );
-    res.json({ data: { wallet: serializeWallet(wallet) } });
+  async getMyWallet(req, res, next) {
+    try {
+      const wallet = await walletService.getOrCreateAccountWallet(
+        req.actor.account._id,
+        ownerKindFromReq(req),
+      );
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
   },
 
-  async topUp(req, res) {
-    const amount = Number(req.body.amount);
-    if (!amount || amount <= 0 || amount > 50_000) {
-      return res.status(400).json({ status: 'error', message: 'Amount must be between 1 and 50,000 EGP' });
-    }
-    const wallet = await walletService.topUp({
-      accountId: req.actor.account._id,
-      ownerKind: ownerKindFromReq(req),
-      amount,
-    });
-    res.json({ data: { wallet: serializeWallet(wallet) } });
+  async topUp(req, res, next) {
+    try {
+      const amount = Number(req.body.amount);
+      if (!amount || amount <= 0 || amount > 50_000) {
+        return res.status(400).json({ status: 'error', message: 'Amount must be between 1 and 50,000 EGP' });
+      }
+      const wallet = await walletService.topUp({
+        accountId: req.actor.account._id,
+        ownerKind: ownerKindFromReq(req),
+        amount,
+      });
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
   },
 
   async purchaseAtBooking(req, res, next) {
@@ -51,6 +55,10 @@ export const walletController = {
       if (String(appointment.patientProfile?.accountId) !== String(accountId)) {
         return res.status(403).json({ status: 'error', message: 'Appointment does not belong to this user' });
       }
+      // Guard against double-charging — idempotency check
+      if (appointment.paymentStatus === 'success') {
+        return res.status(409).json({ status: 'error', message: 'Appointment has already been paid' });
+      }
 
       const wallet = await walletService.purchaseDebit({ accountId, amount: fee, appointmentId });
 
@@ -65,14 +73,36 @@ export const walletController = {
     }
   },
 
-  async getMyEntries(req, res) {
-    const { limit = 50, page = 1 } = req.query;
-    const wallet = await walletService.getOrCreateAccountWallet(
-      req.actor.account._id,
-      ownerKindFromReq(req),
-    );
-    const { entries, total } = await walletService.getEntries({ walletId: wallet._id, limit, page });
-    res.json({ data: { entries: entries.map(serializeEntry), total, page: Number(page), limit: Number(limit) } });
+  async requestWithdrawal(req, res, next) {
+    try {
+      const amount      = Number(req.body.amount);
+      const destination = String(req.body.destination ?? '').trim();
+      if (!amount || amount < 100 || amount > 100_000) {
+        return res.status(400).json({ status: 'error', message: 'Amount must be between 100 and 100,000 EGP' });
+      }
+      if (!destination || destination.length < 5) {
+        return res.status(400).json({ status: 'error', message: 'Destination (bank account or mobile number) is required' });
+      }
+      const wallet = await walletService.withdraw({
+        accountId: req.actor.account._id,
+        ownerKind: ownerKindFromReq(req),
+        amount,
+        destination,
+      });
+      res.json({ data: { wallet: serializeWallet(wallet) } });
+    } catch (err) { next(err); }
+  },
+
+  async getMyEntries(req, res, next) {
+    try {
+      const { limit = 50, page = 1 } = req.query;
+      const wallet = await walletService.getOrCreateAccountWallet(
+        req.actor.account._id,
+        ownerKindFromReq(req),
+      );
+      const { entries, total } = await walletService.getEntries({ walletId: wallet._id, limit, page });
+      res.json({ data: { entries: entries.map(serializeEntry), total, page: Number(page), limit: Number(limit) } });
+    } catch (err) { next(err); }
   },
 
   // ── Organization wallet (admin only) ────────────────────────────────────────

@@ -18,15 +18,24 @@ async function checkMemberLimit(orgId, kind) {
 
   if (!sub?.plan) return;
 
-  const { maxDoctors, maxReceptionists } = sub.plan.limits;
+  const { maxDoctors, maxAdmins, maxReceptionists } = sub.plan.limits;
 
   if (kind === 'doctor' && maxDoctors != null) {
     const count = await Membership.countDocuments({ organization: orgId, kind: 'doctor', status: 'active' });
-    if (count >= maxDoctors) throw Forbidden('Doctor limit reached for your plan');
+    if (count >= maxDoctors) throw Forbidden(`Doctor limit reached for your plan (max ${maxDoctors}). Upgrade to add more.`);
   }
-  if (kind === 'receptionist' && maxReceptionists != null) {
-    const count = await Membership.countDocuments({ organization: orgId, kind: 'receptionist', status: 'active' });
-    if (count >= maxReceptionists) throw Forbidden('Receptionist limit reached for your plan');
+  if (kind === 'admin' && maxAdmins != null) {
+    const count = await Membership.countDocuments({ organization: orgId, kind: 'admin', status: 'active' });
+    if (count >= maxAdmins) throw Forbidden(`Admin limit reached for your plan (max ${maxAdmins}). Upgrade to add more.`);
+  }
+  if (kind === 'receptionist') {
+    if (maxReceptionists != null && maxReceptionists === 0) {
+      throw Forbidden('Receptionists are not available on your current plan. Upgrade to Standard or higher.');
+    }
+    if (maxReceptionists != null && maxReceptionists > 0) {
+      const count = await Membership.countDocuments({ organization: orgId, kind: 'receptionist', status: 'active' });
+      if (count >= maxReceptionists) throw Forbidden(`Receptionist limit reached for your plan (max ${maxReceptionists}). Upgrade to add more.`);
+    }
   }
 }
 

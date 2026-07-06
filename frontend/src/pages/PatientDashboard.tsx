@@ -3,12 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, cancelOwnAppointment } from "../services/patientService";
 import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 import { WalletView } from "../components/ui/WalletView";
+import { fmt12 } from "../utils/time";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,7 @@ export function PatientDashboard() {
   const { bookings, removeBooking } = useApp();
   const { authUser } = useAuth();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [appointmentHistory, setAppointmentHistory] = useState<OwnAppointmentItem[]>([]);
   const [serverTickets, setServerTickets] = useState<ActiveTicketItem[]>([]);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
@@ -84,7 +87,7 @@ export function PatientDashboard() {
     () => [
       {
         id: "active",
-        label: `Active Bookings${bookings.length > 0 ? ` (${bookings.length})` : ""}`,
+        label: `${t("Active Bookings")}${bookings.length > 0 ? ` (${bookings.length})` : ""}`,
         content: (
           <ActiveBookingsTab
             bookings={bookings}
@@ -99,7 +102,7 @@ export function PatientDashboard() {
       },
       {
         id: "history",
-        label: `Past History (${appointmentHistory.length})`,
+        label: `${t("Past History")} (${appointmentHistory.length})`,
         content: <HistoryTab history={appointmentHistory} />,
       },
       {
@@ -115,9 +118,9 @@ export function PatientDashboard() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8 animate-fade-up">
-        <p className="text-sm font-medium text-gold">Your account</p>
+        <p className="text-sm font-medium text-gold">{t("Your account")}</p>
         <h1 className="font-heading text-4xl font-bold text-navy">
-          My Dashboard
+          {t("My Dashboard")}
         </h1>
       </div>
 
@@ -135,17 +138,17 @@ export function PatientDashboard() {
         <div className="animate-slide-in-right space-y-4" style={{ animationDelay: "200ms" }}>
           <div className="rounded-xl border border-border bg-white p-5 shadow-sm">
             <h3 className="font-heading text-base font-bold text-navy">
-              Quick Actions
+              {t("Quick Actions")}
             </h3>
             <div className="mt-3 space-y-2">
               <ActionBtn
                 icon="🔍"
-                label="Find Doctors"
+                label={t("Find Doctors")}
                 onClick={() => navigate("/search")}
               />
               <ActionBtn
                 icon="🎫"
-                label={`My Live Ticket${bookings.length > 0 ? ` (${bookings.length})` : ""}`}
+                label={`${t("My Live Ticket")}${bookings.length > 0 ? ` (${bookings.length})` : ""}`}
                 onClick={() => navigate("/ticket")}
                 disabled={bookings.length === 0}
               />
@@ -157,7 +160,7 @@ export function PatientDashboard() {
             <div className="overflow-hidden rounded-xl border border-gold bg-gold-tint shadow-sm">
               <div className="bg-navy px-4 py-3">
                 <p className="text-xs font-medium text-white/70">
-                  Active booking
+                  {t("Active booking")}
                 </p>
               </div>
               <div className="p-4">
@@ -176,7 +179,7 @@ export function PatientDashboard() {
                 </div>
 
                 <div className="mt-3 flex items-center justify-between rounded-md bg-white px-3 py-2">
-                  <p className="text-xs text-navy-mid">Queue #</p>
+                  <p className="text-xs text-navy-mid">{t("Queue #")}</p>
                   <p className="font-heading text-2xl font-bold text-gold">
                     #{bookings[0].queueNumber}
                   </p>
@@ -186,7 +189,7 @@ export function PatientDashboard() {
                   onClick={() => navigate("/ticket")}
                   className="mt-3 flex h-10 w-full items-center justify-center gap-1 rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light"
                 >
-                  Go to Live Ticket →
+                  {t("Go to Live Ticket →")}
                 </button>
               </div>
             </div>
@@ -226,6 +229,7 @@ function CancelBookingModal({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useLanguage();
   const [acknowledged, setAcknowledged] = useState(false);
 
   // Check if within 1 hour of session start
@@ -244,17 +248,16 @@ function CancelBookingModal({
       <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="bg-danger px-6 py-4">
-          <p className="font-heading text-base font-bold text-white">Cancel Appointment</p>
+          <p className="font-heading text-base font-bold text-white">{t("Cancel Appointment")}</p>
           <p className="mt-0.5 text-xs text-white/70">{sessionDate} · {sessionStartTime}</p>
         </div>
 
         <div className="p-6 space-y-4">
           {withinPenaltyWindow && (
             <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3">
-              <p className="text-sm font-semibold text-danger">50 EGP cancellation fee applies</p>
+              <p className="text-sm font-semibold text-danger">{t("50 EGP cancellation fee applies")}</p>
               <p className="mt-1 text-xs text-navy-mid">
-                Cancellations within 1 hour of the session start incur a 50 EGP penalty
-                deducted from your wallet. Make sure you have sufficient balance.
+                {t("Cancellations within 1 hour of the session start incur a 50 EGP penalty deducted from your wallet. Make sure you have sufficient balance.")}
               </p>
               <label className="mt-3 flex cursor-pointer items-start gap-2">
                 <input
@@ -264,7 +267,7 @@ function CancelBookingModal({
                   className="mt-0.5 rounded border-border"
                 />
                 <span className="text-xs text-navy-mid">
-                  I understand that 50 EGP will be deducted from my wallet.
+                  {t("I understand that 50 EGP will be deducted from my wallet.")}
                 </span>
               </label>
             </div>
@@ -272,7 +275,7 @@ function CancelBookingModal({
 
           {!withinPenaltyWindow && (
             <p className="text-sm text-navy-mid">
-              Are you sure you want to cancel this appointment? This action cannot be undone.
+              {t("Are you sure you want to cancel this appointment? This action cannot be undone.")}
             </p>
           )}
 
@@ -286,14 +289,14 @@ function CancelBookingModal({
               disabled={cancelling}
               className="flex-1 rounded-md border border-border py-2 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
             >
-              Keep Booking
+              {t("Keep Booking")}
             </button>
             <button
               onClick={onConfirm}
               disabled={cancelling || (withinPenaltyWindow && !acknowledged)}
               className="flex-1 rounded-md bg-danger py-2 text-sm font-medium text-white transition hover:bg-danger/90 disabled:opacity-60"
             >
-              {cancelling ? "Cancelling…" : "Yes, Cancel"}
+              {cancelling ? t("Cancelling…") : t("Yes, Cancel")}
             </button>
           </div>
         </div>
@@ -643,6 +646,7 @@ function BookingCard({
   onCancel: () => void;
 }) {
   const { updateBookingNotes: updateNotes } = useApp();
+  const { locale } = useLanguage();
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState(booking.patientNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
@@ -697,8 +701,8 @@ function BookingCard({
               {booking.doctor.specialty} · {booking.doctor.area}
             </p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              {booking.session.date} · {booking.session.startTime} –{" "}
-              {booking.session.endTime}
+              {booking.session.date} · {fmt12(booking.session.startTime, locale)} –{" "}
+              {fmt12(booking.session.endTime, locale)}
             </p>
             <p className="text-xs text-navy-mid">{booking.session.clinicName}</p>
             {clinicDetails?.address && (

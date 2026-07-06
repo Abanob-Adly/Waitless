@@ -10,7 +10,7 @@ const loadOrg = (req) =>
   Organization.findOne({ _id: req.params.orgId, status: { $ne: 'deleted' } });
 
 router.get  ('/',       authenticate, authorize('organization.view',   loadOrg), walletController.getOrgWallet);
-router.post ('/topup',  authenticate, authorize('organization.update', loadOrg), walletController.topUpOrg);
+router.post ('/topup',  authenticate, authorize('subscription.manage', loadOrg), walletController.topUpOrg);
 router.get  ('/entries',authenticate, authorize('organization.view',   loadOrg), walletController.getOrgEntries);
 
 export default router;

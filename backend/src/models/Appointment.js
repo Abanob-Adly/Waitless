@@ -57,6 +57,9 @@ const appointmentSchema = new Schema({
   // ── Payment ──
   paymentMethod: { type: String, enum: ['card', 'vodafone_cash', 'clinic', 'wallet', 'cash'], default: null },
   paymentStatus: { type: String, enum: ['pending', 'success', 'failed'], default: 'pending' },
+  paidAt:        { type: Date, default: null },
+  receivedBy:    { type: Schema.Types.ObjectId, ref: 'Membership', default: null },
+  paidAmount:    { type: Number, default: null },
 
   notes: { type: String },
 

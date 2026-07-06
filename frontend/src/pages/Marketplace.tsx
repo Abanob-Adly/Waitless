@@ -179,9 +179,18 @@ function DoctorCard({
     <article className="group overflow-hidden rounded-lg border border-border bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-gold hover:shadow-lg">
       {/* Card header */}
       <div className="flex items-start gap-4 p-5">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-xl font-bold text-navy">
-          {doctor.initials}
-        </div>
+        {doctor.avatarUrl ? (
+          <img
+            src={doctor.avatarUrl}
+            alt={doctor.name}
+            className="h-14 w-14 shrink-0 rounded-full object-cover"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+        ) : (
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gold-tint font-heading text-xl font-bold text-navy">
+            {doctor.initials}
+          </div>
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

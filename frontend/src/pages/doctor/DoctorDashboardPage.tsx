@@ -2,6 +2,8 @@ import { Link } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { Button } from "../../components/ui/Button";
 import { mockDoctorSessions } from "../../data/mockDoctorSessions";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 const mockTransactions = [
   { id: "t1", patient: "Ahmed Hassan", amount: 300, date: "2026-06-28", status: "paid" as const },
@@ -13,6 +15,7 @@ const mockTransactions = [
 
 export function DoctorDashboardPage() {
   const todaySession = mockDoctorSessions[0];
+  const { locale } = useLanguage();
 
   return (
     <div className="min-h-screen bg-offwhite">
@@ -66,8 +69,8 @@ export function DoctorDashboardPage() {
               </p>
 
               <p className="mt-1 text-sm text-navy-mid">
-                {todaySession.date} · {todaySession.startTime} -{" "}
-                {todaySession.endTime}
+                {todaySession.date} · {fmt12(todaySession.startTime, locale)} -{" "}
+                {fmt12(todaySession.endTime, locale)}
               </p>
             </div>
 
@@ -142,7 +145,7 @@ export function DoctorDashboardPage() {
                   <p className="font-medium text-navy">{session.clinicName}</p>
 
                   <p className="mt-1 text-sm text-navy-mid">
-                    {session.date} · {session.startTime} - {session.endTime}
+                    {session.date} · {fmt12(session.startTime, locale)} - {fmt12(session.endTime, locale)}
                   </p>
                 </div>
 

@@ -1,6 +1,9 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
+import { getPlans } from "../services/orgService";
+import type { SubscriptionPlan } from "../types/index";
 
 // ── Static content ─────────────────────────────────────────────────────────────
 
@@ -43,35 +46,7 @@ const FEATURES = [
   },
 ];
 
-const PLANS = [
-  {
-    name: "Starter",
-    price: "Free",
-    period: "",
-    highlight: false,
-    features: ["1 branch", "Up to 5 doctors", "2 receptionists", "Basic queue management", "Email support"],
-    cta: "Get Started Free",
-    tier: "trial",
-  },
-  {
-    name: "Clinic",
-    price: "299",
-    period: "/mo",
-    highlight: true,
-    features: ["Up to 3 branches", "Up to 15 doctors", "10 receptionists", "Marketplace listing", "WhatsApp notifications", "Wallet & revenue reports", "Priority support"],
-    cta: "Start Free Trial",
-    tier: "clinic",
-  },
-  {
-    name: "Enterprise",
-    price: "Custom",
-    period: "",
-    highlight: false,
-    features: ["Unlimited branches", "Unlimited doctors", "All Clinic features", "Custom integrations", "Dedicated account manager", "SLA guarantee"],
-    cta: "Contact Sales",
-    tier: "enterprise",
-  },
-];
+const TIER_ORDER: Record<string, number> = { trial: 0, starter: 1, growth: 2, enterprise: 3, "business+": 4 };
 
 const STEPS = [
   { num: "01", title: "Create Your Organization", desc: "Sign up, set up your clinic profile, and add your branches in minutes." },
@@ -88,6 +63,19 @@ export function OrgLandingPage() {
 
   const isAdmin = authUser?.role === "admin";
   const isDoctor = authUser?.role === "doctor";
+
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+
+  useEffect(() => {
+    getPlans().then((data) => {
+      const sorted = [...data].sort(
+        (a, b) => (TIER_ORDER[a.tier] ?? 99) - (TIER_ORDER[b.tier] ?? 99),
+      );
+      setPlans(sorted);
+      setPlansLoading(false);
+    });
+  }, []);
 
   function handleGetStarted() {
     if (isAdmin || isDoctor) {
@@ -221,76 +209,101 @@ export function OrgLandingPage() {
 
       {/* ── Pricing ───────────────────────────────────────────────────────── */}
       <section id="pricing" className="px-6 py-16">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           <div className="mb-12 text-center">
             <h2 className="font-heading text-4xl font-bold text-navy">{t("Simple, transparent pricing")}</h2>
             <p className="mt-3 text-navy-mid">{t("Start free. Upgrade when you grow.")}</p>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-3">
-            {PLANS.map((plan) => (
-              <div
-                key={plan.name}
-                className={`relative flex flex-col rounded-2xl border p-6 transition ${
-                  plan.highlight
-                    ? "border-gold bg-navy shadow-xl"
-                    : "border-border bg-white shadow-sm"
-                }`}
-              >
-                {plan.highlight && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gold px-4 py-1 text-xs font-bold text-navy">
-                    {t("Most Popular")}
-                  </span>
-                )}
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            {plansLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-72 animate-pulse rounded-2xl bg-border" />
+                ))
+              : plans.map((plan) => {
+                  const isHighlight = plan.tier === "growth";
+                  const isTop      = plan.tier === "business+";
+                  const isSales    = plan.tier === "enterprise" || plan.tier === "business+";
 
-                <div className="mb-5">
-                  <p className={`font-heading text-lg font-bold ${plan.highlight ? "text-white" : "text-navy"}`}>
-                    {t(plan.name)}
-                  </p>
-                  <div className="mt-1 flex items-baseline gap-0.5">
-                    <span className={`font-heading text-4xl font-bold ${plan.highlight ? "text-gold" : "text-navy"}`}>
-                      {t(plan.price)}
-                    </span>
-                    {plan.period && (
-                      <span className={`text-sm ${plan.highlight ? "text-white/60" : "text-navy-mid"}`}>
-                        {plan.period}
-                      </span>
-                    )}
-                  </div>
-                  <p className={`mt-0.5 text-xs ${plan.highlight ? "text-white/40" : "text-navy-mid"}`}>EGP</p>
-                </div>
+                  const ctaLabel =
+                    isAdmin || isDoctor
+                      ? t("Manage Plan →")
+                      : isSales
+                      ? t("Contact Sales")
+                      : plan.pricePerMonth === 0
+                      ? t("Get Started Free")
+                      : t("Start Free Trial");
 
-                <ul className="mb-6 flex-1 space-y-2">
-                  {plan.features.map((f) => (
-                    <li key={f} className={`flex items-start gap-2 text-sm ${plan.highlight ? "text-white/80" : "text-navy-mid"}`}>
-                      <span className="mt-0.5 text-success">✓</span>
-                      {t(f)}
-                    </li>
-                  ))}
-                </ul>
-
-                <button
-                  onClick={() => {
+                  const handleCtaClick = () => {
                     if (isAdmin || isDoctor) {
                       navigate("/admin?tab=billing");
-                    } else if (plan.tier === "enterprise") {
-                      // placeholder
-                    } else {
+                    } else if (!isSales) {
                       navigate("/org/signup");
                     }
-                  }}
-                  className={`w-full rounded-md py-3 text-sm font-semibold transition ${
-                    plan.highlight
-                      ? "bg-gold text-navy hover:bg-gold-light"
-                      : "border border-navy text-navy hover:bg-navy hover:text-white"
-                  }`}
-                >
-                  {isAdmin || isDoctor
-                    ? plan.tier === "enterprise" ? t("Contact Sales") : t("Manage Plan →")
-                    : t(plan.cta)}
-                </button>
-              </div>
-            ))}
+                  };
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`relative flex flex-col rounded-2xl border p-6 transition ${
+                        isHighlight
+                          ? "border-gold bg-navy shadow-xl"
+                          : "border-border bg-white shadow-sm"
+                      }`}
+                    >
+                      {isHighlight && (
+                        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gold px-4 py-1 text-xs font-bold text-navy">
+                          {t("Most Popular")}
+                        </span>
+                      )}
+                      {isTop && (
+                        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gold px-4 py-1 text-xs font-bold text-navy">
+                          {t("Top")}
+                        </span>
+                      )}
+
+                      <div className="mb-5">
+                        <p className={`font-heading text-lg font-bold ${isHighlight ? "text-white" : "text-navy"}`}>
+                          {t(plan.name)}
+                        </p>
+                        <div className="mt-1 flex items-baseline gap-0.5">
+                          <span className={`font-heading text-4xl font-bold ${isHighlight ? "text-gold" : "text-navy"}`}>
+                            {plan.pricePerMonth === 0 ? t("Free") : String(plan.pricePerMonth)}
+                          </span>
+                          {plan.pricePerMonth > 0 && (
+                            <span className={`text-sm ${isHighlight ? "text-white/60" : "text-navy-mid"}`}>
+                              /mo
+                            </span>
+                          )}
+                        </div>
+                        {plan.pricePerMonth > 0 && (
+                          <p className={`mt-0.5 text-xs ${isHighlight ? "text-white/40" : "text-navy-mid"}`}>EGP</p>
+                        )}
+                      </div>
+
+                      <ul className="mb-6 flex-1 space-y-2">
+                        {plan.features.map((f) => (
+                          <li key={f} className={`flex items-start gap-2 text-sm ${isHighlight ? "text-white/80" : "text-navy-mid"}`}>
+                            <span className="mt-0.5 text-success">✓</span>
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+
+                      <button
+                        onClick={handleCtaClick}
+                        disabled={isSales && !isAdmin && !isDoctor}
+                        className={`w-full rounded-md py-3 text-sm font-semibold transition ${
+                          isHighlight
+                            ? "bg-gold text-navy hover:bg-gold-light"
+                            : "border border-navy text-navy hover:bg-navy hover:text-white"
+                        } ${isSales && !isAdmin && !isDoctor ? "cursor-default opacity-60" : ""}`}
+                      >
+                        {ctaLabel}
+                      </button>
+                    </div>
+                  );
+                })}
           </div>
         </div>
       </section>

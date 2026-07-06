@@ -29,6 +29,13 @@ const organizationPolicies = {
     return m.isSuper || (m.permissions || []).includes('organization.update');
   },
 
+  // Any active admin of the org can view or manage the subscription / billing.
+  'subscription.manage': (actor, org) => {
+    if (!org || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(org._id)) return false;
+    return actor.activeMembership.kind === 'admin';
+  },
+
   'organization.toggle_public': (actor, org) => {
     if (!org || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(org._id)) return false;
@@ -65,8 +72,10 @@ const membershipPolicies = {
   'member.update': (actor, membership) => {
     if (!membership || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(membership.organization)) return false;
-    // Allow a member to update their own profile (bio, specialties, etc.)
-    if (actor.activeMembership._id.equals(membership._id)) return true;
+    // Allow a member to update any of their own memberships (account-level self-edit).
+    // Checking account rather than activeMembership._id handles multi-role users where
+    // activeMembership may be a different role than the one being edited.
+    if (actor.account._id.equals(membership.account)) return true;
     const m = actor.activeMembership;
     if (!m.isSuper && membership.kind === 'admin') return false;
     return m.kind === 'admin' && (m.isSuper || (m.permissions || []).includes('members.manage'));
@@ -174,6 +183,14 @@ const appointmentPolicies = {
 
   'appointment.book_marketplace': (actor) => {
     return actor.account.role === 'patient';
+  },
+
+  'appointment.confirm_payment': (actor, appointment) => {
+    if (!appointment) return false;
+    if (!actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(appointment.organization)) return false;
+    const m = actor.activeMembership;
+    return m.kind === 'receptionist' || m.kind === 'admin';
   },
 };
 

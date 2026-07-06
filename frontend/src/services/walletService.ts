@@ -51,6 +51,11 @@ export async function getMyWalletEntries(params?: { page?: number; limit?: numbe
   return res.data.data;
 }
 
+export async function withdrawFromWallet(amount: number, destination: string): Promise<WalletInfo> {
+  const res = await api.post<{ data: { wallet: WalletInfo } }>("/wallet/me/withdraw", { amount, destination });
+  return res.data.data.wallet;
+}
+
 // ── Organization wallet (admin) ───────────────────────────────────────────────
 
 export async function getOrgWallet(orgId: string): Promise<WalletInfo> {

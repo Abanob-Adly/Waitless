@@ -28,11 +28,13 @@ const planSchema = new mongoose.Schema(
     yearlyDiscount: { type: Number, min: 0 },
     currency:     { type: String, default: 'EGP' },
     limits: {
-      maxBranches:          { type: Number, default: 1 },
-      maxDoctors:           { type: Number, default: 5 },
-      maxReceptionists:     { type: Number, default: 5 },
-      marketplaceListing:   { type: Boolean, default: false },
-      whatsappNotifications:{ type: Boolean, default: true },
+      maxBranches:           { type: Number, default: 1 },
+      maxDoctors:            { type: Number, default: 1 },
+      maxAdmins:             { type: Number, default: 1 },
+      maxReceptionists:      { type: Number, default: 0 },
+      maxWhatsappNumbers:    { type: Number, default: 0 },
+      marketplaceListing:    { type: Boolean, default: false },
+      whatsappNotifications: { type: Boolean, default: false },
     },
     isActive: { type: Boolean, default: true },
   },
@@ -70,8 +72,10 @@ const PLANS = [
     currency:     'EGP',
     limits: {
       maxBranches:           1,
-      maxDoctors:            5,
-      maxReceptionists:      2,
+      maxDoctors:            1,
+      maxAdmins:             1,
+      maxReceptionists:      0,   // receptionists disabled on free plan
+      maxWhatsappNumbers:    0,
       marketplaceListing:    false,
       whatsappNotifications: false,
     },
@@ -85,8 +89,10 @@ const PLANS = [
     currency:     'EGP',
     limits: {
       maxBranches:           3,
-      maxDoctors:            15,
-      maxReceptionists:      10,
+      maxDoctors:            3,
+      maxAdmins:             2,
+      maxReceptionists:      3,
+      maxWhatsappNumbers:    2,
       marketplaceListing:    true,
       whatsappNotifications: true,
     },
@@ -99,9 +105,28 @@ const PLANS = [
     yearlyDiscount: 25,
     currency:     'EGP',
     limits: {
-      maxBranches:           null,   // null = unlimited
-      maxDoctors:            null,
-      maxReceptionists:      null,
+      maxBranches:           5,
+      maxDoctors:            15,
+      maxAdmins:             5,
+      maxReceptionists:      5,
+      maxWhatsappNumbers:    5,
+      marketplaceListing:    true,
+      whatsappNotifications: true,
+    },
+    isActive: true,
+  },
+  {
+    name:         'Business+',
+    description:  'The ultimate plan for large healthcare organizations.',
+    priceMonthly: 1499,
+    yearlyDiscount: 20,
+    currency:     'EGP',
+    limits: {
+      maxBranches:           10,
+      maxDoctors:            25,
+      maxAdmins:             10,
+      maxReceptionists:      10,
+      maxWhatsappNumbers:    10,
       marketplaceListing:    true,
       whatsappNotifications: true,
     },
@@ -130,7 +155,7 @@ async function seed() {
   for (const planData of PLANS) {
     const plan = await SubscriptionPlan.findOneAndUpdate(
       { name: planData.name },
-      { $setOnInsert: planData },
+      { $set: planData },
       { upsert: true, new: true },
     );
     console.log(`  ✓ ${plan.name} (${plan._id})`);

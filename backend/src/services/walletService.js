@@ -3,20 +3,26 @@ import WalletEntry from '../models/WalletEntry.js';
 
 /**
  * Find or create a personal wallet for an account (patient or doctor).
+ * Uses atomic upsert to prevent race-condition duplicate wallets.
  */
 async function getOrCreateAccountWallet(accountId, ownerKind) {
-  const existing = await Wallet.findOne({ account: accountId });
-  if (existing) return existing;
-  return Wallet.create({ account: accountId, ownerKind, balance: 0 });
+  return Wallet.findOneAndUpdate(
+    { account: accountId },
+    { $setOnInsert: { account: accountId, ownerKind, balance: 0, currency: 'EGP', status: 'active' } },
+    { new: true, upsert: true },
+  );
 }
 
 /**
  * Find or create an organization wallet.
+ * Uses atomic upsert to prevent race-condition duplicate wallets.
  */
 async function getOrCreateOrgWallet(orgId) {
-  const existing = await Wallet.findOne({ organization: orgId });
-  if (existing) return existing;
-  return Wallet.create({ organization: orgId, ownerKind: 'organization', balance: 0 });
+  return Wallet.findOneAndUpdate(
+    { organization: orgId },
+    { $setOnInsert: { organization: orgId, ownerKind: 'organization', balance: 0, status: 'active', currency: 'EGP' } },
+    { upsert: true, new: true },
+  );
 }
 
 /**
@@ -176,6 +182,15 @@ export const walletService = {
       type: 'topup',
       referenceKind: 'topup',
       description: 'Wallet top-up',
+    });
+  },
+
+  async withdraw({ accountId, ownerKind, amount, destination }) {
+    const wallet = await getOrCreateAccountWallet(accountId, ownerKind);
+    return debitWallet(wallet._id, amount, {
+      type: 'withdrawal',
+      referenceKind: 'withdrawal',
+      description: `Withdrawal to: ${destination}`,
     });
   },
 

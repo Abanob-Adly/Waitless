@@ -216,6 +216,10 @@ export const queueService = {
     if (newStatus === 'completed') {
       appointment.completedAt = now;
       appointment.reviewToken = generateToken(24); // one-time review link token
+      // Clinic payments stay 'pending' until receptionist confirms cash received.
+      if (appointment.paymentMethod !== 'clinic') {
+        appointment.paymentStatus = 'success';
+      }
     }
     if (newStatus === 'cancelled')   appointment.cancelledAt = now;
     if (newStatus === 'skipped')     appointment.skippedAt   = now;
@@ -291,7 +295,7 @@ export const queueService = {
         ]);
 
         const fee            = scheduleDoc?.consultationFee?.amount ?? 0;
-        const platformPct    = sub?.plan?.platformCutPercent ?? 15;
+        const platformPct    = sub?.plan?.platformCutPercent ?? 10;
         const commissionPct  = branchDoc?.commissionPct ?? 70;
         const platformCut    = Math.round(fee * platformPct / 100);
         const commissionAmt  = Math.round((fee - platformCut) * commissionPct / 100);
@@ -325,7 +329,9 @@ export const queueService = {
 
           // Debit patient wallet — skip if already paid via wallet at booking time,
           // or if paying cash (receptionist collects physically).
-          if (!['wallet', 'cash'].includes(appointment.paymentMethod) && appointment.patientProfile) {
+          // card: charged externally via Paymob; wallet: prepaid at booking;
+          // cash/clinic: physically collected — never debit the in-app patient wallet.
+          if (!['wallet', 'cash', 'clinic', 'card'].includes(appointment.paymentMethod) && appointment.patientProfile) {
             try {
               const PatientProfile = (await import('../models/PatientProfile.js')).default;
               const pp = await PatientProfile.findById(appointment.patientProfile).select('accountId').lean();
@@ -484,7 +490,7 @@ export const queueService = {
     // after any gap-creating events.
     const aheadAppointments = await Appointment.find({
       session:     session._id,
-      queueNumber: { $gte: currentServing, $lt: appointment.queueNumber },
+      queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
       status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
     }).select('appointmentType').lean();
 
@@ -494,7 +500,7 @@ export const queueService = {
     );
 
     const [doctorDoc, scheduleDoc] = await Promise.all([
-      Membership.findById(session.doctor).populate('account', 'fullName').lean(),
+      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
       DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
     ]);
 
@@ -514,6 +520,7 @@ export const queueService = {
       emergencyReason:    appointment.emergencyReason ?? null,
       wasForceInserted:   appointment.wasForceInserted ?? false,
       doctorName:         doctorDoc?.account?.fullName ?? '',
+      doctorAvatarUrl:    doctorDoc?.avatarUrl ?? null,
       consultationFee:    scheduleDoc?.consultationFee?.amount ?? 0,
     };
   },

@@ -49,6 +49,13 @@ export const sessionService = {
         const endTime = new Date(current);
         endTime.setUTCHours(eh, em, 0, 0);
 
+        // Skip slots whose end time has already passed — creating them would
+        // cause the auto-close cron to immediately cancel them.
+        if (endTime <= new Date()) {
+          skipped++;
+          continue;
+        }
+
         try {
           await Session.create({
             doctorBranchSchedule: schedule._id,
@@ -129,7 +136,7 @@ export const sessionService = {
     await session.save();
 
     await Appointment.updateMany(
-      { session: session._id, status: { $in: ['booked', 'called', 'skipped'] } },
+      { session: session._id, status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } },
       { $set: { status: 'no_show' } }
     );
 

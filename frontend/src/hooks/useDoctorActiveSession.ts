@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import * as sessionService from "../services/sessionService";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 
@@ -32,11 +32,18 @@ export function useDoctorActiveSession(
   // Tracks whether we've received the first successful response. Background
   // polls after that update data silently without re-showing the spinner.
   const hasLoadedRef = useRef(false);
+  // Keep branches in a ref so useCallback identity stays stable even when the
+  // OrgContext array reference changes between renders. Without this, every
+  // context re-render produces a new `reload` function → the useEffect in
+  // QueueTab/ManageQueueTab fires → interval resets → visible flicker.
+  const branchesRef = useRef(branches);
+  useEffect(() => { branchesRef.current = branches; }, [branches]);
 
   const reload = useCallback(async () => {
+    const currentBranches = branchesRef.current;
     // Wait until OrgContext has finished loading and we know the doctor's
     // membership ID. Both are required to match sessions correctly.
-    if (!orgId || branches.length === 0 || !myMembershipId) {
+    if (!orgId || currentBranches.length === 0 || !myMembershipId) {
       setIsLoading(false);
       return;
     }
@@ -47,7 +54,7 @@ export function useDoctorActiveSession(
     }
     try {
       const today = todayString();
-      for (const branch of branches) {
+      for (const branch of currentBranches) {
         const sessions = await sessionService.getSessions(orgId, branch.id, { date: today });
         // s.doctorId is always the Membership ObjectId — never compare against
         // the Account ID (doctorAccountId), which is a different namespace.
@@ -79,10 +86,11 @@ export function useDoctorActiveSession(
       hasLoadedRef.current = true;
       setIsLoading(false);
     }
-  // doctorAccountId intentionally omitted — it is the Account ID and must not
+  // branches read from ref — excluded from deps intentionally to keep identity
+  // stable. doctorAccountId also omitted — it is the Account ID and must not
   // be used to match sessions (session.doctor is always a Membership ObjectId).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, branches, myMembershipId]);
+  }, [orgId, myMembershipId]);
 
   return { activeSession, activeBranchId, queue, isLoading, reload };
 }

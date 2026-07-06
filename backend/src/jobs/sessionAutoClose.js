@@ -16,15 +16,25 @@ import { queueService } from '../services/queueService.js';
  *
  * Idempotent: the status filter guarantees each session is processed once.
  */
+// Extra buffer before cancelling a session that was never started.
+// Gives the doctor a window past the scheduled end time to press Start if they're running late.
+const CANCEL_GRACE_MS = 15 * 60_000; // 15 minutes
+
 export function startSessionAutoCloseCron() {
   cron.schedule('*/10 * * * *', async () => {
     const now = new Date();
+    // Active sessions: close as soon as endTime passes (shift is over).
+    // Scheduled sessions: only cancel after the grace period (doctor may still start).
+    const activeDeadline    = now;
+    const scheduledDeadline = new Date(now.getTime() - CANCEL_GRACE_MS);
 
     let sessions;
     try {
       sessions = await Session.find({
-        endTime: { $lt: now },
-        status:  { $in: ['scheduled', 'active'] },
+        $or: [
+          { status: 'active',    endTime: { $lt: activeDeadline } },
+          { status: 'scheduled', endTime: { $lt: scheduledDeadline } },
+        ],
       }).lean();
     } catch (err) {
       console.error('[sessionAutoClose] DB query failed:', err.message);

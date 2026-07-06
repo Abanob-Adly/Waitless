@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index";
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
 import * as orgService from "../../services/orgService";
-import type { WalletSummary, WalletTransaction } from "../../services/orgService";
+import type { WalletSummary, WalletTransaction, Invoice } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import type { AdminJoinRequest } from "../../services/joinRequestService";
 import { WalletView } from "../../components/ui/WalletView";
@@ -21,6 +23,7 @@ export function AdminDashboard() {
   const { authUser, logout } = useAuth();
   const navigate = useNavigate();
   const { org, isLoading, myRoles, branches, memberships, schedules } = useOrg();
+  const { t, locale } = useLanguage();
   const [searchParams] = useSearchParams();
   const VALID_SECTIONS: AdminSection[] = ["overview","branches","staff","joinrequests","schedules","sessions","wallet","billing","whatsapp","settings"];
   const [activeSection, setActiveSection] = useState<AdminSection | null>(() => {
@@ -47,10 +50,10 @@ export function AdminDashboard() {
   const staffCount  = memberships.filter((m) => m.status === "active").length;
 
   const sectionTitle: Record<AdminSection, string> = {
-    overview: "Overview", branches: "Branches", staff: "Staff",
-    joinrequests: "Join Requests",
-    schedules: "Schedules", sessions: "Sessions", wallet: "Wallet",
-    billing: "Billing", whatsapp: "WhatsApp", settings: "Settings",
+    overview: t("Overview"), branches: t("Branches"), staff: t("Staff"),
+    joinrequests: t("Join Requests"),
+    schedules: t("Schedules"), sessions: t("Sessions"), wallet: t("My Wallet"),
+    billing: t("Billing"), whatsapp: "WhatsApp", settings: t("Settings"),
   };
 
   function renderSection() {
@@ -70,7 +73,7 @@ export function AdminDashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10" dir={locale === "ar" ? "rtl" : "ltr"}>
 
       {/* Header */}
       <div className="mb-8 flex animate-fade-up flex-wrap items-start justify-between gap-3">
@@ -80,13 +83,13 @@ export function AdminDashboard() {
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold">Admin</span>
+              <span className="rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold">{t("Admin")}</span>
               {isAlsoDoctor && (
-                <span className="rounded-full bg-navy/10 px-2.5 py-0.5 text-xs font-semibold text-navy">Doctor</span>
+                <span className="rounded-full bg-navy/10 px-2.5 py-0.5 text-xs font-semibold text-navy">{t("Doctor")}</span>
               )}
             </div>
             <h1 className="mt-0.5 truncate font-heading text-2xl font-bold text-navy sm:text-3xl">
-              {isLoading ? "Loading…" : org?.name ?? "Your Organization"}
+              {isLoading ? t("Loading…") : org?.name ?? t("Your Organization")}
             </h1>
             <p className="truncate text-sm text-navy-mid">{admin.name}</p>
           </div>
@@ -103,7 +106,7 @@ export function AdminDashboard() {
             }`}
           >
             <IconWallet />
-            <span className="hidden sm:inline">Wallet</span>
+            <span className="hidden sm:inline">{t("My Wallet")}</span>
           </button>
 
           {isAlsoDoctor && (
@@ -112,7 +115,7 @@ export function AdminDashboard() {
               className="hidden items-center gap-1.5 rounded-lg border border-navy/20 bg-navy/5 px-3 py-2 text-sm font-medium text-navy transition hover:bg-navy/10 sm:flex"
             >
               <IconQueue />
-              <span>My Queue</span>
+              <span>{t("My Queue")}</span>
             </button>
           )}
 
@@ -120,7 +123,7 @@ export function AdminDashboard() {
             onClick={() => { logout(); navigate("/"); }}
             className="rounded-lg border border-border px-3 py-2 text-sm text-navy-mid transition hover:border-danger/40 hover:text-danger"
           >
-            <span className="hidden sm:inline">Sign Out</span>
+            <span className="hidden sm:inline">{t("Sign Out")}</span>
             <span className="inline sm:hidden">✕</span>
           </button>
         </div>
@@ -130,7 +133,7 @@ export function AdminDashboard() {
       {activeSection && (
         <div className="mb-5 flex items-center gap-2 text-sm">
           <button onClick={() => setActiveSection(null)} className="text-navy-mid transition hover:text-navy">
-            ← Dashboard
+            {t("← Dashboard")}
           </button>
           <span className="text-navy-mid/40">/</span>
           <span className="font-medium text-navy">{sectionTitle[activeSection]}</span>
@@ -180,16 +183,17 @@ function DashboardHome({
   onSelect: (s: AdminSection) => void;
   onDoctorView: () => void;
 }) {
+  const { t } = useLanguage();
   const cards: CardDef[] = [
-    { id: "overview",  icon: <IconChart />,    title: "Overview",   desc: "Org stats, marketplace visibility and trial status", theme: "navy" },
-    { id: "branches",  icon: <IconBuilding />, title: "Branches",   desc: "Manage clinic locations and contact details",          theme: "gold",    badge: branchCount  > 0 ? String(branchCount)  : undefined },
-    { id: "staff",        icon: <IconStaff />,       title: "Staff",         desc: "Invite, edit roles, and manage team members",         theme: "navy",    badge: staffCount   > 0 ? String(staffCount)   : undefined },
-    { id: "joinrequests", icon: <IconJoinRequest />, title: "Join Requests",  desc: "Review and approve doctors requesting to join",        theme: "gold" },
-    { id: "schedules", icon: <IconCalendar />, title: "Schedules",  desc: "Set weekly doctor schedules, auto-generate sessions", theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
-    { id: "sessions",  icon: <IconClock />,    title: "Sessions",   desc: "View and cap daily patient sessions per branch",      theme: "success" },
-    { id: "settings",  icon: <IconSettings />, title: "Settings",   desc: "Edit organization name and branch commission rates",  theme: "navy" },
-    { id: "billing",   icon: <IconBilling />,  title: "Billing",    desc: "Subscription plans and feature access tiers",         theme: "navy" },
-    { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",   desc: "Automate appointment reminders via WhatsApp",         theme: "success" },
+    { id: "overview",  icon: <IconChart />,    title: t("Overview"),      desc: t("Org stats, marketplace visibility and trial status"), theme: "navy" },
+    { id: "branches",  icon: <IconBuilding />, title: t("Branches"),      desc: t("Manage clinic locations and contact details"),          theme: "gold",    badge: branchCount  > 0 ? String(branchCount)  : undefined },
+    { id: "staff",        icon: <IconStaff />,       title: t("Staff"),         desc: t("Invite, edit roles, and manage team members"),         theme: "navy",    badge: staffCount   > 0 ? String(staffCount)   : undefined },
+    { id: "joinrequests", icon: <IconJoinRequest />, title: t("Join Requests"), desc: t("Review and approve doctors requesting to join"),        theme: "gold" },
+    { id: "schedules", icon: <IconCalendar />, title: t("Schedules"),     desc: t("Set weekly doctor schedules, auto-generate sessions"), theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
+    { id: "sessions",  icon: <IconClock />,    title: t("Sessions"),      desc: t("View and cap daily patient sessions per branch"),      theme: "success" },
+    { id: "settings",  icon: <IconSettings />, title: t("Settings"),      desc: t("Edit organization name and branch commission rates"),  theme: "navy" },
+    { id: "billing",   icon: <IconBilling />,  title: t("Billing"),       desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
+    { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",         desc: t("Automate appointment reminders via WhatsApp"),         theme: "success" },
   ];
 
   const themeMap: Record<CardTheme, { ring: string; iconBg: string; badgeCls: string; arrow: string }> = {
@@ -201,20 +205,20 @@ function DashboardHome({
   return (
     <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card, i) => {
-        const t = themeMap[card.theme];
+        const cls = themeMap[card.theme];
         return (
           <button
             key={card.id}
             onClick={() => onSelect(card.id)}
             style={{ animationDelay: `${i * 40}ms` }}
-            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${t.ring}`}
+            className={`group flex flex-col gap-4 rounded-xl border border-border bg-white p-5 text-left shadow-sm ring-2 ring-transparent transition hover:shadow-md ${cls.ring}`}
           >
             <div className="flex items-start justify-between">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${t.iconBg}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg text-white ${cls.iconBg}`}>
                 {card.icon}
               </div>
               {card.badge && (
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${t.badgeCls}`}>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${cls.badgeCls}`}>
                   {card.badge}
                 </span>
               )}
@@ -223,8 +227,8 @@ function DashboardHome({
               <p className="font-heading text-base font-bold text-navy">{card.title}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">{card.desc}</p>
             </div>
-            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${t.arrow}`}>
-              Manage →
+            <span className={`text-xs font-semibold opacity-0 transition-opacity group-hover:opacity-100 ${cls.arrow}`}>
+              {t("Open →")}
             </span>
           </button>
         );
@@ -240,16 +244,16 @@ function DashboardHome({
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold text-white">
               <IconQueue />
             </div>
-            <span className="rounded-full bg-gold/20 px-2.5 py-0.5 text-xs font-bold text-gold">Doctor</span>
+            <span className="rounded-full bg-gold/20 px-2.5 py-0.5 text-xs font-bold text-gold">{t("Doctor")}</span>
           </div>
           <div className="flex-1">
-            <p className="font-heading text-base font-bold text-navy">My Queue</p>
+            <p className="font-heading text-base font-bold text-navy">{t("My Queue")}</p>
             <p className="mt-0.5 text-xs leading-relaxed text-navy-mid">
-              View and manage your patient queue as a doctor
+              {t("Doctor View →")}
             </p>
           </div>
           <span className="text-xs font-semibold text-gold opacity-0 transition-opacity group-hover:opacity-100">
-            Open Doctor View →
+            {t("Doctor View →")}
           </span>
         </button>
       )}
@@ -377,6 +381,7 @@ function IconJoinRequest() {
 
 function OverviewTab() {
   const { org, branches, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
+  const { t } = useLanguage();
   const [toggling, setToggling] = useState(false);
   const [visResult, setVisResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -410,10 +415,10 @@ function OverviewTab() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          <StatBox key="br" label="Branches" value={branches.length.toString()} />,
-          <StatBox key="dr" label="Doctors" value={doctorCount.toString()} />,
-          <StatBox key="st" label="Total Staff" value={staffCount.toString()} accent />,
-          <StatBox key="pl" label="Plan" value={plan?.name ?? "—"} success />,
+          <StatBox key="br" label={t("Branches")} value={branches.length.toString()} />,
+          <StatBox key="dr" label={t("Doctors")} value={doctorCount.toString()} />,
+          <StatBox key="st" label={t("Total Staff")} value={staffCount.toString()} accent />,
+          <StatBox key="pl" label={t("Plan")} value={plan?.name ?? "—"} success />,
         ].map((box, i) => (
           <div key={i} className="animate-fade-up" style={{ animationDelay: `${i * 80}ms` }}>
             {box}
@@ -423,9 +428,9 @@ function OverviewTab() {
 
       {branches.length === 0 && (
         <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">Add your first branch to get started</p>
+          <p className="text-sm font-semibold text-navy">{t("Add your first branch to get started")}</p>
           <p className="mt-1 text-xs text-navy-mid">
-            Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.
+            {t("Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.")}
           </p>
         </div>
       )}
@@ -433,10 +438,10 @@ function OverviewTab() {
       {subscription?.status === "trial" && branches.length > 0 && (
         <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
           <p className="text-sm font-semibold text-navy">
-            Free Trial
+            {t("Free Trial")}
           </p>
           <p className="mt-1 text-xs text-navy-mid">
-            Upgrade to a paid plan to unlock marketplace listing and more features.
+            {t("Upgrade to a paid plan to unlock marketplace listing and more features.")}
           </p>
         </div>
       )}
@@ -449,15 +454,15 @@ function OverviewTab() {
 
       <div className="rounded-xl border border-border bg-offwhite p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
-          Organization
+          {t("Organization")}
         </p>
         <p className="mt-2 font-heading text-lg font-bold text-navy">{org?.name}</p>
         <p className="text-sm text-navy-mid capitalize">{org?.type}</p>
         <div className="mt-3 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-navy-mid">Marketplace Listing</p>
+            <p className="text-xs font-medium text-navy-mid">{t("Marketplace Listing")}</p>
             <p className="mt-0.5 text-xs text-navy-mid">
-              {org?.isPublic ? "Visible to patients" : "Not listed publicly"}
+              {org?.isPublic ? t("Visible to patients") : t("Not listed publicly")}
             </p>
           </div>
           <button
@@ -469,7 +474,7 @@ function OverviewTab() {
                 : "bg-gold text-navy hover:bg-gold-light"
             }`}
           >
-            {toggling ? "Saving…" : org?.isPublic ? "Make Private" : "List Publicly →"}
+            {toggling ? t("Saving…") : org?.isPublic ? t("Make Private") : t("List Publicly →")}
           </button>
         </div>
       </div>
@@ -480,22 +485,40 @@ function OverviewTab() {
 // ── Branches Tab ──────────────────────────────────────────────────────────────
 
 function BranchesTab() {
-  const { branches, isLoading, addBranch } = useOrg();
+  const { branches, isLoading, addBranch, subscription, plans } = useOrg();
+  const { t, locale } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
 
   if (isLoading) return <Skeleton />;
 
+  const currentPlan = plans.find((p) => p.id === subscription?.planId);
+  const branchLimit = currentPlan?.maxBranches ?? Infinity;
+  const branchLimitHit = branches.length >= branchLimit;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{branches.length} branch{branches.length !== 1 ? "es" : ""}</p>
-        <button
-          onClick={() => { setShowModal(true); setBranchError(null); }}
-          className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
-        >
-          + Add Branch
-        </button>
+        <p className="text-sm text-navy-mid">
+          {branches.length} {locale === "ar" ? "فرع" : (branches.length !== 1 ? "branches" : "branch")}
+          {branchLimit < Infinity && (
+            <span className="ml-1.5 text-navy-mid/60">/ {branchLimit}</span>
+          )}
+        </p>
+        <div className="relative group">
+          <button
+            onClick={() => { if (!branchLimitHit) { setShowModal(true); setBranchError(null); } }}
+            disabled={branchLimitHit}
+            className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t("+ Add Branch")}
+          </button>
+          {branchLimitHit && (
+            <div className="pointer-events-none absolute right-0 top-full mt-1.5 w-52 rounded-lg border border-border bg-white px-3 py-2 text-xs text-navy-mid shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              {locale === "ar" ? `وصلت للحد الأقصى (${branchLimit} فروع). ترقّ لإضافة المزيد.` : `Branch limit reached (${branchLimit}). Upgrade your plan to add more.`}
+            </div>
+          )}
+        </div>
       </div>
 
       {branchError && (
@@ -505,7 +528,7 @@ function BranchesTab() {
       )}
 
       {branches.length === 0 ? (
-        <EmptyState icon="🏢" title="No branches yet" body="Add your first branch to get started." />
+        <EmptyState icon="🏢" title={t("No branches yet")} body={t("Add your first branch to get started.")} />
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {branches.map((b) => (
@@ -516,7 +539,7 @@ function BranchesTab() {
                 <p className="text-xs text-navy-mid">{b.phone}</p>
               </div>
               <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                Active
+                {t("Active")}
               </span>
             </div>
           ))}
@@ -545,19 +568,32 @@ function BranchesTab() {
 // ── Staff Tab ─────────────────────────────────────────────────────────────────
 
 function StaffTab() {
-  const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin } = useOrg();
+  const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin, subscription, plans } = useOrg();
+  const { t, locale } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Membership | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  async function handleRemove(memberId: string, memberName: string) {
-    if (!window.confirm(`Remove ${memberName || "this staff member"}? This cannot be undone.`)) return;
+  async function handleRemove(memberId: string, nameOrEmail: string, status: string) {
+    const isPending = status === "pending";
+    const msg = isPending
+      ? `Cancel invite to ${nameOrEmail || "this invitee"}? The invite link will be invalidated.`
+      : `Remove ${nameOrEmail || "this staff member"}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
     setRemoving(memberId);
     await removeMember(memberId);
     setRemoving(null);
+  }
+
+  async function handleCopyInviteLink(member: Membership) {
+    const link = `${window.location.origin}/accept-invite?token=${member.inviteToken}`;
+    await navigator.clipboard.writeText(link);
+    setCopiedId(member.id);
+    setTimeout(() => setCopiedId(null), 2000);
   }
 
   async function handleGrantAdmin(memberId: string) {
@@ -594,21 +630,36 @@ function StaffTab() {
   const uniqueMembers = Array.from(grouped.values());
   const activeMemberCount = uniqueMembers.length;
 
+  const currentPlan = plans.find((p) => p.id === subscription?.planId);
+  const doctorLimit = currentPlan?.maxDoctors ?? Infinity;
+  const receptionistLimit = currentPlan?.maxReceptionists ?? Infinity;
+  const adminLimit = currentPlan?.maxAdmins ?? Infinity;
+  const activeDocCount = memberships.filter((m) => m.userRole === "doctor" && m.status === "active").length;
+  const activeReceptCount = memberships.filter((m) => m.userRole === "receptionist" && m.status === "active").length;
+  const activeAdminCount = memberships.filter((m) => m.userRole === "admin" && m.status === "active").length;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{activeMemberCount} member{activeMemberCount !== 1 ? "s" : ""}</p>
+        <p className="text-sm text-navy-mid">{activeMemberCount} {t("member(s)")}</p>
         <button
           onClick={() => { setShowModal(true); setGeneratedToken(null); }}
           className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          + Invite Staff
+          {t("+ Invite Staff")}
         </button>
       </div>
+      {currentPlan && (
+        <div className="flex flex-wrap gap-4 text-xs text-navy-mid">
+          <span>{t("Doctors")}: {activeDocCount} / {isFinite(doctorLimit) ? doctorLimit : "∞"}</span>
+          <span>{t("Admins")}: {activeAdminCount} / {isFinite(adminLimit) ? adminLimit : "∞"}</span>
+          <span>{t("Receptionists")}: {activeReceptCount} / {isFinite(receptionistLimit) ? receptionistLimit : "∞"}</span>
+        </div>
+      )}
 
       {generatedToken && (
         <div className="rounded-xl border border-gold bg-gold-tint p-4">
-          <p className="text-xs font-semibold text-navy">Invitation link (share with invitee):</p>
+          <p className="text-xs font-semibold text-navy">{t("Invitation link (share with invitee):")}</p>
           <p className="mt-1 break-all rounded-md bg-white px-3 py-2 font-mono text-xs text-navy-mid">
             {window.location.origin}/accept-invite?token={generatedToken}
           </p>
@@ -616,7 +667,7 @@ function StaffTab() {
             onClick={() => navigator.clipboard.writeText(`${window.location.origin}/accept-invite?token=${generatedToken}`)}
             className="mt-2 text-xs font-medium text-gold hover:text-gold-light"
           >
-            Copy link →
+            {t("Copy link →")}
           </button>
         </div>
       )}
@@ -660,19 +711,28 @@ function StaffTab() {
               </div>
 
               <div className="flex shrink-0 flex-col items-end gap-1.5">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {primary.status === "pending" && primary.inviteToken ? (
+                    <button
+                      onClick={() => handleCopyInviteLink(primary)}
+                      className="text-xs font-medium text-gold hover:text-gold-light"
+                    >
+                      {copiedId === primary.id ? t("Invite link copied!") : t("Copy Invite Link")}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingMember(primary); setEditError(null); }}
+                      className="text-xs font-medium text-gold hover:text-gold-light"
+                    >
+                      {t("Edit")}
+                    </button>
+                  )}
                   <button
-                    onClick={() => { setEditingMember(primary); setEditError(null); }}
-                    className="text-xs font-medium text-gold hover:text-gold-light"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleRemove(primary.id, primary.memberName)}
+                    onClick={() => handleRemove(primary.id, primary.invitedEmail || primary.memberName, primary.status)}
                     disabled={isBusy}
                     className="text-xs font-medium text-danger hover:text-danger/70 disabled:opacity-40"
                   >
-                    {removing === primary.id ? "…" : "Remove"}
+                    {removing === primary.id ? "…" : (primary.status === "pending" ? t("Cancel Invite") : t("Remove"))}
                   </button>
                 </div>
                 {/* Make Admin — doctors only; receptionists cannot be promoted to admin */}
@@ -682,15 +742,15 @@ function StaffTab() {
                     disabled={isBusy}
                     className="rounded-md border border-navy/20 px-3 py-1 text-xs font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-40"
                   >
-                    {promoting === primary.id ? "…" : "Make Admin"}
+                    {promoting === primary.id ? "…" : t("Make Admin")}
                   </button>
                 )}
                 {!isAdmin && !isDoctor && roles.includes("receptionist") && (
                   <span
-                    title="Receptionists cannot be promoted to admin"
+                    title={t("Receptionists cannot be promoted to admin")}
                     className="cursor-not-allowed rounded-md border border-border px-3 py-1 text-xs font-medium text-navy-mid/40"
                   >
-                    Make Admin
+                    {t("Make Admin")}
                   </span>
                 )}
                 {/* Revoke Admin — for any member who holds an admin role */}
@@ -702,7 +762,7 @@ function StaffTab() {
                     disabled={isBusy}
                     className="rounded-md border border-danger/20 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/5 disabled:opacity-40"
                   >
-                    {promoting === primary.id ? "…" : "Revoke Admin"}
+                    {promoting === primary.id ? "…" : t("Revoke Admin")}
                   </button>
                 )}
               </div>
@@ -714,9 +774,13 @@ function StaffTab() {
       {showModal && (
         <InviteStaffModal
           branches={branches}
+          doctorLimit={doctorLimit}
+          receptionistLimit={receptionistLimit}
+          activeDocCount={activeDocCount}
+          activeReceptCount={activeReceptCount}
           onClose={() => setShowModal(false)}
-          onSave={async (branchId, email, role, specialties, permissions) => {
-            const token = await inviteStaff(branchId, email, role, specialties, permissions);
+          onSave={async (branchId, email, role, specialties) => {
+            const token = await inviteStaff(branchId, email, role, specialties, undefined);
             if (token) setGeneratedToken(token);
             setShowModal(false);
           }}
@@ -752,6 +816,7 @@ function StaffTab() {
 
 function JoinRequestsTab() {
   const { org } = useOrg();
+  const { t, locale } = useLanguage();
   const [requests, setRequests] = useState<AdminJoinRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected">("pending");
@@ -784,8 +849,8 @@ function JoinRequestsTab() {
     <div>
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Join Requests</h2>
-          <p className="text-sm text-navy-mid">Doctors requesting to join your organization</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Join Requests")}</h2>
+          <p className="text-sm text-navy-mid">{t("Doctors requesting to join your organization")}</p>
         </div>
         <div className="flex gap-1.5 rounded-lg border border-border p-1">
           {(["pending", "approved", "rejected"] as const).map((s) => (
@@ -814,11 +879,13 @@ function JoinRequestsTab() {
         </div>
       ) : requests.length === 0 ? (
         <div className="rounded-xl border border-border bg-offwhite px-6 py-12 text-center">
-          <p className="text-sm font-medium text-navy">No {statusFilter} requests</p>
+          <p className="text-sm font-medium text-navy">{t("No")} {t(statusFilter)} {t("requests")}</p>
           <p className="mt-1 text-xs text-navy-mid">
             {statusFilter === "pending"
-              ? "New join requests will appear here"
-              : `Previously ${statusFilter} requests will appear here`}
+              ? t("New join requests will appear here")
+              : locale === "ar"
+                ? `${t("Previously")} ${t(statusFilter)} ${t("requests will appear here")}`
+                : `Previously ${statusFilter} requests will appear here`}
           </p>
         </div>
       ) : (
@@ -855,14 +922,14 @@ function JoinRequestsTab() {
                       disabled={resolving === req.id}
                       className="rounded-lg bg-success px-4 py-2 text-xs font-semibold text-white transition hover:bg-success/90 disabled:opacity-60"
                     >
-                      {resolving === req.id ? "…" : "Approve"}
+                      {resolving === req.id ? "…" : t("Approve")}
                     </button>
                     <button
                       onClick={() => handleResolve(req.id, "reject")}
                       disabled={resolving === req.id}
                       className="rounded-lg border border-danger/30 px-4 py-2 text-xs font-semibold text-danger transition hover:bg-danger/10 disabled:opacity-60"
                     >
-                      Reject
+                      {t("Reject")}
                     </button>
                   </div>
                 )}
@@ -895,6 +962,7 @@ const DOCTOR_COLORS = [
 
 function SchedulesTab() {
   const { schedules, memberships, branches, isLoading, createSchedule, updateSchedule, addException } = useOrg();
+  const { t, locale } = useLanguage();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<DoctorBranchSchedule | null>(null);
   const [exceptionScheduleId, setExceptionScheduleId] = useState<string | null>(null);
@@ -925,20 +993,22 @@ function SchedulesTab() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Weekly Schedule</h2>
-          <p className="text-sm text-navy-mid">{schedules.length} schedule{schedules.length !== 1 ? "s" : ""} across {doctors.length} doctor{doctors.length !== 1 ? "s" : ""}</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Weekly Schedule")}</h2>
+          <p className="text-sm text-navy-mid">{schedules.length} {locale === "ar" ? "جدول لـ" : `schedule${schedules.length !== 1 ? "s" : ""} across`} {doctors.length} {locale === "ar" ? "طبيب" : `doctor${doctors.length !== 1 ? "s" : ""}`}</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
           className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          + Add Schedule
+          {t("+ Add Schedule")}
         </button>
       </div>
 
       {lastGenerated !== null && (
         <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
-          Schedule saved — {lastGenerated} session{lastGenerated !== 1 ? "s" : ""} generated for the next 14 days. Doctor Profile will reflect this within 30 seconds.
+          {locale === "ar"
+            ? `تم حفظ الجدول — تم إنشاء ${lastGenerated} جلسة للـ 14 يوماً القادمة. سيعكس الملف الشخصي للطبيب ذلك خلال 30 ثانية.`
+            : `Schedule saved — ${lastGenerated} session${lastGenerated !== 1 ? "s" : ""} generated for the next 14 days. Doctor Profile will reflect this within 30 seconds.`}
         </div>
       )}
 
@@ -959,7 +1029,7 @@ function SchedulesTab() {
 
       {/* Calendar week grid */}
       {schedules.length === 0 ? (
-        <EmptyState icon="📅" title="No schedules yet" body="Add a doctor's weekly schedule to auto-generate sessions." />
+        <EmptyState icon="📅" title={t("No schedules yet")} body={t("Add a doctor's weekly schedule to auto-generate sessions.")} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-white">
           <div className="grid grid-cols-7 border-b border-border">
@@ -1012,7 +1082,7 @@ function SchedulesTab() {
                         {schedule.doctorName.split(" ")[0]}
                       </p>
                       <p className={`text-[9px] leading-tight ${c.text} opacity-80`}>
-                        {slot.startTime}–{slot.endTime}
+                        {fmt12(slot.startTime, locale)}–{fmt12(slot.endTime, locale)}
                       </p>
                     </div>
                   );
@@ -1028,7 +1098,7 @@ function SchedulesTab() {
         <div className="animate-fade-up rounded-xl border border-border bg-white p-5">
           <h3 className="mb-3 font-heading text-base font-bold text-navy">{DAYS_FULL[selectedDay]}</h3>
           {slotsForSelected.length === 0 ? (
-            <p className="text-sm text-navy-mid">No sessions scheduled on this day.</p>
+            <p className="text-sm text-navy-mid">{t("No sessions scheduled on this day.")}</p>
           ) : (
             <div className="space-y-3">
               {slotsForSelected.map(({ schedule, slot, colorIdx }) => {
@@ -1043,7 +1113,7 @@ function SchedulesTab() {
                         <span className={`text-xs opacity-70 ${c.text}`}>{schedule.specialty}</span>
                       </div>
                       <p className={`mt-1 text-xs ${c.text} opacity-80`}>
-                        {slot.startTime} – {slot.endTime} · {branch?.name ?? "Branch"}
+                        {fmt12(slot.startTime, locale)} – {fmt12(slot.endTime, locale)} · {branch?.name ?? "Branch"}
                       </p>
                       <p className={`text-xs ${c.text} opacity-70`}>
                         {schedule.fee} EGP · {schedule.avgConsultationMin} min avg
@@ -1054,13 +1124,13 @@ function SchedulesTab() {
                         onClick={(e) => { e.stopPropagation(); setEditingSchedule(schedule); }}
                         className={`rounded-md border px-3 py-1.5 text-xs font-medium transition hover:opacity-80 ${c.border} ${c.text}`}
                       >
-                        Edit
+                        {t("Edit")}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setExceptionScheduleId(schedule.id); }}
                         className="rounded-md border border-danger/20 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/5"
                       >
-                        Off Day
+                        {t("Off Day")}
                       </button>
                     </div>
                   </div>
@@ -1116,163 +1186,463 @@ function SchedulesTab() {
 // ── Billing Tab ───────────────────────────────────────────────────────────────
 
 type BranchConflict = { currentBranches: number; allowedBranches: number; planName: string };
+type PaymentModal = { planId: string; planName: string; planPrice: number; walletBalance: number };
+type IframeModal  = { iframeUrl: string; planName: string; planPrice: number };
 
 function BillingTab() {
   const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
-  const [upgrading, setUpgrading] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<(BranchConflict & { planId: string }) | null>(null);
-  const [removingBranchId, setRemovingBranchId] = useState<string | null>(null);
+  const { t, locale } = useLanguage();
+  const [searchParams] = useSearchParams();
+
+  const [processing, setProcessing] = useState<string | null>(null);
+  const [toast, setToast]           = useState<{ ok: boolean; msg: string } | null>(null);
+  const [conflict, setConflict]     = useState<(BranchConflict & { planId: string }) | null>(null);
+  const [removingBranch, setRemovingBranch] = useState<string | null>(null);
+  const [paymentModal, setPaymentModal]     = useState<PaymentModal | null>(null);
+  const [iframeModal, setIframeModal]       = useState<IframeModal | null>(null);
+
+  // Invoices (billing history)
+  const [invoices, setInvoices]       = useState<Invoice[]>([]);
+  const [invoiceTotal, setInvoiceTotal] = useState(0);
+  const [invoicePage, setInvoicePage]   = useState(1);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+
+  function showToast(ok: boolean, msg: string) {
+    setToast({ ok, msg });
+    setTimeout(() => setToast(null), 4000);
+  }
+
+  // Load invoices
+  const loadInvoices = useCallback(async (page = 1) => {
+    if (!org) return;
+    setInvoicesLoading(true);
+    try {
+      const { invoices: list, total } = await orgService.getInvoices(org.id, page);
+      setInvoices(list);
+      setInvoiceTotal(total);
+      setInvoicePage(page);
+    } catch { /* silent */ }
+    setInvoicesLoading(false);
+  }, [org]);
+
+  useEffect(() => { loadInvoices(1); }, [loadInvoices]);
+
+  // Handle Paymob redirect back to billing tab (?payment=success/failed)
+  useEffect(() => {
+    const paymentResult = searchParams.get("payment");
+    if (paymentResult === "success") {
+      showToast(true, t("Payment successful"));
+      void refresh();
+      void loadInvoices(1);
+    } else if (paymentResult === "failed") {
+      showToast(false, t("Payment failed"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (isLoading) return <Skeleton />;
 
-  async function handleUpgrade(planId: string) {
+  // ── Initiate plan purchase ────────────────────────────────────────────────
+  async function handleSelectPlan(planId: string) {
+    if (!org) return;
     const plan = plans.find((p) => p.id === planId);
-    const priceMsg = (plan?.pricePerMonth ?? 0) > 0 ? ` You will be billed ${plan!.pricePerMonth} EGP/month.` : "";
-    if (!window.confirm(`Switch to ${plan?.name ?? "this plan"}?${priceMsg} This takes effect immediately.`)) return;
-    setUpgrading(planId);
-    setSuccess(null);
-    setError(null);
-    setConflict(null);
-    const result = await upgradePlan(planId);
-    if (result.ok) {
-      setSuccess(`Switched to ${plan?.name ?? planId}. Changes take effect immediately.`);
-    } else if (result.conflict) {
-      setConflict({ ...result.conflict, planId });
-    } else {
-      setError("Failed to change plan. Please try again.");
+    if (!plan) return;
+
+    // For free plan, skip modal and activate immediately
+    if (plan.pricePerMonth === 0) {
+      setProcessing(planId);
+      try {
+        const result = await orgService.purchasePlan(org.id, planId);
+        if (result.method === "free") {
+          await refresh();
+          await loadInvoices(1);
+          showToast(true, t("Plan activated successfully"));
+        }
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
+        if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
+          setConflict({ ...e.response!.data!.details, planId });
+        } else {
+          showToast(false, e?.response?.data?.message ?? t("Failed to activate plan. Please try again."));
+        }
+      }
+      setProcessing(null);
+      return;
     }
-    setUpgrading(null);
+
+    // For paid plans: wallet-first, Paymob card fallback
+    setProcessing(planId);
+    try {
+      const result = await orgService.purchasePlan(org.id, planId);
+      if (result.method === "wallet") {
+        await refresh();
+        await loadInvoices(1);
+        showToast(true, `${t("Payment successful")} — ${t("Pay from Wallet")}: ${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`);
+      } else if (result.method === "card") {
+        setIframeModal({ iframeUrl: result.iframeUrl, planName: result.planName, planPrice: result.planPrice });
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
+      if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
+        setConflict({ ...e.response!.data!.details, planId });
+      } else {
+        showToast(false, e?.response?.data?.message ?? t("Payment failed"));
+      }
+    }
+    setProcessing(null);
   }
 
   async function handleRemoveBranchForConflict(branchId: string) {
     if (!conflict || !org) return;
-    setRemovingBranchId(branchId);
+    setRemovingBranch(branchId);
     try {
       await orgService.deleteBranch(org.id, branchId);
       await refresh();
-      // Re-check: if we now have enough space, retry the plan change
-      const updatedBranchCount = branches.filter((b) => b.id !== branchId).length;
-      if (updatedBranchCount <= conflict.allowedBranches) {
+      const updatedCount = branches.filter((b) => b.id !== branchId).length;
+      if (updatedCount <= conflict.allowedBranches) {
         setConflict(null);
-        await handleUpgrade(conflict.planId);
+        await handleSelectPlan(conflict.planId);
       } else {
-        setConflict((prev) => prev ? { ...prev, currentBranches: updatedBranchCount } : null);
+        setConflict((prev) => prev ? { ...prev, currentBranches: updatedCount } : null);
       }
     } catch {
-      setError("Failed to remove branch. Please try again.");
+      showToast(false, t("Failed to remove branch. Please try again."));
     }
-    setRemovingBranchId(null);
+    setRemovingBranch(null);
   }
 
+  // ── PDF receipt download (jsPDF) ──────────────────────────────────────────
+  async function handleDownloadReceipt(inv: Invoice) {
+    const { default: jsPDF } = await import("jspdf");
+    const doc = new jsPDF();
+    const isAr = locale === "ar";
+    const currency = isAr ? "ج.م" : "EGP";
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("Waitless", 105, 22, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text("Clinic Queue Management Platform", 105, 30, { align: "center" });
+
+    doc.setDrawColor(220);
+    doc.line(14, 36, 196, 36);
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(isAr ? "فاتورة" : "Invoice", 14, 47);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(80);
+
+    const rows: [string, string][] = [
+      [isAr ? "رقم الفاتورة" : "Invoice Number", inv.invoiceNumber || "-"],
+      [isAr ? "التاريخ" : "Date",               new Date(inv.createdAt).toLocaleDateString("en-EG")],
+      [isAr ? "الخطة" : "Plan",                 inv.planName],
+      [isAr ? "طريقة الدفع" : "Payment Method",
+        inv.paymentMethod === "wallet" ? (isAr ? "محفظة" : "Wallet")
+        : inv.paymentMethod === "card"  ? (isAr ? "بطاقة ائتمان" : "Credit Card")
+        : (isAr ? "يدوي" : "Manual")],
+      [isAr ? "بداية الفترة" : "Period Start",  new Date(inv.periodStart).toLocaleDateString("en-EG")],
+      [isAr ? "نهاية الفترة" : "Period End",    new Date(inv.periodEnd).toLocaleDateString("en-EG")],
+      [isAr ? "الحالة" : "Status",              inv.status === "paid" ? (isAr ? "مدفوعة" : "Paid") : inv.status],
+    ];
+
+    let y = 58;
+    rows.forEach(([label, value]) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(label + ":", 14, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(value, 80, y);
+      y += 9;
+    });
+
+    if (inv.paymobTransactionId) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Transaction ID:", 14, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(inv.paymobTransactionId, 80, y);
+      y += 9;
+    }
+
+    doc.setDrawColor(220);
+    doc.line(14, y + 4, 196, y + 4);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(isAr ? "الإجمالي:" : "Total:", 14, y + 16);
+    doc.setTextColor(180, 140, 0);
+    doc.text(`${inv.amount} ${currency}`, 196, y + 16, { align: "right" });
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(150);
+    doc.text("Waitless • support@waitless.app", 105, 285, { align: "center" });
+
+    doc.save(`invoice-${inv.invoiceNumber || inv.id}.pdf`);
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const tierOrder: Record<string, number> = { trial: 0, starter: 1, growth: 2, enterprise: 3, "business+": 4 };
+  const sortedPlans = [...plans].sort((a, b) => (tierOrder[a.tier] ?? 99) - (tierOrder[b.tier] ?? 99));
+
   return (
-    <div className="space-y-4">
-      {success && (
-        <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm text-success">
-          {success}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          {error}
+    <div className="space-y-6">
+
+      {/* Toast */}
+      {toast && (
+        <div className={`rounded-xl border px-4 py-3 text-sm ${
+          toast.ok
+            ? "border-success/30 bg-success/5 text-success"
+            : "border-danger/30 bg-danger/5 text-danger"
+        }`}>
+          {toast.msg}
         </div>
       )}
 
-      {/* Branch conflict modal */}
+      {/* ── Plan cards ─────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Subscription Plans")}</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
+          {sortedPlans.map((plan) => {
+            const isCurrent = subscription?.planId === plan.id;
+            const isBusy    = processing === plan.id;
+            return (
+              <div
+                key={plan.id}
+                className={`flex flex-col rounded-xl border p-5 transition ${
+                  isCurrent
+                    ? "border-gold bg-gold-tint shadow-md"
+                    : plan.tier === "business+"
+                      ? "border-navy/30 bg-navy/5"
+                      : "border-border bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-heading text-base font-bold text-navy">
+                      {plan.name}
+                      {plan.tier === "business+" && (
+                        <span className="ml-1.5 rounded-full bg-navy px-2 py-0.5 text-xs font-semibold text-white">
+                          {t("Top")}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-xl font-bold text-gold">
+                      {plan.pricePerMonth === 0
+                        ? t("Free")
+                        : `${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`}
+                      {plan.pricePerMonth > 0 && (
+                        <span className="text-xs font-normal text-navy-mid">/{t("mo")}</span>
+                      )}
+                    </p>
+                  </div>
+                  {isCurrent && (
+                    <span className="shrink-0 rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-navy">
+                      {t("Current Plan")}
+                    </span>
+                  )}
+                </div>
+
+                <ul className="mt-3 flex-1 space-y-1.5">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-xs text-navy-mid">
+                      <span className="mt-0.5 shrink-0 text-success">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-4">
+                  {isCurrent ? (
+                    <div className="w-full rounded-md border border-gold/40 py-2 text-center text-sm font-medium text-gold">
+                      {t("Current Plan")}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleSelectPlan(plan.id)}
+                      disabled={isBusy}
+                      className={`w-full rounded-md border px-4 py-2 text-sm font-medium transition disabled:opacity-60 ${
+                        plan.tier === "business+"
+                          ? "border-navy bg-navy text-white hover:bg-navy/90"
+                          : "border-navy text-navy hover:bg-navy hover:text-white"
+                      }`}
+                    >
+                      {isBusy ? t("Processing…") : t("Select Plan")}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Billing History ─────────────────────────────────────────────── */}
+      <div>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Billing History")}</h2>
+
+        {invoicesLoading ? (
+          <Skeleton />
+        ) : invoices.length === 0 ? (
+          <div className="rounded-xl border border-border bg-offwhite py-10 text-center">
+            <p className="text-2xl">🧾</p>
+            <p className="mt-2 text-sm text-navy-mid">{t("No invoices yet.")}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-offwhite text-xs font-semibold uppercase tracking-wide text-navy-mid">
+                <tr>
+                  <th className="px-4 py-3 text-left">{t("Invoice")}</th>
+                  <th className="px-4 py-3 text-left">{t("Date")}</th>
+                  <th className="px-4 py-3 text-left">{t("Plan")}</th>
+                  <th className="px-4 py-3 text-right">{t("Amount")}</th>
+                  <th className="px-4 py-3 text-left">{t("Payment Method")}</th>
+                  <th className="px-4 py-3 text-left">{t("Status")}</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-white">
+                {invoices.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-offwhite/50 transition">
+                    <td className="px-4 py-3 font-mono text-xs text-navy">{inv.invoiceNumber || "—"}</td>
+                    <td className="px-4 py-3 text-navy-mid">
+                      {new Date(inv.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-EG", { day: "numeric", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-navy">{inv.planName}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-gold">
+                      {inv.amount} {locale === "ar" ? "ج.م" : "EGP"}
+                    </td>
+                    <td className="px-4 py-3 text-navy-mid">
+                      {inv.paymentMethod === "wallet"
+                        ? t("Pay from Wallet")
+                        : inv.paymentMethod === "card"
+                          ? t("Add Credit Card")
+                          : t("Manual")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        inv.status === "paid"     ? "bg-success/10 text-success"
+                        : inv.status === "failed" ? "bg-danger/10 text-danger"
+                        : "bg-navy/10 text-navy"
+                      }`}>
+                        {inv.status === "paid"     ? t("Paid")
+                         : inv.status === "failed" ? t("Failed")
+                         : t("Refunded")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleDownloadReceipt(inv)}
+                        className="text-xs font-medium text-gold hover:text-gold-light transition"
+                      >
+                        {t("Download Receipt")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination */}
+            {invoiceTotal > 20 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-navy-mid">
+                <span>{t("Showing")} {invoices.length} / {invoiceTotal}</span>
+                <div className="flex gap-2">
+                  <button
+                    disabled={invoicePage <= 1}
+                    onClick={() => loadInvoices(invoicePage - 1)}
+                    className="rounded border border-border px-2 py-1 hover:bg-offwhite disabled:opacity-40"
+                  >
+                    ←
+                  </button>
+                  <button
+                    disabled={invoicePage * 20 >= invoiceTotal}
+                    onClick={() => loadInvoices(invoicePage + 1)}
+                    className="rounded border border-border px-2 py-1 hover:bg-offwhite disabled:opacity-40"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Branch conflict modal ────────────────────────────────────────── */}
       {conflict && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="font-heading text-xl font-bold text-navy">Branch Limit Exceeded</h2>
+            <h2 className="font-heading text-xl font-bold text-navy">{t("Branch Limit Exceeded")}</h2>
             <p className="mt-2 text-sm text-navy-mid">
-              You have <strong className="text-navy">{conflict.currentBranches} active branches</strong>, but the{" "}
-              <strong className="text-navy">{conflict.planName}</strong> plan allows only{" "}
-              <strong className="text-navy">{conflict.allowedBranches}</strong>. Remove{" "}
-              {conflict.currentBranches - conflict.allowedBranches} branch
-              {conflict.currentBranches - conflict.allowedBranches > 1 ? "es" : ""} to downgrade.
+              {t("You have")} <strong className="text-navy">{conflict.currentBranches}</strong>{" "}
+              {t("active branches, but the")}{" "}
+              <strong className="text-navy">{conflict.planName}</strong>{" "}
+              {t("plan allows only")}{" "}
+              <strong className="text-navy">{conflict.allowedBranches}</strong>.{" "}
+              {t("Remove")} {conflict.currentBranches - conflict.allowedBranches}{" "}
+              {t("branch(es) to continue.")}
             </p>
-
             <div className="mt-4 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">Select a branch to remove</p>
               {branches.map((b) => (
                 <div key={b.id} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
                   <p className="text-sm font-medium text-navy">{b.name}</p>
                   <button
                     onClick={() => handleRemoveBranchForConflict(b.id)}
-                    disabled={removingBranchId === b.id}
+                    disabled={removingBranch === b.id}
                     className="rounded-md bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger hover:text-white disabled:opacity-50"
                   >
-                    {removingBranchId === b.id ? "Removing…" : "Remove"}
+                    {removingBranch === b.id ? "…" : t("Remove")}
                   </button>
                 </div>
               ))}
             </div>
-
             <button
               onClick={() => setConflict(null)}
               className="mt-4 w-full rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
             >
-              Keep Current Plan
+              {t("Keep Current Plan")}
             </button>
           </div>
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {plans.map((plan) => {
-          const isCurrent = subscription?.planId === plan.id;
-          return (
-            <div
-              key={plan.id}
-              className={`rounded-xl border p-5 transition ${
-                isCurrent ? "border-gold bg-gold-tint" : "border-border bg-white"
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-heading text-lg font-bold text-navy">{plan.name}</p>
-                  <p className="mt-0.5 text-2xl font-bold text-gold">
-                    {plan.pricePerMonth === 0
-                      ? plan.tier === "trial" ? "Free" : "Contact Us"
-                      : `${plan.pricePerMonth} EGP`}
-                    {plan.pricePerMonth > 0 && (
-                      <span className="text-sm font-normal text-navy-mid">/mo</span>
-                    )}
-                  </p>
-                </div>
-                {isCurrent && (
-                  <span className="rounded-full bg-gold px-2.5 py-0.5 text-xs font-bold text-navy">
-                    Current
-                  </span>
-                )}
+      {/* ── Paymob iframe modal (card payment) ───────────────────────────── */}
+      {iframeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl animate-fade-up rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <p className="font-heading text-base font-bold text-navy">{t("Add Credit Card")}</p>
+                <p className="text-xs text-navy-mid">
+                  {iframeModal.planName} — {iframeModal.planPrice} {locale === "ar" ? "ج.م" : "EGP"}/{t("mo")}
+                </p>
               </div>
-
-              <ul className="mt-3 space-y-1.5">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-xs text-navy-mid">
-                    <span className="text-success">✓</span> {f}
-                  </li>
-                ))}
-              </ul>
-
-              {!isCurrent && plan.tier !== "enterprise" && (
-                <button
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={upgrading === plan.id}
-                  className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white disabled:opacity-60"
-                >
-                  {upgrading === plan.id ? "Processing…" : "Select Plan"}
-                </button>
-              )}
-              {!isCurrent && plan.tier === "enterprise" && (
-                <button className="mt-4 w-full rounded-md border border-navy px-4 py-2 text-sm font-medium text-navy transition hover:bg-navy hover:text-white">
-                  Contact Sales
-                </button>
-              )}
+              <button
+                onClick={() => setIframeModal(null)}
+                className="rounded-md px-3 py-1.5 text-sm text-navy-mid hover:bg-offwhite"
+              >
+                {t("Cancel")}
+              </button>
             </div>
-          );
-        })}
-      </div>
+            <div className="h-[480px] w-full">
+              <iframe
+                src={iframeModal.iframeUrl}
+                className="h-full w-full rounded-b-2xl border-0"
+                title="Paymob Payment"
+                allow="payment"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1281,6 +1651,7 @@ function BillingTab() {
 
 function WhatsAppTab() {
   const { org, subscription, plans, isLoading, updateOrg } = useOrg();
+  const { t } = useLanguage();
   const [number, setNumber] = useState(org?.whatsappNumber ?? "");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -1294,12 +1665,12 @@ function WhatsAppTab() {
     return (
       <div className="rounded-xl bg-offwhite py-12 text-center">
         <p className="text-3xl">💬</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">WhatsApp Notifications</p>
+        <p className="mt-3 font-heading text-lg font-bold text-navy">{t("WhatsApp Notifications")}</p>
         <p className="mt-1 text-sm text-navy-mid">
-          Your current plan does not include WhatsApp notifications.
+          {t("Your current plan does not include WhatsApp notifications.")}
         </p>
         <p className="mt-1 text-sm text-navy-mid">
-          Upgrade to Standard or Enterprise to enable this feature.
+          {t("Upgrade to Standard or Enterprise to enable this feature.")}
         </p>
       </div>
     );
@@ -1317,7 +1688,7 @@ function WhatsAppTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-navy-mid">
-        Set a WhatsApp number to send automated appointment reminders to patients.
+        {t("Set a WhatsApp number to send automated appointment reminders to patients.")}
       </p>
 
       {result && (
@@ -1328,7 +1699,7 @@ function WhatsAppTab() {
 
       <form onSubmit={handleSave} className="space-y-4">
         <ModalField
-          label="WhatsApp Number (E.164 format)"
+          label={t("WhatsApp Number (E.164 format)")}
           value={number}
           onChange={setNumber}
           placeholder="+201XXXXXXXXX"
@@ -1338,7 +1709,7 @@ function WhatsAppTab() {
           disabled={saving}
           className="rounded-md bg-gold px-6 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Save Number"}
+          {saving ? t("Saving…") : t("Save Number")}
         </button>
       </form>
     </div>
@@ -1349,6 +1720,7 @@ function WhatsAppTab() {
 
 function WalletTab() {
   const { org, branches } = useOrg();
+  const { t, locale } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [summary, setSummary] = useState<WalletSummary | null>(null);
@@ -1417,35 +1789,35 @@ function WalletTab() {
       <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-lg font-bold text-navy">Session Revenue</h2>
-          <p className="text-sm text-navy-mid">Revenue from completed appointments</p>
+          <h2 className="font-heading text-lg font-bold text-navy">{t("Session Revenue")}</h2>
+          <p className="text-sm text-navy-mid">{t("Revenue from completed appointments")}</p>
         </div>
         <button
           onClick={() => setRefreshKey((k) => k + 1)}
           className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-medium text-navy-mid transition hover:border-navy hover:text-navy"
         >
-          ↻ Refresh
+          ↻ {t("Refresh")}
         </button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-          <p className="text-xs text-navy-mid">Total Earnings</p>
+          <p className="text-xs text-navy-mid">{t("Total Earnings")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-navy">
-            {loadingSummary ? "…" : `${(summary?.totalEarnings ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.totalEarnings ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
         <div className="rounded-xl border border-gold/30 bg-gold-tint p-4 text-center">
-          <p className="text-xs text-navy-mid">This Month</p>
+          <p className="text-xs text-navy-mid">{t("This Month")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-gold">
-            {loadingSummary ? "…" : `${(summary?.thisMonthEarnings ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.thisMonthEarnings ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-          <p className="text-xs text-navy-mid">Pending</p>
+          <p className="text-xs text-navy-mid">{t("Pending")}</p>
           <p className="mt-1 font-heading text-2xl font-bold text-navy-mid">
-            {loadingSummary ? "…" : `${(summary?.pendingAmount ?? 0).toLocaleString()} EGP`}
+            {loadingSummary ? "…" : `${(summary?.pendingAmount ?? 0).toLocaleString()} ${locale === "ar" ? "ج.م" : "EGP"}`}
           </p>
         </div>
       </div>
@@ -1457,7 +1829,7 @@ function WalletTab() {
           onChange={(e) => { setFilterBranch(e.target.value); setPage(1); }}
           className="h-9 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold"
         >
-          <option value="">All Branches</option>
+          <option value="">{t("All Branches")}</option>
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         <select
@@ -1465,10 +1837,10 @@ function WalletTab() {
           onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
           className="h-9 rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold"
         >
-          <option value="">All Status</option>
-          <option value="settled">Settled</option>
-          <option value="pending">Pending</option>
-          <option value="refunded">Refunded</option>
+          <option value="">{t("All Status")}</option>
+          <option value="settled">{t("Settled")}</option>
+          <option value="pending">{t("Pending")}</option>
+          <option value="refunded">{t("Refunded")}</option>
         </select>
         <input
           type="date" value={filterFrom}
@@ -1485,7 +1857,7 @@ function WalletTab() {
             onClick={() => { setFilterBranch(""); setFilterStatus(""); setFilterFrom(""); setFilterTo(""); setPage(1); }}
             className="h-9 rounded-md border border-border px-3 text-sm text-navy-mid hover:text-danger"
           >
-            Clear
+            {t("Clear")}
           </button>
         )}
       </div>
@@ -1494,15 +1866,15 @@ function WalletTab() {
       {loadingTx ? (
         <Skeleton />
       ) : transactions.length === 0 ? (
-        <EmptyState icon="💳" title="No transactions yet" body="Completed appointments will appear here as settled transactions." />
+        <EmptyState icon="💳" title={t("No transactions yet")} body={t("Completed appointments will appear here as settled transactions.")} />
       ) : (
         <>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
             <div className="grid grid-cols-5 bg-offwhite px-4 py-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">
-              <span className="col-span-2">Patient / Branch</span>
-              <span className="text-right">Gross</span>
-              <span className="text-right">Commission</span>
-              <span className="text-right">Status</span>
+              <span className="col-span-2">{t("Patient / Branch")}</span>
+              <span className="text-right">{t("Gross")}</span>
+              <span className="text-right">{t("Commission")}</span>
+              <span className="text-right">{t("Status")}</span>
             </div>
             {transactions.map((tx) => (
               <div key={tx.id} className="grid grid-cols-5 items-center gap-2 px-4 py-3">
@@ -1524,14 +1896,14 @@ function WalletTab() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-navy-mid">{total} total transactions</span>
+              <span className="text-navy-mid">{total} {t("total transactions")}</span>
               <div className="flex gap-2">
                 <button
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
                   className="rounded-md border border-border px-3 py-1.5 text-navy-mid disabled:opacity-40 hover:border-gold hover:text-gold"
                 >
-                  ← Prev
+                  {t("← Prev")}
                 </button>
                 <span className="flex items-center px-2 text-navy-mid">{page} / {totalPages}</span>
                 <button
@@ -1539,7 +1911,7 @@ function WalletTab() {
                   onClick={() => setPage((p) => p + 1)}
                   className="rounded-md border border-border px-3 py-1.5 text-navy-mid disabled:opacity-40 hover:border-gold hover:text-gold"
                 >
-                  Next →
+                  {t("Next →")}
                 </button>
               </div>
             </div>
@@ -1555,6 +1927,7 @@ function WalletTab() {
 
 function SettingsTab() {
   const { org, branches, updateOrg, refresh } = useOrg();
+  const { t } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [orgName, setOrgName] = useState(org?.name ?? "");
@@ -1571,7 +1944,7 @@ function SettingsTab() {
     setSavingName(true);
     setNameResult(null);
     const result = await updateOrg({ name: orgName.trim() });
-    setNameResult({ ok: result.ok, msg: result.ok ? "Saved!" : (result.error ?? "Failed") });
+    setNameResult({ ok: result.ok, msg: result.ok ? t("Saved!") : (result.error ?? t("Failed")) });
     setSavingName(false);
   }
 
@@ -1598,20 +1971,20 @@ function SettingsTab() {
     <div className="space-y-7">
       {/* Org name */}
       <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">Organization Name</p>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Organization Name")}</p>
         <form onSubmit={handleSaveName} className="flex gap-2">
           <input
             value={orgName}
             onChange={(e) => { setOrgName(e.target.value); setNameResult(null); }}
             className="h-10 flex-1 rounded-lg border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            placeholder="Organization name"
+            placeholder={t("Organization name")}
           />
           <button
             type="submit"
             disabled={savingName || !orgName.trim() || orgName.trim() === org?.name}
             className="h-10 rounded-lg bg-gold px-4 text-sm font-semibold text-navy disabled:opacity-50 hover:bg-gold-light"
           >
-            {savingName ? "Saving…" : "Save"}
+            {savingName ? t("Saving…") : t("Save")}
           </button>
         </form>
         {nameResult && (
@@ -1621,12 +1994,12 @@ function SettingsTab() {
 
       {/* Branch commission */}
       <div>
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">Branch Commission Rate</p>
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Branch Commission Rate")}</p>
         <p className="mb-3 text-xs text-navy-mid">
-          Percentage of post-platform revenue the organization keeps. Doctors receive the remainder.
+          {t("Percentage of post-platform revenue the organization keeps. Doctors receive the remainder.")}
         </p>
         {branches.length === 0 ? (
-          <EmptyState icon="🏢" title="No branches" body="Add branches first to configure commission rates." />
+          <EmptyState icon="🏢" title={t("No branches")} body={t("Add branches first to configure commission rates.")} />
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
             {branches.map((branch) => {
@@ -1657,11 +2030,11 @@ function SettingsTab() {
                       onClick={() => handleSaveCommission(branch)}
                       className="h-9 rounded-md bg-gold px-3 text-sm font-semibold text-navy disabled:opacity-50 hover:bg-gold-light"
                     >
-                      {isSaving ? "…" : "Save"}
+                      {isSaving ? "…" : t("Save")}
                     </button>
                     {result && (
                       <span className={`text-xs ${result.ok ? "text-success" : "text-danger"}`}>
-                        {result.ok ? "Saved!" : "Failed"}
+                        {result.ok ? t("Saved!") : t("Failed")}
                       </span>
                     )}
                   </div>
@@ -1677,6 +2050,45 @@ function SettingsTab() {
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 
+const EGYPTIAN_CITIES = [
+  { key: "cairo",            en: "Cairo",                   ar: "القاهرة" },
+  { key: "alexandria",       en: "Alexandria",              ar: "الإسكندرية" },
+  { key: "giza",             en: "Giza",                    ar: "الجيزة" },
+  { key: "port_said",        en: "Port Said",               ar: "بورسعيد" },
+  { key: "suez",             en: "Suez",                    ar: "السويس" },
+  { key: "ismailia",         en: "Ismailia",                ar: "الإسماعيلية" },
+  { key: "damietta",         en: "Damietta",                ar: "دمياط" },
+  { key: "luxor",            en: "Luxor",                   ar: "الأقصر" },
+  { key: "aswan",            en: "Aswan",                   ar: "أسوان" },
+  { key: "asyut",            en: "Asyut",                   ar: "أسيوط" },
+  { key: "sohag",            en: "Sohag",                   ar: "سوهاج" },
+  { key: "qena",             en: "Qena",                    ar: "قنا" },
+  { key: "minya",            en: "Minya",                   ar: "المنيا" },
+  { key: "beni_suef",        en: "Beni Suef",               ar: "بني سويف" },
+  { key: "faiyum",           en: "Faiyum",                  ar: "الفيوم" },
+  { key: "dakahlia",         en: "Dakahlia (Mansoura)",     ar: "الدقهلية (المنصورة)" },
+  { key: "sharqia",          en: "Sharqia (Zagazig)",       ar: "الشرقية (الزقازيق)" },
+  { key: "qalyubia",         en: "Qalyubia (Banha)",        ar: "القليوبية (بنها)" },
+  { key: "kafr_el_sheikh",   en: "Kafr El Sheikh",          ar: "كفر الشيخ" },
+  { key: "gharbia",          en: "Gharbia (Tanta)",         ar: "الغربية (طنطا)" },
+  { key: "monufia",          en: "Monufia (Shibin El Kom)", ar: "المنوفية (شبين الكوم)" },
+  { key: "beheira",          en: "Beheira (Damanhur)",      ar: "البحيرة (دمنهور)" },
+  { key: "matruh",           en: "Matruh",                  ar: "مطروح" },
+  { key: "north_sinai",      en: "North Sinai (Arish)",     ar: "شمال سيناء (العريش)" },
+  { key: "south_sinai",      en: "South Sinai (Sharm)",     ar: "جنوب سيناء (شرم الشيخ)" },
+  { key: "red_sea",          en: "Red Sea (Hurghada)",      ar: "البحر الأحمر (الغردقة)" },
+  { key: "new_valley",       en: "New Valley (Kharga)",     ar: "الوادي الجديد (الخارجة)" },
+  { key: "new_cairo",        en: "New Cairo",               ar: "القاهرة الجديدة" },
+  { key: "6th_october",      en: "6th of October City",     ar: "مدينة السادس من أكتوبر" },
+  { key: "nasr_city",        en: "Nasr City",               ar: "مدينة نصر" },
+  { key: "maadi",            en: "Maadi",                   ar: "المعادي" },
+  { key: "helwan",           en: "Helwan",                  ar: "حلوان" },
+  { key: "shubra_el_kheima", en: "Shubra El Kheima",        ar: "شبرا الخيمة" },
+  { key: "10th_ramadan",     en: "10th of Ramadan City",    ar: "مدينة العاشر من رمضان" },
+] as const;
+
+type CityKey = typeof EGYPTIAN_CITIES[number]["key"];
+
 function AddBranchModal({
   onClose,
   onSave,
@@ -1684,9 +2096,10 @@ function AddBranchModal({
   onClose: () => void;
   onSave: (data: Omit<Branch, "id" | "orgId">) => Promise<void>;
 }) {
+  const { t, locale } = useLanguage();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
+  const [city, setCity] = useState<CityKey>("cairo");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -1694,18 +2107,31 @@ function AddBranchModal({
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-    await onSave({ name: name.trim(), address: address.trim(), city: city.trim(), phone: phone.trim() });
+    await onSave({ name: name.trim(), address: address.trim(), city, phone: phone.trim() });
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Add Branch" onClose={onClose}>
+    <ModalShell title={t("Add Branch")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
-        <ModalField label="Branch Name *" value={name} onChange={setName} placeholder="Maadi Branch" />
-        <ModalField label="Address *" value={address} onChange={setAddress} placeholder="15 Road 9, Maadi" />
-        <ModalField label="City *" value={city} onChange={setCity} placeholder="Cairo" />
-        <ModalField label="Phone" value={phone} onChange={setPhone} placeholder="02-XXXXXXXX" inputMode="numeric" />
-        <ModalActions onClose={onClose} saving={saving} label="Add Branch" />
+        <ModalField label={t("Branch Name *")} value={name} onChange={setName} placeholder="Maadi Branch" />
+        <ModalField label={t("Address *")} value={address} onChange={setAddress} placeholder="15 Road 9, Maadi" />
+        <div>
+          <label className="block text-sm font-medium text-navy">{t("City *")}</label>
+          <select
+            value={city}
+            onChange={(e) => setCity(e.target.value as CityKey)}
+            className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          >
+            {EGYPTIAN_CITIES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {locale === "ar" ? c.ar : c.en}
+              </option>
+            ))}
+          </select>
+        </div>
+        <ModalField label={t("Phone")} value={phone} onChange={setPhone} placeholder="02-XXXXXXXX" inputMode="numeric" />
+        <ModalActions onClose={onClose} saving={saving} label={t("Add Branch")} />
       </form>
     </ModalShell>
   );
@@ -1713,92 +2139,89 @@ function AddBranchModal({
 
 function InviteStaffModal({
   branches,
+  doctorLimit,
+  receptionistLimit,
+  activeDocCount,
+  activeReceptCount,
   onClose,
   onSave,
 }: {
   branches: Branch[];
+  doctorLimit: number;
+  receptionistLimit: number;
+  activeDocCount: number;
+  activeReceptCount: number;
   onClose: () => void;
-  onSave: (branchId: string, email: string, role: Membership["userRole"], specialties?: string[], permissions?: string[]) => Promise<void>;
+  onSave: (branchId: string, email: string, role: Membership["userRole"], specialties?: string[]) => Promise<void>;
 }) {
+  const { t } = useLanguage();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Membership["userRole"]>("doctor");
+  const [role, setRole] = useState<"doctor" | "receptionist">("doctor");
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [specialties, setSpecialties] = useState("");
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  function togglePermission(perm: string) {
-    setPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
-    );
-  }
+  const doctorAtLimit = isFinite(doctorLimit) && activeDocCount >= doctorLimit;
+  const receptionistAtLimit = isFinite(receptionistLimit) && activeReceptCount >= receptionistLimit;
+  const receptionistBlocked = receptionistLimit === 0;
+
+  const roleAtLimit = role === "doctor" ? doctorAtLimit : (receptionistBlocked || receptionistAtLimit);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim() || roleAtLimit) return;
     setSaving(true);
     const specialtiesArr = role === "doctor" && specialties.trim()
       ? specialties.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
-    const permissionsArr = role === "admin" && permissions.length > 0 ? permissions : undefined;
-    await onSave(branchId, email.trim(), role, specialtiesArr, permissionsArr);
+    await onSave(branchId, email.trim(), role, specialtiesArr);
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Invite Staff Member" onClose={onClose}>
+    <ModalShell title={t("Invite Staff Member")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
-        <ModalField label="Email Address *" value={email} onChange={setEmail} placeholder="staff@clinic.eg" type="email" />
+        <ModalField label={t("Email Address *")} value={email} onChange={setEmail} placeholder="staff@clinic.eg" type="email" />
 
         <div>
-          <label className="block text-sm font-medium text-navy">Role</label>
-          <div className="mt-1.5 grid grid-cols-3 gap-2">
-            {(["doctor", "receptionist", "admin"] as Membership["userRole"][]).map((r) => (
+          <label className="block text-sm font-medium text-navy">{t("Role")}</label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {(["doctor", "receptionist"] as const).map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRole(r)}
-                className={`rounded-md border py-2 text-xs font-medium capitalize transition ${
+                className={`rounded-md border py-2 text-xs font-medium transition ${
                   role === r ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40"
                 }`}
               >
-                {r}
+                {t(r)}
               </button>
             ))}
           </div>
+          {roleAtLimit && (
+            <p className="mt-1.5 text-xs text-danger">
+              {role === "receptionist" && receptionistBlocked
+                ? t("Receptionists are not available on your current plan.")
+                : role === "doctor"
+                  ? t("Doctor limit reached. Upgrade to add more.")
+                  : t("Receptionist limit reached. Upgrade to add more.")}
+            </p>
+          )}
         </div>
 
         {role === "doctor" && (
           <ModalField
-            label="Specialties (comma-separated)"
+            label={t("Specialties (comma-separated)")}
             value={specialties}
             onChange={setSpecialties}
             placeholder="Cardiology, Internal Medicine"
           />
         )}
 
-        {role === "admin" && (
+        {branches.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-navy">Permissions</p>
-            <div className="mt-1.5 space-y-1.5">
-              {["members.manage", "schedules.manage", "billing.view"].map((perm) => (
-                <label key={perm} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
-                  <input
-                    type="checkbox"
-                    checked={permissions.includes(perm)}
-                    onChange={() => togglePermission(perm)}
-                    className="rounded border-border"
-                  />
-                  {perm}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {role !== "admin" && branches.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-navy">Branch</label>
+            <label className="block text-sm font-medium text-navy">{t("Branch")}</label>
             <select
               value={branchId}
               onChange={(e) => setBranchId(e.target.value)}
@@ -1811,7 +2234,7 @@ function InviteStaffModal({
           </div>
         )}
 
-        <ModalActions onClose={onClose} saving={saving} label="Send Invitation" />
+        <ModalActions onClose={onClose} saving={saving} label={t("Send Invitation")} disabled={roleAtLimit} />
       </form>
     </ModalShell>
   );
@@ -1826,22 +2249,17 @@ function EditMemberModal({
   member: Membership;
   branches: Branch[];
   onClose: () => void;
-  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] }) => Promise<void>;
+  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; branches?: string[] }) => Promise<void>;
 }) {
-  const [role, setRole] = useState<Membership["userRole"]>(member.userRole);
+  const { t } = useLanguage();
+  const initialRole: "doctor" | "receptionist" = member.userRole === "receptionist" ? "receptionist" : "doctor";
+  const [role, setRole] = useState<"doctor" | "receptionist">(initialRole);
   const [specialties, setSpecialties] = useState(member.specialties?.join(", ") ?? "");
   const [bio, setBio] = useState(member.bio ?? "");
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [selectedBranches, setSelectedBranches] = useState<string[]>(
     member.branchId ? [member.branchId] : (branches[0] ? [branches[0].id] : []),
   );
   const [saving, setSaving] = useState(false);
-
-  function togglePermission(perm: string) {
-    setPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
-    );
-  }
 
   function toggleBranch(id: string) {
     setSelectedBranches((prev) =>
@@ -1849,15 +2267,10 @@ function EditMemberModal({
     );
   }
 
-  const hasChanges = role !== member.userRole
-    || (role === "doctor" && specialties.trim() !== (member.specialties?.join(", ") ?? ""))
-    || bio.trim() !== (member.bio ?? "")
-    || (role === "admin" && permissions.length > 0);
-
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] } = {};
+    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; branches?: string[] } = {};
     if (role !== member.userRole) data.kind = role;
     if (role === "doctor") {
       const arr = specialties.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1867,13 +2280,12 @@ function EditMemberModal({
       data.branches = selectedBranches;
     }
     if (bio.trim()) data.bio = bio.trim();
-    if (role === "admin" && permissions.length > 0) data.permissions = permissions;
     await onSave(data);
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Edit Staff Member" onClose={onClose}>
+    <ModalShell title={t("Edit Staff Member")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
         <div className="rounded-md bg-offwhite px-4 py-3">
           <p className="font-medium text-navy">{member.memberName || "—"}</p>
@@ -1881,29 +2293,29 @@ function EditMemberModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-navy">Role</label>
-          <div className="mt-1.5 grid grid-cols-3 gap-2">
-            {(["doctor", "receptionist", "admin"] as Membership["userRole"][]).map((r) => (
+          <label className="block text-sm font-medium text-navy">{t("Role")}</label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {(["doctor", "receptionist"] as const).map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRole(r)}
-                className={`rounded-md border py-2 text-xs font-medium capitalize transition ${
+                className={`rounded-md border py-2 text-xs font-medium transition ${
                   role === r ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40"
                 }`}
               >
-                {r}
+                {t(r)}
               </button>
             ))}
           </div>
           {role !== member.userRole && (
-            <p className="mt-1.5 text-xs text-gold">Role change will take effect immediately (once per 30 days).</p>
+            <p className="mt-1.5 text-xs text-gold">{t("Role change will take effect immediately (once per 30 days).")}</p>
           )}
         </div>
 
         {role === "doctor" && (
           <ModalField
-            label="Specialties (comma-separated)"
+            label={t("Specialties (comma-separated)")}
             value={specialties}
             onChange={setSpecialties}
             placeholder="Cardiology, Internal Medicine"
@@ -1912,7 +2324,7 @@ function EditMemberModal({
 
         {role === "receptionist" && branches.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-navy">Assigned Branches *</p>
+            <p className="text-sm font-medium text-navy">{t("Assigned Branches *")}</p>
             <div className="mt-1.5 space-y-1.5">
               {branches.map((b) => (
                 <label key={b.id} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
@@ -1927,36 +2339,17 @@ function EditMemberModal({
               ))}
             </div>
             {selectedBranches.length === 0 && (
-              <p className="mt-1 text-xs text-danger">At least one branch is required.</p>
+              <p className="mt-1 text-xs text-danger">{t("At least one branch is required.")}</p>
             )}
           </div>
         )}
 
-        {role === "admin" && (
-          <div>
-            <p className="text-sm font-medium text-navy">Permissions</p>
-            <div className="mt-1.5 space-y-1.5">
-              {["members.manage", "schedules.manage", "billing.view"].map((perm) => (
-                <label key={perm} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
-                  <input
-                    type="checkbox"
-                    checked={permissions.includes(perm)}
-                    onChange={() => togglePermission(perm)}
-                    className="rounded border-border"
-                  />
-                  {perm}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <ModalField label="Bio" value={bio} onChange={setBio} placeholder="Brief bio or notes..." />
+        <ModalField label={t("Bio")} value={bio} onChange={setBio} placeholder={t("Brief bio or notes...")} />
 
         <ModalActions
           onClose={onClose}
           saving={saving}
-          label="Save Changes"
+          label={t("Save Changes")}
           disabled={role === "receptionist" && selectedBranches.length === 0}
         />
       </form>
@@ -2200,6 +2593,7 @@ function ScheduleExceptionModal({
 
 function SessionsTab() {
   const { org, branches } = useOrg();
+  const { t, locale } = useLanguage();
   const orgId = org?.id ?? "";
 
   const [branchId, setBranchId] = useState("");
@@ -2297,7 +2691,7 @@ function SessionsTab() {
         <div className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">📋</span>
           <p className="text-sm font-medium text-navy">
-            {pendingExcuseCount} pending excuse{pendingExcuseCount > 1 ? "s" : ""} require your review
+            {pendingExcuseCount} {locale === "ar" ? (pendingExcuseCount > 1 ? t("pending excuses") : t("pending excuse")) : `pending excuse${pendingExcuseCount > 1 ? "s" : ""}`} {t("require your review")}
           </p>
         </div>
       )}
@@ -2305,7 +2699,7 @@ function SessionsTab() {
       {isLoading ? (
         <Skeleton />
       ) : sessions.length === 0 ? (
-        <EmptyState icon="📅" title="No sessions" body="No sessions found for this branch and date." />
+        <EmptyState icon="📅" title={t("No sessions")} body={t("No sessions found for this branch and date.")} />
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {sessions.map((session) => {
@@ -2319,15 +2713,15 @@ function SessionsTab() {
                   <div>
                     <p className="font-medium text-navy">{session.doctorName || "Doctor"}</p>
                     <p className="mt-0.5 text-sm text-navy-mid">
-                      {session.startTime} – {session.endTime}
+                      {fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}
                     </p>
-                    <p className="text-xs text-navy-mid">{session.bookingsCount} booked</p>
+                    <p className="text-xs text-navy-mid">{session.bookingsCount} {t("booked")}</p>
                   </div>
 
                   <div className="flex items-center gap-3">
                     {/* Max slots editor */}
                     <div className="flex items-center gap-1.5">
-                      <label className="text-xs text-navy-mid">Max slots</label>
+                      <label className="text-xs text-navy-mid">{t("Max slots")}</label>
                       <input
                         type="number"
                         min={1}
@@ -2365,7 +2759,7 @@ function SessionsTab() {
                   <div className="mt-3 rounded-lg border border-border bg-offwhite p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="text-xs font-semibold text-navy">Doctor excuse submitted</p>
+                        <p className="text-xs font-semibold text-navy">{t("Doctor excuse submitted")}</p>
                         <p className="mt-0.5 text-xs text-navy-mid">{excuse.reason}</p>
                       </div>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -2384,14 +2778,14 @@ function SessionsTab() {
                           disabled={!!reviewingExcuse}
                           className="rounded-md border border-success/30 bg-success/5 px-3 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
                         >
-                          {reviewingExcuse === `${session.id}-approved` ? "…" : "Approve"}
+                          {reviewingExcuse === `${session.id}-approved` ? "…" : t("Approve")}
                         </button>
                         <button
                           onClick={() => void handleReviewExcuse(session, "denied")}
                           disabled={!!reviewingExcuse}
                           className="rounded-md border border-danger/30 bg-danger/5 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
                         >
-                          {reviewingExcuse === `${session.id}-denied` ? "…" : "Deny"}
+                          {reviewingExcuse === `${session.id}-denied` ? "…" : t("Deny")}
                         </button>
                       </div>
                     )}
@@ -2454,6 +2848,7 @@ function ModalField({
 }
 
 function ModalActions({ onClose, saving, label, disabled }: { onClose: () => void; saving: boolean; label: string; disabled?: boolean }) {
+  const { t } = useLanguage();
   return (
     <div className="flex gap-3 pt-2">
       <button
@@ -2461,14 +2856,14 @@ function ModalActions({ onClose, saving, label, disabled }: { onClose: () => voi
         onClick={onClose}
         className="flex h-10 w-full items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy hover:text-navy"
       >
-        Cancel
+        {t("Cancel")}
       </button>
       <button
         type="submit"
         disabled={saving || disabled}
         className="flex h-10 w-full items-center justify-center rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
       >
-        {saving ? "Saving…" : label}
+        {saving ? t("Saving…") : label}
       </button>
     </div>
   );
