@@ -362,6 +362,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const [breakDuration, setBreakDuration] = useState(15);
   const [breakPending, setBreakPending] = useState(false);
   const [breakError, setBreakError] = useState<string | null>(null);
+  const [breakCooldownSec, setBreakCooldownSec] = useState(0);
 
   const myMembershipId =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
@@ -369,10 +370,25 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const { activeSession, activeBranchId, queue, isLoading, reload: load } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 
-  // Sync isOnBreak from the session data when it loads
+  // Sync isOnBreak + cooldown from the session data when it loads
   useEffect(() => {
-    if (activeSession) setIsOnBreak(activeSession.isOnBreak);
+    if (!activeSession) return;
+    setIsOnBreak(activeSession.isOnBreak);
+    if (!activeSession.isOnBreak && activeSession.lastBreakEndedAt) {
+      const elapsedSec = (Date.now() - new Date(activeSession.lastBreakEndedAt).getTime()) / 1000;
+      const remaining = Math.max(0, Math.ceil(30 * 60 - elapsedSec));
+      setBreakCooldownSec(remaining);
+    } else {
+      setBreakCooldownSec(0);
+    }
   }, [activeSession]);
+
+  // Tick down the cooldown every second
+  useEffect(() => {
+    if (breakCooldownSec <= 0) return;
+    const id = setInterval(() => setBreakCooldownSec((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [breakCooldownSec]);
 
   // Fire immediately, then poll every 10 s for live queue updates.
   useEffect(() => {
@@ -426,6 +442,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
     try {
       await sessionService.resumeFromBreak(orgId, activeBranchId, activeSession.id);
       setIsOnBreak(false);
+      setBreakCooldownSec(30 * 60);
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? "Failed to resume. Please try again.";
@@ -547,10 +564,13 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
         </div>
       ) : activeSession.status === "active" ? (
         <button
-          onClick={() => { setBreakError(null); setShowBreakModal(true); }}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
+          onClick={() => { if (breakCooldownSec <= 0) { setBreakError(null); setShowBreakModal(true); } }}
+          disabled={breakCooldownSec > 0}
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t("☕ Take a Break")}
+          {breakCooldownSec > 0
+            ? `${t("Break available in")} ${Math.floor(breakCooldownSec / 60)}:${String(breakCooldownSec % 60).padStart(2, "0")}`
+            : t("☕ Take a Break")}
         </button>
       ) : (
         <div className="rounded-lg border border-border bg-offwhite px-4 py-2.5 text-center text-sm text-navy-mid">

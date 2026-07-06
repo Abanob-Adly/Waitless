@@ -133,6 +133,7 @@ export const sessionService = {
       throw new AppError('Session is not active', 409);
     }
     session.status = 'ended';
+    session.actualEndTime = new Date();
     await session.save();
 
     await Appointment.updateMany(

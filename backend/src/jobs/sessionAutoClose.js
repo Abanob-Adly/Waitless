@@ -16,16 +16,19 @@ import { queueService } from '../services/queueService.js';
  *
  * Idempotent: the status filter guarantees each session is processed once.
  */
+// Grace period before auto-ending an active session past its endTime.
+// Gives the doctor time to manually end the session after the shift.
+const ACTIVE_GRACE_MS = 10 * 60_000; // 10 minutes
 // Extra buffer before cancelling a session that was never started.
-// Gives the doctor a window past the scheduled end time to press Start if they're running late.
 const CANCEL_GRACE_MS = 15 * 60_000; // 15 minutes
 
 export function startSessionAutoCloseCron() {
   cron.schedule('*/10 * * * *', async () => {
     const now = new Date();
-    // Active sessions: close as soon as endTime passes (shift is over).
-    // Scheduled sessions: only cancel after the grace period (doctor may still start).
-    const activeDeadline    = now;
+    // Active sessions: only auto-close after 10-min grace past endTime so the
+    // doctor has a window to end the session manually after the scheduled shift.
+    // Scheduled sessions: cancel after the 15-min grace (doctor may still start).
+    const activeDeadline    = new Date(now.getTime() - ACTIVE_GRACE_MS);
     const scheduledDeadline = new Date(now.getTime() - CANCEL_GRACE_MS);
 
     let sessions;
@@ -57,7 +60,7 @@ export function startSessionAutoCloseCron() {
           { $set: { status: 'no_show' } },
         );
 
-        await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended' } });
+        await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended', actualEndTime: new Date() } });
 
         // Notify live-tracking clients
         try {

@@ -70,18 +70,22 @@ export function useDoctorActiveSession(
             const q = await sessionService.getQueue(orgId, branch.id, found.id);
             setQueue(q.appointments);
           } catch {
-            setQueue([]);
+            // Leave stale queue data on transient error
           }
           return;
         }
       }
+      // No active session found — clear state so UI reflects reality.
       setActiveSession(null);
       setActiveBranchId("");
       setQueue([]);
     } catch {
-      setActiveSession(null);
-      setActiveBranchId("");
-      setQueue([]);
+      // Leave stale data on transient network/server errors to avoid flicker.
+      if (!hasLoadedRef.current) {
+        setActiveSession(null);
+        setActiveBranchId("");
+        setQueue([]);
+      }
     } finally {
       hasLoadedRef.current = true;
       setIsLoading(false);

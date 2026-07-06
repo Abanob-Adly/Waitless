@@ -48,8 +48,9 @@ const sessionSchema = new Schema(
       _id:         false,
     }],
 
-    // ── Late-start tracking ──────────────────────────────────────────────────
+    // ── Start/end tracking ──────────────────────────────────────────────────
     actualStartTime: { type: Date, default: null },
+    actualEndTime:   { type: Date, default: null },
     lateStartMin:    { type: Number, default: 0 },
 
     // ── Late-start excuse (doctor submits before penalty fires) ──────────────

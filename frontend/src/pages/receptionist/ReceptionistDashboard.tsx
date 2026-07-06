@@ -8,6 +8,7 @@ import { bookWalkIn } from "../../services/appointmentService";
 import type { AppointmentType } from "../../services/appointmentService";
 import { lookupPatientByPhone } from "../../services/patientService";
 import { toE164 } from "../../utils/phone";
+import { validatePhone, validateName } from "../../utils/validation";
 import { fmt12 } from "../../utils/time";
 import type { BackendSession, BackendAppointment, CashSummary } from "../../services/sessionService";
 
@@ -331,7 +332,7 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 // ── Walk-In Tab ───────────────────────────────────────────────────────────────
 
 function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
-  const { locale } = useLanguage();
+  const { t, locale } = useLanguage();
   const [phase, setPhase] = useState<"lookup" | "booking">("lookup");
   const [foundPatient, setFoundPatient] = useState<{ fullName: string; phone: string } | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -364,6 +365,8 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
     if (!phone.trim()) { setError("Phone number is required."); return; }
+    const ph = validatePhone(phone.trim());
+    if (!ph.valid) { setError(ph.error); return; }
     setLookingUp(true);
     setError(null);
     const patient = await lookupPatientByPhone(orgId, toE164(phone.trim()));
@@ -380,8 +383,9 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
   async function handleWalkIn(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedSession) { setError("Please select an active session."); return; }
-    if (!patientName.trim()) { setError("Patient name is required."); return; }
+    if (!selectedSession) { setError(t("Please select an active session.")); return; }
+    const nm = validateName(patientName.trim());
+    if (!nm.valid) { setError(nm.error); return; }
 
     setAdding(true);
     setError(null);
@@ -416,19 +420,19 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     <div className="space-y-5">
       {result && (
         <div className="rounded-xl border border-success/30 bg-success/5 px-5 py-4">
-          <p className="font-medium text-success">Patient added to queue</p>
+          <p className="font-medium text-success">{t("Patient added to queue")}</p>
           <p className="mt-1 text-2xl font-bold text-navy">#{result.queueNumber}</p>
           <p className="text-xs text-navy-mid">
-            Queue number assigned
+            {t("Queue number assigned")}
             {result.estimatedWaitMin != null && result.estimatedWaitMin > 0 && (
-              <> · Est. wait: <span className="font-semibold">{Math.round(result.estimatedWaitMin)} min</span></>
+              <> · {t("Est. wait:")} <span className="font-semibold">{Math.round(result.estimatedWaitMin)} {t("min")}</span></>
             )}
           </p>
           <button
             onClick={() => setResult(null)}
             className="mt-2 text-xs text-navy-mid hover:text-navy"
           >
-            Add another →
+            {t("Add another →")}
           </button>
         </div>
       )}
@@ -436,15 +440,18 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
       {phase === "lookup" ? (
         <form onSubmit={handleLookup} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-navy">Patient Phone *</label>
-            <input
-              type="text"
-              placeholder="01XXXXXXXXX"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="numeric"
-              className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            />
+            <label className="block text-sm font-medium text-navy">{t("Patient Phone *")}</label>
+            <div className="mt-1.5 flex h-11 overflow-hidden rounded-md border border-border bg-white focus-within:border-gold focus-within:ring-2 focus-within:ring-gold/20">
+              <span className="flex shrink-0 items-center border-r border-border bg-offwhite px-2 text-xs font-medium text-navy-mid">+20</span>
+              <input
+                type="text"
+                placeholder="1XXXXXXXXX"
+                value={phone}
+                onChange={(e) => { setError(null); setPhone(e.target.value); }}
+                inputMode="numeric"
+                className="h-full flex-1 bg-transparent px-3 text-sm text-navy outline-none"
+              />
+            </div>
           </div>
           {error && <p className="text-sm text-danger">{error}</p>}
           <button
@@ -452,30 +459,30 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
             disabled={lookingUp}
             className="h-11 w-full rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
           >
-            {lookingUp ? "Searching…" : "Find Patient →"}
+            {lookingUp ? t("Searching…") : t("Find Patient →")}
           </button>
         </form>
       ) : (
         <form onSubmit={handleWalkIn} className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-navy-mid">Phone: <span className="font-medium text-navy">{phone}</span></p>
+            <p className="text-xs text-navy-mid">{t("Phone:")} <span className="font-medium text-navy">{phone}</span></p>
             <button type="button" onClick={handleReset} className="text-xs text-navy-mid hover:text-navy">
-              ← Change Phone
+              ← {t("Change Phone")}
             </button>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-navy">
-              Patient Name *
+              {t("Patient Name *")}
               {foundPatient && (
                 <span className="ml-2 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
-                  Existing patient
+                  {t("Existing patient")}
                 </span>
               )}
             </label>
             <input
               type="text"
-              placeholder="Full name"
+              placeholder={t("Full name")}
               value={patientName}
               onChange={(e) => setPatientName(e.target.value)}
               className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-4 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
@@ -483,21 +490,21 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-navy">Visit Type</label>
+            <label className="block text-sm font-medium text-navy">{t("Visit Type")}</label>
             <select
               value={appointmentType}
               onChange={(e) => setAppointmentType(e.target.value as AppointmentType)}
               className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
             >
-              <option value="new_consultation">New Consultation</option>
-              <option value="follow_up">Follow-Up</option>
-              <option value="medical_rep">Medical Rep</option>
+              <option value="new_consultation">{t("New Consultation")}</option>
+              <option value="follow_up">{t("Follow-Up")}</option>
+              <option value="medical_rep">{t("Medical Rep")}</option>
             </select>
           </div>
 
           {sessions.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-navy">Active Session</label>
+              <label className="block text-sm font-medium text-navy">{t("Active Session")}</label>
               <select
                 value={selectedSession}
                 onChange={(e) => setSelectedSession(e.target.value)}
@@ -505,7 +512,7 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
               >
                 {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.doctorName || "Doctor"} · {fmt12(s.startTime, locale)}–{fmt12(s.endTime, locale)}
+                    {s.doctorName || t("Doctor")} · {fmt12(s.startTime, locale)}–{fmt12(s.endTime, locale)}
                   </option>
                 ))}
               </select>
@@ -514,7 +521,7 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
           {sessions.length === 0 && (
             <div className="rounded-lg border border-border bg-offwhite px-4 py-3 text-sm text-navy-mid">
-              No active sessions. Start a session in the "Today's Sessions" tab first.
+              {t("No active sessions. Start a session in the \"Today's Sessions\" tab first.")}
             </div>
           )}
 
@@ -525,7 +532,7 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
             disabled={adding || sessions.length === 0}
             className="h-11 w-full rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
           >
-            {adding ? "Adding…" : "Add to Queue →"}
+            {adding ? t("Adding…") : t("Add to Queue →")}
           </button>
         </form>
       )}
@@ -644,13 +651,13 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
       setQueue(q.appointments);
       setCurrentlyServing(q.currentlyServing);
     } catch {
-      setQueue([]);
+      // Leave stale queue on transient errors to avoid flicker
     }
   }, [orgId, branchId, sessionId]);
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => { void load(); }, 3000);
+    const id = window.setInterval(() => { void load(); }, 5000);
     return () => window.clearInterval(id);
   }, [load]);
 

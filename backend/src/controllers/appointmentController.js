@@ -8,14 +8,14 @@ export const appointmentSchemas = {
   }),
 
   bookWalkIn: z.object({
-    patientPhone:    z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    patientPhone:    z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX'),
     patientName:     z.string().min(2).max(100),
     notes:           z.string().max(500).optional(),
     appointmentType: z.enum(['new_consultation', 'follow_up', 'medical_rep']).optional(),
   }),
 
   bookOverride: z.object({
-    patientPhone: z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    patientPhone: z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX'),
     patientName:  z.string().min(2).max(100),
     notes:        z.string().max(500).optional(),
   }),

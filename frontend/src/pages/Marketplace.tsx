@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLanguage } from "../context/LanguageContext";
 import { SPECIALTIES, AREAS } from "../data/mockData";
 import {
   searchOrgs,
@@ -13,6 +14,7 @@ import type { Doctor } from "../types/index";
 export function Marketplace() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { t } = useLanguage();
 
   const [specialty, setSpecialty] = useState(
     searchParams.get("specialty") ?? "All Specialties",
@@ -111,7 +113,7 @@ export function Marketplace() {
             )}
 
             <span className="ml-auto text-sm text-navy-mid">
-              {isLoading ? "Loading…" : `${doctors.length} result${doctors.length !== 1 ? "s" : ""}`}
+              {isLoading ? t("Loading…") : `${doctors.length} ${doctors.length !== 1 ? t("results") : t("result")}`}
             </span>
           </div>
         </div>
@@ -121,10 +123,10 @@ export function Marketplace() {
       <main className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-6 animate-fade-up">
           <p className="text-sm font-medium text-gold">
-            {filterLabel ?? "All specialties · All areas"}
+            {filterLabel ?? t("All specialties · All areas")}
           </p>
           <h1 className="font-heading text-4xl font-bold text-navy">
-            {filterLabel ? `${specialty !== "All Specialties" ? specialty : "Doctors"} in ${area !== "All Areas" ? area : "Cairo"}` : "All Doctors"}
+            {filterLabel ? `${specialty !== "All Specialties" ? specialty : t("Doctors")} in ${area !== "All Areas" ? area : t("Cairo")}` : t("All Doctors")}
           </h1>
         </div>
 
@@ -175,6 +177,7 @@ function DoctorCard({
   doctor: Doctor;
   onViewProfile: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <article className="group overflow-hidden rounded-lg border border-border bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-gold hover:shadow-lg">
       {/* Card header */}
@@ -199,7 +202,7 @@ function DoctorCard({
             </h3>
             {doctor.verified && (
               <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
-                ✓ Verified
+                {t("✓ Verified")}
               </span>
             )}
           </div>
@@ -212,7 +215,7 @@ function DoctorCard({
               {doctor.rating}
             </span>
             <span className="text-xs text-navy-mid">
-              ({doctor.reviewCount} reviews)
+              ({doctor.reviewCount} {t("reviews")})
             </span>
           </div>
         </div>
@@ -230,7 +233,7 @@ function DoctorCard({
           {doctor.availableLabel}
         </span>
         <span className="rounded-sm border border-border px-2 py-0.5 text-xs text-navy-mid">
-          {doctor.experienceYears} yrs exp
+          {doctor.experienceYears} {t("yrs exp")}
         </span>
       </div>
 
@@ -243,14 +246,14 @@ function DoctorCard({
               EGP
             </span>
           </p>
-          <p className="text-xs text-navy-mid">Consultation fee</p>
+          <p className="text-xs text-navy-mid">{t("Consultation fee")}</p>
         </div>
 
         <button
           onClick={onViewProfile}
           className="rounded-md bg-navy px-5 py-2.5 text-sm font-medium text-white transition hover:scale-105 hover:bg-navy-mid active:scale-95"
         >
-          View Profile →
+          {t("View Profile →")}
         </button>
       </div>
     </article>
@@ -287,20 +290,21 @@ function DoctorCardSkeleton() {
 // ── Empty results ─────────────────────────────────────────────────────────────
 
 function EmptyResults({ onClear }: { onClear: () => void }) {
+  const { t } = useLanguage();
   return (
     <div className="rounded-xl bg-white py-20 text-center shadow-sm">
       <p className="text-5xl">🔍</p>
       <h3 className="mt-4 font-heading text-2xl font-bold text-navy">
-        No doctors found
+        {t("No doctors found")}
       </h3>
       <p className="mt-2 text-sm text-navy-mid">
-        Try adjusting your filters to see more results.
+        {t("Try adjusting your filters to see more results.")}
       </p>
       <button
         onClick={onClear}
         className="mt-6 rounded-md bg-gold px-6 py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
-        Clear Filters
+        {t("Clear Filters")}
       </button>
     </div>
   );

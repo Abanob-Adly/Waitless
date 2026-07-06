@@ -26,6 +26,7 @@ export type BackendSession = {
   avgConsultationMin: number;
   maxBookings: number | null;
   isOnBreak: boolean;
+  lastBreakEndedAt: string | null;
   globalDelayMin: number;
   excuse: SessionExcuse | null;
   penaltyApplied: { amount: number; appliedAt: string } | null;
@@ -101,6 +102,11 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     avgConsultationMin: Number(s.avgConsultationMin ?? 15),
     maxBookings: s.maxBookings != null ? Number(s.maxBookings) : null,
     isOnBreak: Boolean(s.isOnBreak ?? false),
+    lastBreakEndedAt: (() => {
+      const breaks = Array.isArray(s.breaks) ? (s.breaks as Array<{ endedAt?: string }>) : [];
+      const last = [...breaks].reverse().find((b) => b.endedAt);
+      return last?.endedAt ?? null;
+    })(),
     globalDelayMin: Number(s.globalDelayMin ?? 0),
     lateStartMin: Number(s.lateStartMin ?? 0),
     excuse: s.excuse

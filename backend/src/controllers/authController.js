@@ -4,12 +4,14 @@ import { authService } from '../services/auth.js';
 // schema validation
 const Email = z.string().email().toLowerCase();
 const Password = z.string().min(8).max(128);
-const Phone = z.string().regex(/^\+?[1-9]\d{7,14}$/);
+// Accept raw Egyptian format (01XXXXXXXXX) or E.164 (+201XXXXXXXXX)
+const Phone = z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX or +201XXXXXXXXX');
 export const schemas = {
     register: z.object({
         email: Email, password: Password,
         fullName: z.string().min(2).max(100),
         phone: Phone.optional(),
+        dateOfBirth: z.string().optional(),
     }),
     // identifier accepts either email or phone number
     login: z.object({ identifier: z.string().min(1), password: Password }),

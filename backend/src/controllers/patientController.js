@@ -1,25 +1,30 @@
 import { z } from 'zod';
 import { patientService } from '../services/patientService.js';
 
+const NAME_REGEX = /^[A-Za-z؀-ۿ\s'\-.]{2,100}$/;
+const FullName = z.string().min(2).max(100).regex(NAME_REGEX, 'Name may only contain letters, spaces, hyphens, and apostrophes.');
+
+const PHONE_REGEX = /^(\+201[0125]\d{8}|01[0125]\d{8})$/;
+
 export const patientSchemas = {
   create: z.object({
-    fullName:    z.string().min(2).max(100),
-    phone:       z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    fullName:    FullName,
+    phone:       z.string().regex(PHONE_REGEX, 'Invalid Egyptian phone number — must be 01XXXXXXXXX'),
     gender:      z.enum(['male', 'female']).optional(),
     dateOfBirth: z.string().datetime().optional(),
     branchId:    z.string().optional(),
   }),
 
   update: z.object({
-    fullName:    z.string().min(2).max(100).optional(),
-    phone:       z.string().regex(/^\+?[1-9]\d{7,14}$/).optional(),
+    fullName:    FullName.optional(),
+    phone:       z.string().regex(PHONE_REGEX).optional(),
     gender:      z.enum(['male', 'female']).optional(),
     dateOfBirth: z.string().datetime().optional(),
   }),
 
   updateOwn: z.object({
-    fullName:    z.string().min(2).max(100).optional(),
-    phone:       z.string().regex(/^\+?[1-9]\d{7,14}$/).optional(),
+    fullName:    FullName.optional(),
+    phone:       z.string().regex(PHONE_REGEX).optional(),
     gender:      z.enum(['male', 'female']).optional(),
     dateOfBirth: z.string().optional(),
     avatarUrl:   z.string().url().optional().nullable(),

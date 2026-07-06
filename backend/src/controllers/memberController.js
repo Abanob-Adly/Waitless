@@ -3,11 +3,21 @@ import { memberService } from '../services/memberService.js';
 import { AdminMembership, DoctorMembership, Membership } from '../models/Membership.js';
 import { Forbidden, NotFound } from '../utils/errors.js';
 
+const VALID_SPECIALTIES = [
+  'Cardiology','Dermatology','Pediatrics','Orthopedics','Internal Medicine',
+  'Neurology','Ophthalmology','ENT','Obstetrics & Gynecology','Psychiatry',
+  'Dentistry','Urology','Endocrinology','Rheumatology','Oncology',
+  'General Surgery','Radiology','Physical Therapy','General',
+];
+const SpecialtyItem = z.string().refine((s) => VALID_SPECIALTIES.includes(s), {
+  message: 'Invalid specialty. Must be one of the predefined medical specialties.',
+});
+
 export const memberSchemas = {
   invite: z.object({
     email:              z.string().email().toLowerCase(),
     kind:               z.enum(['admin', 'doctor', 'receptionist']),
-    specialties:        z.array(z.string()).optional(),
+    specialties:        z.array(SpecialtyItem).optional(),
     licenseNumber:      z.string().optional(),
     bio:                z.string().max(2000).optional(),
     branches:           z.array(z.string()).optional(),
@@ -20,7 +30,7 @@ export const memberSchemas = {
 
   update: z.object({
     kind:               z.enum(['admin', 'doctor', 'receptionist']).optional(),
-    specialties:        z.array(z.string()).optional(),
+    specialties:        z.array(SpecialtyItem).optional(),
     licenseNumber:      z.string().optional(),
     bio:                z.string().max(2000).optional(),
     services:           z.array(z.string()).optional(),

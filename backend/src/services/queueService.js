@@ -78,14 +78,17 @@ export const queueService = {
     const state = await getQueueState(sessionId);
     if (!state) throw NotFound('Session not found');
 
-    const appointments = await Appointment.find({
-      session: sessionId,
-      status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
-    })
-      .populate('patientProfile', 'fullName phone')
-      .sort({ queueNumber: 1 });
+    const [appointments, session] = await Promise.all([
+      Appointment.find({
+        session: sessionId,
+        status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
+      })
+        .populate('patientProfile', 'fullName phone')
+        .sort({ queueNumber: 1 })
+        .lean(),
+      Session.findById(sessionId).lean(),
+    ]);
 
-    const session       = await Session.findById(sessionId).lean();
     const capacityInfo  = session ? queueService.checkDailyCapacity({ session }) : null;
 
     return {
@@ -415,6 +418,19 @@ export const queueService = {
     }
     if (session.isOnBreak) {
       throw new AppError('Session is already on break', 422);
+    }
+
+    const COOLDOWN_MIN = 30;
+    const lastBreak = session.breaks?.[session.breaks.length - 1];
+    if (lastBreak?.endedAt) {
+      const elapsedMin = (Date.now() - new Date(lastBreak.endedAt).getTime()) / 60_000;
+      if (elapsedMin < COOLDOWN_MIN) {
+        const remainingMin = Math.ceil(COOLDOWN_MIN - elapsedMin);
+        throw new AppError(
+          `You must wait ${remainingMin} more minute${remainingMin !== 1 ? 's' : ''} before taking another break.`,
+          422,
+        );
+      }
     }
 
     session.isOnBreak = true;

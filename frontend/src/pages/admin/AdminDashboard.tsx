@@ -47,7 +47,7 @@ export function AdminDashboard() {
   const admin = authUser.profile as { id: string; name: string; orgId: string };
   const initials = admin.name.split(" ").slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase();
   const isAlsoDoctor = myRoles.includes("doctor");
-  const staffCount  = memberships.filter((m) => m.status === "active").length;
+  const staffCount  = new Set(memberships.filter((m) => m.status === "active").map((m) => m.userId || m.id)).size;
 
   const sectionTitle: Record<AdminSection, string> = {
     overview: t("Overview"), branches: t("Branches"), staff: t("Staff"),
@@ -389,7 +389,7 @@ function OverviewTab() {
 
   const plan = plans.find((p) => p.id === subscription?.planId);
   const doctorCount = memberships.filter((m) => m.userRole === "doctor" && m.status === "active").length;
-  const staffCount = memberships.filter((m) => m.status === "active").length;
+  const staffCount = new Set(memberships.filter((m) => m.status === "active").map((m) => m.userId || m.id)).size;
 
   async function handleToggle() {
     if (!org?.isPublic && !plan?.marketplaceListing) {
@@ -487,6 +487,7 @@ function OverviewTab() {
 function BranchesTab() {
   const { branches, isLoading, addBranch, subscription, plans } = useOrg();
   const { t, locale } = useLanguage();
+  const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
 
@@ -505,22 +506,36 @@ function BranchesTab() {
             <span className="ml-1.5 text-navy-mid/60">/ {branchLimit}</span>
           )}
         </p>
-        <div className="relative group">
-          <button
-            onClick={() => { if (!branchLimitHit) { setShowModal(true); setBranchError(null); } }}
-            disabled={branchLimitHit}
-            className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {t("+ Add Branch")}
-          </button>
-          {branchLimitHit && (
-            <div className="pointer-events-none absolute right-0 top-full mt-1.5 w-52 rounded-lg border border-border bg-white px-3 py-2 text-xs text-navy-mid shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10">
-              {locale === "ar" ? `وصلت للحد الأقصى (${branchLimit} فروع). ترقّ لإضافة المزيد.` : `Branch limit reached (${branchLimit}). Upgrade your plan to add more.`}
-            </div>
-          )}
-        </div>
+        <button
+          onClick={() => {
+            if (branchLimitHit) {
+              navigate("/admin?tab=billing");
+            } else {
+              setShowModal(true);
+              setBranchError(null);
+            }
+          }}
+          className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
+        >
+          {branchLimitHit ? t("Upgrade Plan →") : t("+ Add Branch")}
+        </button>
       </div>
 
+      {branchLimitHit && (
+        <div className="flex items-center justify-between rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
+          <p className="text-sm text-navy">
+            {locale === "ar"
+              ? `وصلت إلى الحد الأقصى للفروع (${branchLimit}). قم بترقية خطتك لإضافة المزيد.`
+              : `You've reached your branch limit (${branchLimit}). Upgrade your plan to add more.`}
+          </p>
+          <button
+            onClick={() => navigate("/admin?tab=billing")}
+            className="ml-4 shrink-0 rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-navy-mid"
+          >
+            {t("Upgrade Plan →")}
+          </button>
+        </div>
+      )}
       {branchError && (
         <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
           {branchError}
@@ -629,6 +644,9 @@ function StaffTab() {
 
   const uniqueMembers = Array.from(grouped.values());
   const activeMemberCount = uniqueMembers.length;
+  const activeAdminGroups = uniqueMembers.filter((g) => g.some((m) => m.userRole === "admin" && m.status === "active"));
+  const isLastAdminGroup = (group: typeof uniqueMembers[0]) =>
+    activeAdminGroups.length === 1 && group.some((m) => m.userRole === "admin" && m.status === "active");
 
   const currentPlan = plans.find((p) => p.id === subscription?.planId);
   const doctorLimit = currentPlan?.maxDoctors ?? Infinity;
@@ -689,6 +707,8 @@ function StaffTab() {
           const isDoctor = roles.includes("doctor");
           const branch = branches.find((b) => b.id === primary.branchId);
           const isBusy = promoting === primary.id || removing === primary.id;
+          const isLastAdmin = isLastAdminGroup(group);
+          const lastAdminTip = t("You cannot edit or remove the last admin. Assign another admin first.");
 
           return (
             <div key={primary.id} className="flex items-start justify-between gap-3 px-5 py-4">
@@ -721,16 +741,19 @@ function StaffTab() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => { setEditingMember(primary); setEditError(null); }}
-                      className="text-xs font-medium text-gold hover:text-gold-light"
+                      onClick={() => { if (!isLastAdmin) { setEditingMember(primary); setEditError(null); } }}
+                      disabled={isLastAdmin}
+                      title={isLastAdmin ? lastAdminTip : undefined}
+                      className="text-xs font-medium text-gold hover:text-gold-light disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {t("Edit")}
                     </button>
                   )}
                   <button
-                    onClick={() => handleRemove(primary.id, primary.invitedEmail || primary.memberName, primary.status)}
-                    disabled={isBusy}
-                    className="text-xs font-medium text-danger hover:text-danger/70 disabled:opacity-40"
+                    onClick={() => { if (!isLastAdmin) handleRemove(primary.id, primary.invitedEmail || primary.memberName, primary.status); }}
+                    disabled={isBusy || isLastAdmin}
+                    title={isLastAdmin ? lastAdminTip : undefined}
+                    className="text-xs font-medium text-danger hover:text-danger/70 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {removing === primary.id ? "…" : (primary.status === "pending" ? t("Cancel Invite") : t("Remove"))}
                   </button>
@@ -756,11 +779,10 @@ function StaffTab() {
                 {/* Revoke Admin — for any member who holds an admin role */}
                 {isAdmin && (
                   <button
-                    onClick={() => handleRevokeAdmin(
-                      group.find((m) => m.userRole === "admin")?.id ?? primary.id,
-                    )}
-                    disabled={isBusy}
-                    className="rounded-md border border-danger/20 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/5 disabled:opacity-40"
+                    onClick={() => { if (!isLastAdmin) handleRevokeAdmin(group.find((m) => m.userRole === "admin")?.id ?? primary.id); }}
+                    disabled={isBusy || isLastAdmin}
+                    title={isLastAdmin ? lastAdminTip : undefined}
+                    className="rounded-md border border-danger/20 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {promoting === primary.id ? "…" : t("Revoke Admin")}
                   </button>
@@ -1221,8 +1243,11 @@ function BillingTab() {
       setInvoices(list);
       setInvoiceTotal(total);
       setInvoicePage(page);
-    } catch { /* silent */ }
-    setInvoicesLoading(false);
+    } catch {
+      // silent — keep existing list on error
+    } finally {
+      setInvoicesLoading(false);
+    }
   }, [org]);
 
   useEffect(() => { loadInvoices(1); }, [loadInvoices]);
@@ -1270,14 +1295,27 @@ function BillingTab() {
       return;
     }
 
-    // For paid plans: wallet-first, Paymob card fallback
+    // For paid plans: show confirmation dialog first
+    setPaymentModal({ planId, planName: plan.name, planPrice: plan.pricePerMonth, walletBalance: 0 });
+    setProcessing(null);
+  }
+
+  async function handleConfirmUpgrade() {
+    if (!paymentModal || !org) return;
+    const { planId, planName, planPrice } = paymentModal;
+    setPaymentModal(null);
     setProcessing(planId);
     try {
       const result = await orgService.purchasePlan(org.id, planId);
       if (result.method === "wallet") {
         await refresh();
         await loadInvoices(1);
-        showToast(true, `${t("Payment successful")} — ${t("Pay from Wallet")}: ${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`);
+        const currency = locale === "ar" ? "ج.م" : "EGP";
+        showToast(true,
+          locale === "ar"
+            ? `تم ترقية خطتك إلى ${planName}. تم خصم ${planPrice} ${currency} من محفظتك.`
+            : `Your plan has been upgraded to ${planName}. ${planPrice} ${currency} has been deducted from your wallet.`
+        );
       } else if (result.method === "card") {
         setIframeModal({ iframeUrl: result.iframeUrl, planName: result.planName, planPrice: result.planPrice });
       }
@@ -1575,6 +1613,41 @@ function BillingTab() {
           </div>
         )}
       </div>
+
+      {/* ── Upgrade confirmation modal ───────────────────────────────────── */}
+      {paymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="font-heading text-xl font-bold text-navy">{t("Confirm Upgrade")}</h2>
+            <p className="mt-2 text-sm text-navy-mid">
+              {locale === "ar"
+                ? `هل أنت متأكد أنك تريد الترقية إلى خطة ${paymentModal.planName} مقابل ${paymentModal.planPrice} ${
+                    "ج.م"
+                  }/شهر؟`
+                : `Upgrade to ${paymentModal.planName} for ${paymentModal.planPrice} EGP/month?`}
+            </p>
+            <p className="mt-1 text-xs text-navy-mid">
+              {locale === "ar"
+                ? "سيتم الخصم من محفظتك إن كان الرصيد كافياً، وإلا سيُطلب منك الدفع ببطاقة."
+                : "Payment will be deducted from your wallet if balance is sufficient, otherwise you'll be asked to pay by card."}
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setPaymentModal(null)}
+                className="flex-1 rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy"
+              >
+                {t("Cancel")}
+              </button>
+              <button
+                onClick={() => void handleConfirmUpgrade()}
+                className="flex-1 rounded-md bg-navy py-2.5 text-sm font-semibold text-white transition hover:bg-navy/90"
+              >
+                {t("Confirm Upgrade")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Branch conflict modal ────────────────────────────────────────── */}
       {conflict && (
