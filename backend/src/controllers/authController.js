@@ -17,8 +17,12 @@ export const schemas = {
     verifyEmail: z.object({ code: z.string().length(6) }),
     verifyPhone: z.object({ code: z.string().length(6) }),
     requestReset: z.object({ email: Email }),
-    confirmReset: z.object({ email: Email, token: z.string(), newPassword: Password }),
+    confirmReset: z.object({
+      token: z.string().min(1),
+      newPassword: Password,
+    }),
 };
+
 
 // authentication controller
 export const authController = {

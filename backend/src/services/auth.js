@@ -5,6 +5,8 @@ import { hashPassword, verifyPassword } from '../utils/password.js';
 import { AppError, Conflict, NotFound, Unauthorized } from '../utils/errors.js';
 import { tokenService } from './token.js';
 import { verificationService } from './verification.js';
+import { verifyCode } from "../utils/otp.js";
+import VerificationToken from '../models/verificationToken.js';
 
 // Strips formatting and converts to E.164 (Egyptian default: 01X → +201X).
 function normalizePhone(input = '') {
@@ -206,18 +208,28 @@ export const authService = {
     return { ok: true };
   },
 
-  async confirmPasswordReset({ email, token, newPassword }) {
-    const account = await Account.findOne({ email });
+  async confirmPasswordReset({ token, newPassword }) {
+    const verification = await VerificationToken.findOne({
+      purpose: 'password_reset',
+      consumedAt: null,
+    }).sort({ createdAt: -1 });
+
+    if (!verification) throw new AppError('Invalid reset token', 401);
+    if (verification.expiresAt < new Date()) throw new AppError('Code expired', 410, 'EXPIRED');
+
+    const ok = await verifyCode(token, verification.codeHash);
+    if (!ok) throw new AppError('Invalid reset token', 401);
+
+    const account = await Account.findById(verification.account);
     if (!account) throw new AppError('Invalid reset token', 401);
 
-    await verificationService.consume({ account, purpose: 'password_reset', code: token });
+    verification.consumedAt = new Date();
+    await verification.save();
 
     account.passwordHash = await hashPassword(newPassword);
     await account.save();
 
-    // Revoke all sessions on password change
     await tokenService.revokeAllForAccount(account._id);
-
     return { ok: true };
   },
 };

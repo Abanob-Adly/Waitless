@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 export function ForgotPasswordPage() {
-  const navigate = useNavigate();
   const { requestPasswordReset, isAuthLoading, authError, clearAuthError } = useAuth();
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -17,8 +16,6 @@ export function ForgotPasswordPage() {
     const ok = await requestPasswordReset(email.trim().toLowerCase());
     if (ok) {
       setSubmitted(true);
-      // Navigate to reset page after 1.5s so user can read the success message
-      setTimeout(() => navigate(`/reset-password?email=${encodeURIComponent(email.trim().toLowerCase())}`), 1500);
     }
   }
 
@@ -29,14 +26,14 @@ export function ForgotPasswordPage() {
           <p className="font-heading text-sm font-medium text-gold">Waitless</p>
           <h1 className="mt-1 font-heading text-3xl font-bold text-white">Forgot password</h1>
           <p className="mt-1 text-sm text-white/50">
-            Enter your email and we'll send you a 6-digit code
+            Enter your email and we'll send you a reset link
           </p>
         </div>
 
         <div className="px-8 py-7">
           {submitted ? (
             <div className="rounded-md bg-success/10 px-4 py-4 text-sm text-success">
-              A reset code has been sent to <strong>{email}</strong>. Redirecting…
+              A reset link has been sent to <strong>{email}</strong>.
             </div>
           ) : (
             <>
@@ -63,7 +60,7 @@ export function ForgotPasswordPage() {
                   disabled={isAuthLoading}
                   className="flex h-13 w-full items-center justify-center gap-2 rounded-md bg-gold py-3 text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
                 >
-                  {isAuthLoading ? "Sending…" : "Send Reset Code →"}
+                  {isAuthLoading ? "Sending…" : "Send Reset Link"}
                 </button>
               </form>
 

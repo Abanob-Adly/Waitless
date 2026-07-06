@@ -225,8 +225,8 @@ export const authService = {
     await api.post("/auth/password-reset/request", { email });
   },
 
-  async confirmPasswordReset(email: string, token: string, newPassword: string): Promise<void> {
-    await api.post("/auth/password-reset/confirm", { email, token, newPassword });
+  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    await api.post("/auth/password-reset/confirm", { token, newPassword });
   },
 
   // Try loginPatient first, then loginWorker, return AuthUser on success.

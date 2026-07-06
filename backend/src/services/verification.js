@@ -104,7 +104,7 @@ export const verificationService = {
 
   _bodyFor(purpose, code) {
     if (purpose === "password_reset") {
-      return `Reset link: https://waitless.app/reset?token=${code}`;
+      return `Your password reset link is: ${env.app.url}/reset-password?token=${encodeURIComponent(code)}`;
     }
     return `Your Waitless code is: ${code}`;
   },

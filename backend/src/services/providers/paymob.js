@@ -1,4 +1,3 @@
-// services/providers/paymob.js
 import crypto from 'node:crypto';
 import { env } from '../../config/env.js';
 import { AppError } from '../../utils/errors.js';

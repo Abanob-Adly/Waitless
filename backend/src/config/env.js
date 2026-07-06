@@ -6,19 +6,25 @@ const required = (k) => {
   return v;
 };
 
+const apiUrl = process.env.API_URL || 'http://localhost:3000';
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  
-  port: process.env.PORT || 3000,
+  port: Number(process.env.PORT) || 3000,
+
+  app: {
+    api: apiUrl,
+    url:  process.env.APP_URL || 'http://localhost:5173',
+  },
 
   db: {
-    uri: required('MONGO_URI'), 
+    uri: required('MONGO_URI'),
   },
 
   jwt: {
-    accessSecret:  required('JWT_ACCESS_SECRET'),
+    accessSecret: required('JWT_ACCESS_SECRET'),
     refreshSecret: required('JWT_REFRESH_SECRET'),
-    accessTtl:  '15m',
+    accessTtl: '15m',
     refreshTtl: '30d',
   },
 
@@ -43,7 +49,7 @@ export const env = {
   },
 
   whatsapp: {
-    accessToken:   process.env.WHATSAPP_ACCESS_TOKEN   || null,
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || null,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || null,
   },
 
@@ -56,12 +62,14 @@ export const env = {
   },
 
   paymob: {
-    baseUrl:         process.env.PAYMOB_BASE_URL || 'https://accept.paymob.com',
-    secretKey:       process.env.PAYMOB_SECRET_KEY   || null,
-    publicKey:       process.env.PAYMOB_PUBLIC_KEY   || null,
-    hmacSecret:      process.env.PAYMOB_HMAC_SECRET  || null,
-    integrationId:   process.env.PAYMOB_INTEGRATION_ID? Number(process.env.PAYMOB_INTEGRATION_ID): null,
-    notificationUrl: process.env.PAYMOB_NOTIFICATION_URL || "http://localhost:5001/webhooks/paymob",
-    redirectionUrl:  process.env.PAYMOB_REDIRECTION_URL || "http://localhost:5001/billing/result",
- },
+    baseUrl: process.env.PAYMOB_BASE_URL || 'https://accept.paymob.com',
+    secretKey: process.env.PAYMOB_SECRET_KEY || null,
+    publicKey: process.env.PAYMOB_PUBLIC_KEY || null,
+    hmacSecret: process.env.PAYMOB_HMAC_SECRET || null,
+    integrationId: process.env.PAYMOB_INTEGRATION_ID
+      ? Number(process.env.PAYMOB_INTEGRATION_ID)
+      : null,
+    notificationUrl: process.env.PAYMOB_NOTIFICATION_URL || `${apiUrl}/webhooks/paymob`,
+    redirectionUrl: process.env.PAYMOB_REDIRECTION_URL || `${apiUrl}/billing/result`,
+  },
 };
