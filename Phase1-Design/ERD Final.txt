@@ -1,0 +1,42 @@
+############################# Entities
+
+Organization
+Branch
+Membership
+
+Subscription
+SubscriptionPlan
+
+Account
+
+PatientProfile
+
+DoctorBranchSchedule
+
+QueueSession
+
+Appointment
+Review
+Notification
+
+
+############################# Relations
+Account
+  ├── PatientProfile
+  └── Membership
+
+Organization
+  ├── Branch
+  ├── Membership
+  ├── DoctorBranchSchedule
+  ├── Appointment
+  ├── Subscription
+  └── Notification
+
+DoctorBranchSchedule
+  └── Appointment
+
+Appointment
+  ├── PatientProfile
+  ├── DoctorBranchSchedule
+  └── Review

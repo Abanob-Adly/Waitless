@@ -1,0 +1,133 @@
+import { useState, useEffect } from "react";
+import { api } from "../services/api";
+
+type QueueSubscriptionResult = {
+  position: number;
+  currentServing: number;
+  etaMinutes: number;
+  globalDelayMin: number;
+  avgConsultationMin: number;
+  isCalled: boolean;
+  isCompleted: boolean;
+  isConnected: boolean;
+  isOnBreak: boolean;
+  sessionDate: string;
+  sessionStartTime: string;
+  sessionStatus: string;
+  appointmentStatus: string;
+  reviewToken: string | null;
+  emergencyReason: string | null;
+  wasForceInserted: boolean;
+};
+
+/**
+ * Polls the public queue tracking endpoint every 3 seconds.
+ * `trackingToken` is the accessToken returned when an appointment is booked.
+ */
+export function useQueueSubscription(
+  trackingToken: string,
+  queueNumber: number,
+  avgConsultationMinFallback: number,
+): QueueSubscriptionResult {
+  const [currentServing, setCurrentServing] = useState(0);
+  const [etaMinutes, setEtaMinutes] = useState(0);
+  const [globalDelayMin, setGlobalDelayMin] = useState(0);
+  const [avgConsultationMin, setAvgConsultationMin] = useState(avgConsultationMinFallback);
+  const [appointmentStatus, setAppointmentStatus] = useState("");
+  const [reviewToken, setReviewToken] = useState<string | null>(null);
+  const [sessionDate, setSessionDate] = useState("");
+  const [sessionStartTime, setSessionStartTime] = useState("");
+  const [sessionStatus, setSessionStatus] = useState("");
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [emergencyReason, setEmergencyReason] = useState<string | null>(null);
+  const [wasForceInserted, setWasForceInserted] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    if (!trackingToken) return;
+    let alive = true;
+
+    async function tick() {
+      try {
+        const res = await api.get<{
+          data: {
+            queueNumber: number;
+            currentlyServing: number;
+            estimatedWaitMin: number;
+            globalDelayMin?: number;
+            avgConsultationMin?: number;
+            status: string;
+            sessionDate?: string;
+            sessionStartTime?: string;
+            sessionStatus?: string;
+            isOnBreak?: boolean;
+            reviewToken?: string | null;
+            emergencyReason?: string | null;
+            wasForceInserted?: boolean;
+          };
+        }>(`/appointments/track/${trackingToken}`);
+
+        if (!alive) return;
+        const d = res.data.data;
+        setCurrentServing(d.currentlyServing ?? 0);
+        setEtaMinutes(d.estimatedWaitMin ?? 0);
+        setGlobalDelayMin(d.globalDelayMin ?? 0);
+        if (d.avgConsultationMin != null) setAvgConsultationMin(d.avgConsultationMin);
+        setAppointmentStatus(d.status ?? "");
+        if (d.reviewToken != null) setReviewToken(d.reviewToken);
+        if (d.sessionDate) setSessionDate(d.sessionDate);
+        if (d.sessionStartTime) setSessionStartTime(d.sessionStartTime);
+        if (d.sessionStatus) setSessionStatus(d.sessionStatus);
+        setIsOnBreak(d.isOnBreak ?? false);
+        setEmergencyReason(d.emergencyReason ?? null);
+        setWasForceInserted(d.wasForceInserted ?? false);
+        setIsConnected(true);
+      } catch {
+        if (!alive) return;
+        setIsConnected(false);
+      }
+    }
+
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [trackingToken]);
+
+  const position = Math.max(1, queueNumber - currentServing);
+
+  // Guard against false positive: 0 >= 0 is true but means "not yet loaded"
+  const isCalled =
+    (currentServing > 0 && currentServing >= queueNumber) ||
+    appointmentStatus === "called" ||
+    appointmentStatus === "in_progress";
+
+  // Use server-provided ETA when available, otherwise compute locally
+  const computedEta =
+    etaMinutes > 0
+      ? etaMinutes
+      : Math.max(0, (position - 1) * avgConsultationMin);
+
+  const isCompleted = appointmentStatus === "completed";
+
+  return {
+    position,
+    currentServing,
+    etaMinutes: computedEta,
+    globalDelayMin,
+    avgConsultationMin,
+    isCalled,
+    isCompleted,
+    isConnected,
+    isOnBreak,
+    sessionDate,
+    sessionStartTime,
+    sessionStatus,
+    appointmentStatus,
+    reviewToken,
+    emergencyReason,
+    wasForceInserted,
+  };
+}

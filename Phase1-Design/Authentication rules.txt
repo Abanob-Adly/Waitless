@@ -1,0 +1,459 @@
+# Waitless — Authorization Rules (MVP, Reconciled)
+
+> **Style note:** Each rule lists the **decision inputs** that must be evaluated, then the **allow conditions** (any one of which grants access), then **additional checks** (all of which must pass). If no allow condition matches → **deny** (per 7.20).
+
+---
+
+## 7.1 Authorization Decision Inputs
+
+For every protected request, evaluate:
+
+"""
+account_id
+account_role                    // 'patient' | 'staff' | 'super_admin'
+active_organization_id
+active_membership_id
+active_membership_kind          // 'admin' | 'doctor' | 'receptionist'
+active_membership_status        // 'pending' | 'active' | 'suspended' | 'revoked'
+is_super_admin                  // AdminMembership.isSuper
+membership_permissions          // AdminMembership.permissions[]
+assigned_branch_ids             // ReceptionistMembership.branches[]
+requested_action
+target_resource
+target_organization_id
+target_branch_id
+target_doctor_membership_id
+target_appointment_id
+target_session_id
+queue_access_token              // for walk-in patients
+subscription_state              // 'trialing' | 'active' | 'past_due' | 'cancelled' | 'expired'
+plan_limits                     // SubscriptionPlan.limits
+"""
+
+---
+
+## 7.2 Identity & Account Rules
+
+### Access own account
+**Allowed if:**
+- "account_id === target_account_id"
+
+### Access another account
+**Allowed if:**
+- "account_role === 'super_admin'"
+
+### Edit own account profile
+**Allowed if:**
+- "account_id === target_account_id"
+- "account.status === 'active'"
+
+---
+
+## 7.3 Organization Rules
+
+### Create organization
+**Allowed if:**
+- "account_role === 'staff'" and "account.status === 'active'"
+
+### View organization
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- actor has any "active" Membership in "target_organization_id", OR
+- "Organization.isPublic === true" (public marketplace view, limited fields only)
+
+### Update organization
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the target org, OR
+- "active_membership_kind === 'admin'" AND "'organization.update' ∈ membership_permissions"
+
+### Toggle "Organization.isPublic"
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the target org
+
+**Additional checks:**
+- "plan_limits.marketplaceListing === true"
+- "subscription_state ∈ ['trialing', 'active']"
+
+### Delete organization
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the target org
+
+---
+
+## 7.4 Branch Rules
+
+### Create / update / delete branch
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" in the org AND "'branch.manage' ∈ membership_permissions"
+
+**Additional checks (create only):**
+- "currentBranchCount < plan_limits.maxBranches"
+- "subscription_state ∈ ['trialing', 'active']"
+
+### View branch
+**Allowed if:**
+- Any active member of the org, OR
+- Public visitor if "Organization.isPublic === true" (limited fields only)
+
+---
+
+## 7.5 Membership / Invitation Rules
+
+### Create pending Membership (invite staff)
+**Allowed if (for invited "kind: 'doctor' | 'receptionist'"):**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" AND "'members.invite' ∈ membership_permissions"
+
+**Allowed if (for invited "kind: 'admin'"):**
+- "is_super_admin === true" in the org (only owners can create other admins)
+
+**Additional checks:**
+- "active_membership_status === 'active'"
+- No existing active Membership for "(inviteEmail, target_organization_id, kind)"
+- No existing pending Membership for "(inviteEmail, target_organization_id, kind)" with non-expired token
+- "subscription_state ∈ ['trialing', 'active']"
+- For doctor invites: "currentDoctorCount < plan_limits.maxDoctors"
+- For receptionist invites: "currentReceptionistCount < plan_limits.maxReceptionists"
+
+### Cancel pending Membership
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" AND "'members.invite' ∈ membership_permissions", OR
+- "account_id === pendingMembership.invitedBy" (original inviter)
+
+**Additional check:**
+- "pendingMembership.status === 'pending'"
+
+### Accept invitation
+**Allowed if:**
+- "membership.status === 'pending'"
+- "membership.inviteToken === provided_token"
+- "membership.inviteExpiresAt > now"
+- "current_account.email === membership.inviteEmail"
+- "Organization.status === 'active'"
+
+### Suspend / revoke Membership
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" AND "'members.manage' ∈ membership_permissions" AND target is **not** "isSuper"
+
+**Additional checks:**
+- "target_membership_id !== active_membership_id" (cannot revoke self)
+- If target is "isSuper": at least one other "isSuper: true" admin must exist in the org
+
+### Update admin permissions / toggle "isSuper"
+**Allowed if:**
+- "is_super_admin === true" in the org (only owners modify other admins)
+
+**Additional checks:**
+- Demoting last "isSuper: true" is **denied** unless another admin is simultaneously promoted
+- Cannot demote self if last "isSuper"
+
+### Change Membership role ("kind")
+**Never allowed.** Discriminator "kind" is immutable. Workflow: revoke + re-invite under new role.
+
+---
+
+## 7.6 Doctor-Branch Schedule Rules
+
+### Create / update schedule
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" AND "'schedule.manage' ∈ membership_permissions"
+
+**Additional checks:**
+- "target_doctor_membership.organization === active_organization_id"
+- "target_doctor_membership.kind === 'doctor'" and "status === 'active'"
+- "target_branch.organization === active_organization_id"
+- No existing "status: 'active'" schedule for "(doctorMembership, branch)"
+- All slots: "startTime < endTime"
+- No two slots on the same "dayOfWeek" overlap
+
+### Deactivate schedule
+**Same as Create / update.**
+
+### View schedule (internal — with all fields)
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'", OR
+- "active_membership_kind === 'receptionist'" AND "schedule.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'doctor'" AND "schedule.doctorMembership === active_membership_id"
+
+### View schedule (public — for marketplace)
+**Allowed if:**
+- "Organization.isPublic === true" AND "schedule.status === 'active'"
+- (Returns only public-safe fields: days, times, fee.)
+
+---
+
+## 7.7 Schedule Exception Rules
+
+### Create / delete exception 
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'" AND "'schedule.manage' ∈ membership_permissions", OR
+- "active_membership_kind === 'doctor'" AND "schedule.doctorMembership === active_membership_id" (own day off)
+
+**Additional checks:**
+- "target_exception.date >= today" (cannot mark past dates as exceptions)
+- "target_schedule.organization === active_organization_id"
+
+---
+
+## 7.8 Session Rules
+
+### View Session (internal)
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'", OR
+- "active_membership_kind === 'receptionist'" AND "session.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'doctor'" AND "session.doctor === active_membership_id"
+
+### View Session (patient view)
+**Allowed if:**
+- Patient has an "Appointment" in this session where "Appointment.patientProfile.accountId === account_id", OR
+- Valid "queue_access_token" matches an "Appointment.accessToken" in this session
+
+### Start session ("status: scheduled → active")
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'", OR
+- "active_membership_kind === 'receptionist'" AND "session.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'doctor'" AND "session.doctor === active_membership_id"
+
+**Additional checks:**
+- "session.status === 'scheduled'"
+- "subscription_state ∈ ['trialing', 'active']"
+
+### End session ("status: active → ended")
+**Same as Start session.**
+
+### Cancel session ("status: scheduled | active → cancelled")
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'"
+
+(Doctors and receptionists cannot cancel — they must request admin action. This protects affected patients.)
+
+---
+
+## 7.9 Appointment Rules
+
+### Create appointment (walk-in)
+**Allowed if:**
+- "active_membership_kind === 'receptionist'" AND "session.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'admin'" AND "session.organization === active_organization_id", OR
+- "is_super_admin === true" in the session's org
+
+**Additional checks:**
+- "session.status ∈ ['scheduled', 'active']"
+- "session.organization === active_organization_id"
+- "subscription_state ∈ ['trialing', 'active']"
+- Patient has no other "booked | called | skipped | in_progress" appointment in this session
+
+### Create appointment (marketplace)
+**Allowed if:**
+- "account_role === 'patient'" AND "account.status === 'active'"
+
+**Additional checks:**
+- "Organization.isPublic === true"
+- "session.status === 'scheduled'"
+- Patient has no other "booked | called | skipped | in_progress" appointment in this session
+- Patient has no overlapping active appointment at another session at the same time
+
+### View appointment
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- "active_membership_kind === 'admin'" AND "appointment.organization === active_organization_id", OR
+- "is_super_admin === true" in the appointment's org, OR
+- "active_membership_kind === 'receptionist'" AND "appointment.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'doctor'" AND "appointment.doctorMembership === active_membership_id", OR
+- "appointment.patientProfile.accountId === account_id", OR
+- Valid "queue_access_token" matches "appointment.accessToken"
+
+### Call next / skip / check-in / complete appointment
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'", OR
+- "active_membership_kind === 'receptionist'" AND "appointment.branch ∈ assigned_branch_ids", OR
+- "active_membership_kind === 'doctor'" AND "appointment.doctorMembership === active_membership_id"
+
+**Additional checks (per action):**
+- "call":       "appointment.status === 'booked'" (or oldest "skipped" in session)
+- "skip":       "appointment.status === 'called'"
+- "check_in":   "appointment.status ∈ ['called', 'skipped']"
+- "complete":   "appointment.status === 'in_progress'"
+
+### Cancel appointment (by patient)
+**Allowed if:**
+- "appointment.patientProfile.accountId === account_id"
+
+**Additional checks:**
+- "appointment.status === 'booked'"
+- "session.status ∈ ['scheduled', 'active']"
+- "appointment.queueNumber > session.currentServing" (not yet called)
+
+### Cancel appointment (by staff)
+**Allowed if:**
+- "is_super_admin === true" in the org, OR
+- "active_membership_kind === 'admin'", OR
+- "active_membership_kind === 'receptionist'" AND "appointment.branch ∈ assigned_branch_ids"
+
+**Note:** Queue numbers are never re-shuffled. Reordering is not supported.
+
+---
+
+## 7.10 Patient Profile Rules
+
+### Create PatientProfile (walk-in)
+**Allowed if:**
+- "active_membership_kind === 'receptionist'" AND target branch ∈ "assigned_branch_ids", OR
+- "active_membership_kind === 'admin'" in target organization
+
+### Create PatientProfile (self, marketplace signup)
+**Allowed if:**
+- "account_role === 'patient'"
+- One PatientProfile per Account (enforced by unique index)
+
+### View PatientProfile
+**Allowed if:**
+- "patientProfile.accountId === account_id" (own), OR
+- "account_role === 'super_admin'", OR
+- Staff member in "patientProfile.organizationId", OR
+- Staff member treating this patient via a current Appointment in their scope
+
+### Update PatientProfile
+**Allowed if:**
+- "patientProfile.accountId === account_id" (own), OR
+- "active_membership_kind ∈ ['admin', 'receptionist']" AND "patientProfile.organizationId === active_organization_id" (for walk-ins only — "patientProfile.accountId === null")
+
+---
+
+## 7.11 Live Queue View Rules
+
+### View live queue page for a session
+**Allowed if:**
+- Any allowed actor under **7.8 View Session (internal)**, OR
+- Authenticated patient with an "Appointment" in the session, OR
+- Valid "queue_access_token" (for walk-ins via WhatsApp link)
+
+**Token check:**
+- Token must match "appointment.accessToken"
+- Appointment status must not be "cancelled | no_show | completed" (expired views allowed for ~1h post-completion for UX)
+
+---
+
+## 7.12 Billing Rules
+
+### View Subscription / SubscriptionPlan
+**Allowed if:**
+- "account_role === 'super_admin'", OR
+- Any active Membership of "kind: 'admin'" in the org
+
+### Change Subscription (upgrade / downgrade / cancel)
+**Allowed if:**
+- "is_super_admin === true" in the org
+
+### Webhook updates from payment provider
+**Allowed if:**
+- Request signature matches provider's signing secret (server-to-server, no user auth)
+
+---
+
+## 7.13 Subscription State Gates
+
+Even when authorization passes, the **subscription state** may block writes.
+
+### When "subscription_state === 'past_due'"
+- All read actions: ✅ allowed
+- New bookings (walk-in or marketplace): ❌ denied
+- New schedules / new branches / new invites: ❌ denied
+- In-flight queue actions (call, skip, complete): ✅ allowed
+- Billing change: ✅ allowed (so org can pay)
+
+### When "subscription_state ∈ ['cancelled', 'expired']"
+- All read actions: ✅ allowed (read-only mode)
+- All write actions except billing: ❌ denied
+- Existing sessions can still be completed (humanitarian — don't strand patients)
+
+---
+
+## 7.14 Plan Limit Gates
+
+For every action that **creates a quota-limited resource**, check the relevant plan limit before allowing:
+
+| Action | Plan check |
+|---|---|
+| Create Branch | "currentBranches < plan_limits.maxBranches" |
+| Invite Doctor (pending Membership) | "currentDoctors < plan_limits.maxDoctors" |
+| Invite Receptionist | "currentReceptionists < plan_limits.maxReceptionists" |
+| Toggle "Organization.isPublic" | "plan_limits.marketplaceListing === true" |
+| Send WhatsApp notification | "plan_limits.whatsappNotifications === true" |
+
+If a check fails: return **403 + upgrade prompt**, not 401.
+
+---
+
+## 7.15 Audit-Logged Actions
+
+The following actions, when allowed, **must write an "AuditLog" entry** with "{ actor, action, entityType, entityId, before, after }":
+
+- "member.invited"
+- "member.suspended" / "member.revoked"
+- "admin.permissions_changed" / "admin.super_toggled"
+- "schedule.created" / "schedule.deactivated"
+- "session.cancelled"
+- "appointment.cancelled_by_staff"
+- "subscription.changed"
+- "organization.public_toggled"
+- "organization.updated"
+
+Operational events ("session.started", "appointment.completed", "appointment.called") are **not** audited in MVP — too noisy.
+
+---
+
+## 7.16 Default Deny Rule
+
+If **no allow condition** matches the requested action:
+
+"""
+deny.
+"""
+
+This is the **default behavior** of the authorization layer. Authorization middleware must require explicit positive matches; **never fall through to allow**.
+
+---
+
+## 📋 Quick Reference — Role × Action Matrix
+
+| Action | Platform Admin | Org Owner | Org Admin | Doctor | Receptionist | Patient | Walk-in |
+|---|---|---|---|---|---|---|---|
+| Create org | ✅ | self | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Edit org | ✅ | ✅ | perm | ❌ | ❌ | ❌ | ❌ |
+| Toggle "isPublic" | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| CRUD branch | ✅ | ✅ | perm | ❌ | ❌ | ❌ | ❌ |
+| Invite doctor/receptionist | ❌ | ✅ | perm | ❌ | ❌ | ❌ | ❌ |
+| Invite admin | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Revoke member | ❌ | ✅ | not super | ❌ | ❌ | ❌ | ❌ |
+| CRUD schedule | ❌ | ✅ | perm | ❌ | ❌ | ❌ | ❌ |
+| Schedule exception | ❌ | ✅ | perm | own | ❌ | ❌ | ❌ |
+| Start/end session | ❌ | ✅ | ✅ | own | own branches | ❌ | ❌ |
+| Cancel session | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Create appt (walk-in) | ❌ | ✅ | ✅ | ❌ | own branches | ❌ | ❌ |
+| Create appt (marketplace) | ❌ | ❌ | ❌ | ❌ | ❌ | self | ❌ |
+| Call/skip/check-in/complete | ❌ | ✅ | ✅ | own session | own branches | ❌ | ❌ |
+| Cancel own appt | ❌ | ❌ | ❌ | ❌ | ❌ | self | ❌ |
+| View queue position | ❌ | — | — | — | — | own | via token |
+| Manage subscription | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| View subscription | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+---
+
+This is your spec. From here, the implementation is a set of policy functions — one per action — each returning "allow | deny" given the inputs above. Want me to sketch the middleware shape next (e.g., a "can(actor, action, resource)" helper with these rules encoded)?

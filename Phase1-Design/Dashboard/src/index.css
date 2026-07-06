@@ -1,0 +1,18 @@
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-b-gray rounded-sm;
+}
+
+/* Toast animation */
+#toast {
+  opacity: 0;
+  transform: translateY(0px);
+  transition: opacity 0.3s, transform 0.3s;
+}
+#toast.show {
+  opacity: 1;
+  transform: translateY(60px);
+}
