@@ -24,7 +24,6 @@ Main state machines:
 
 State	                Meaning
 --------------------------------
-pending_verification    Account created but phone/email is not verified yet
 active                  Account can log in and use the system
 deactivated             User or admin disabled the account
 deletedAt               Soft-deleted account, usually not physically removed immediately

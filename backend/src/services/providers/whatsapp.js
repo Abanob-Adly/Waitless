@@ -1,7 +1,9 @@
 import { env } from '../../config/env.js';
 
 export const whatsappProvider = {
-  async send({ to, templateName, variables }) {
+  async send({ to, templateName, params = [], language = 'en_US', category = 'utility' }) {
+    const normalizedTo = String(to).replace(/[^\d]/g, '');    
+    
     if (!env.whatsapp?.accessToken || !env.whatsapp?.phoneNumberId) {
       console.log(`[WhatsApp stub] Would send '${templateName}' to ${to}:`, variables);
       return { messageId: null };
@@ -9,22 +11,21 @@ export const whatsappProvider = {
 
     const url = `https://graph.facebook.com/v19.0/${env.whatsapp.phoneNumberId}/messages`;
 
-    const components = Object.entries(variables).map(([, value]) => ({
-      type:       'text',
-      text:       String(value),
-    }));
+    const bodyParams = params.map(v => ({ type: 'text', text: String(v) }));
+    const components = [];
+    if (bodyParams.length) components.push({ type: 'body', parameters: bodyParams });
+    if (category === 'authentication' && bodyParams.length) {
+      components.push({
+        type: 'button', sub_type: 'url', index: '0',
+        parameters: [bodyParams[0]],
+      });
+    }
 
     const body = {
       messaging_product: 'whatsapp',
-      to,
+      to: normalizedTo,
       type: 'template',
-      template: {
-        name:     templateName,
-        language: { code: 'ar' },
-        components: components.length
-          ? [{ type: 'body', parameters: components }]
-          : [],
-      },
+      template: { name: templateName, language: { code: language }, components },
     };
 
     const res = await fetch(url, {

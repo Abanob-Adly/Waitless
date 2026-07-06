@@ -54,4 +54,14 @@ export const env = {
   queue: {
     gracePeriodMin: Number(process.env.QUEUE_GRACE_PERIOD_MIN) || 5,
   },
+
+  paymob: {
+    baseUrl:         process.env.PAYMOB_BASE_URL || 'https://accept.paymob.com',
+    secretKey:       process.env.PAYMOB_SECRET_KEY   || null,
+    publicKey:       process.env.PAYMOB_PUBLIC_KEY   || null,
+    hmacSecret:      process.env.PAYMOB_HMAC_SECRET  || null,
+    integrationId:   process.env.PAYMOB_INTEGRATION_ID? Number(process.env.PAYMOB_INTEGRATION_ID): null,
+    notificationUrl: process.env.PAYMOB_NOTIFICATION_URL || "http://localhost:5001/webhooks/paymob",
+    redirectionUrl:  process.env.PAYMOB_REDIRECTION_URL || "http://localhost:5001/billing/result",
+ },
 };

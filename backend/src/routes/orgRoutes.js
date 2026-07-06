@@ -3,6 +3,7 @@ import { authenticate, optionalAuthenticate } from '../middleware/authenticate.j
 import { authorize } from '../policies/can.js';
 import { validate } from '../middleware/validate.js';
 import { orgController, orgSchemas } from '../controllers/orgController.js';
+
 import Organization from '../models/Organization.js';
 import branchRoutes from './branchRoutes.js';
 import memberRoutes from './memberRoutes.js';
@@ -11,6 +12,7 @@ import patientRoutes from './patientRoutes.js';
 import transactionRoutes from './transactionRoutes.js';
 import joinRequestRoutes from './joinRequestRoutes.js';
 import orgWalletRoutes from './orgWalletRoutes.js';
+import paymentRoutes from './paymentRoutes.js';
 
 const router = Router();
 
@@ -74,5 +76,7 @@ router.use('/:orgId/patients', patientRoutes);
 router.use('/:orgId/transactions', transactionRoutes);
 router.use('/:orgId/join-requests', joinRequestRoutes);
 router.use('/:orgId/wallet', orgWalletRoutes);
+router.use('/:orgId/billing', paymentRoutes);
+
 
 export default router;

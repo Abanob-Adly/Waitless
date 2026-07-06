@@ -34,6 +34,14 @@ const organizationPolicies = {
     if (!actor.activeOrgId?.equals(org._id)) return false;
     return actor.activeMembership.kind === 'admin' && actor.activeMembership.isSuper;
   },
+
+  'organization.manage': (actor, org) => {
+    if (!org || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(org._id)) return false;
+    const m = actor.activeMembership;
+    if (m.kind !== 'admin') return false;
+    return m.isSuper || (m.permissions || []).includes('organization.manage');
+  },
 };
 
 const membershipPolicies = {
