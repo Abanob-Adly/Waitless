@@ -287,6 +287,8 @@ export type SubscriptionPlan = {
   name: string;
   pricePerMonth: number; // EGP; 0 = contact sales
   maxDoctors: number;
+  maxAdmins: number;
+  maxReceptionists: number;
   maxBranches: number;
   features: string[];
   marketplaceListing?: boolean;

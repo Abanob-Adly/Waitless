@@ -485,23 +485,40 @@ function OverviewTab() {
 // ── Branches Tab ──────────────────────────────────────────────────────────────
 
 function BranchesTab() {
-  const { branches, isLoading, addBranch } = useOrg();
+  const { branches, isLoading, addBranch, subscription, plans } = useOrg();
   const { t, locale } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
 
   if (isLoading) return <Skeleton />;
 
+  const currentPlan = plans.find((p) => p.id === subscription?.planId);
+  const branchLimit = currentPlan?.maxBranches ?? Infinity;
+  const branchLimitHit = branches.length >= branchLimit;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{branches.length} {locale === "ar" ? "فرع" : (branches.length !== 1 ? "branches" : "branch")}</p>
-        <button
-          onClick={() => { setShowModal(true); setBranchError(null); }}
-          className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light"
-        >
-          {t("+ Add Branch")}
-        </button>
+        <p className="text-sm text-navy-mid">
+          {branches.length} {locale === "ar" ? "فرع" : (branches.length !== 1 ? "branches" : "branch")}
+          {branchLimit < Infinity && (
+            <span className="ml-1.5 text-navy-mid/60">/ {branchLimit}</span>
+          )}
+        </p>
+        <div className="relative group">
+          <button
+            onClick={() => { if (!branchLimitHit) { setShowModal(true); setBranchError(null); } }}
+            disabled={branchLimitHit}
+            className="rounded-md bg-gold px-4 py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t("+ Add Branch")}
+          </button>
+          {branchLimitHit && (
+            <div className="pointer-events-none absolute right-0 top-full mt-1.5 w-52 rounded-lg border border-border bg-white px-3 py-2 text-xs text-navy-mid shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              {locale === "ar" ? `وصلت للحد الأقصى (${branchLimit} فروع). ترقّ لإضافة المزيد.` : `Branch limit reached (${branchLimit}). Upgrade your plan to add more.`}
+            </div>
+          )}
+        </div>
       </div>
 
       {branchError && (
@@ -551,20 +568,32 @@ function BranchesTab() {
 // ── Staff Tab ─────────────────────────────────────────────────────────────────
 
 function StaffTab() {
-  const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin } = useOrg();
-  const { t } = useLanguage();
+  const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin, subscription, plans } = useOrg();
+  const { t, locale } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Membership | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  async function handleRemove(memberId: string, memberName: string) {
-    if (!window.confirm(`Remove ${memberName || "this staff member"}? This cannot be undone.`)) return;
+  async function handleRemove(memberId: string, nameOrEmail: string, status: string) {
+    const isPending = status === "pending";
+    const msg = isPending
+      ? `Cancel invite to ${nameOrEmail || "this invitee"}? The invite link will be invalidated.`
+      : `Remove ${nameOrEmail || "this staff member"}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
     setRemoving(memberId);
     await removeMember(memberId);
     setRemoving(null);
+  }
+
+  async function handleCopyInviteLink(member: Membership) {
+    const link = `${window.location.origin}/accept-invite?token=${member.inviteToken}`;
+    await navigator.clipboard.writeText(link);
+    setCopiedId(member.id);
+    setTimeout(() => setCopiedId(null), 2000);
   }
 
   async function handleGrantAdmin(memberId: string) {
@@ -601,6 +630,14 @@ function StaffTab() {
   const uniqueMembers = Array.from(grouped.values());
   const activeMemberCount = uniqueMembers.length;
 
+  const currentPlan = plans.find((p) => p.id === subscription?.planId);
+  const doctorLimit = currentPlan?.maxDoctors ?? Infinity;
+  const receptionistLimit = currentPlan?.maxReceptionists ?? Infinity;
+  const adminLimit = currentPlan?.maxAdmins ?? Infinity;
+  const activeDocCount = memberships.filter((m) => m.userRole === "doctor" && m.status === "active").length;
+  const activeReceptCount = memberships.filter((m) => m.userRole === "receptionist" && m.status === "active").length;
+  const activeAdminCount = memberships.filter((m) => m.userRole === "admin" && m.status === "active").length;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -612,6 +649,13 @@ function StaffTab() {
           {t("+ Invite Staff")}
         </button>
       </div>
+      {currentPlan && (
+        <div className="flex flex-wrap gap-4 text-xs text-navy-mid">
+          <span>{t("Doctors")}: {activeDocCount} / {isFinite(doctorLimit) ? doctorLimit : "∞"}</span>
+          <span>{t("Admins")}: {activeAdminCount} / {isFinite(adminLimit) ? adminLimit : "∞"}</span>
+          <span>{t("Receptionists")}: {activeReceptCount} / {isFinite(receptionistLimit) ? receptionistLimit : "∞"}</span>
+        </div>
+      )}
 
       {generatedToken && (
         <div className="rounded-xl border border-gold bg-gold-tint p-4">
@@ -667,19 +711,28 @@ function StaffTab() {
               </div>
 
               <div className="flex shrink-0 flex-col items-end gap-1.5">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {primary.status === "pending" && primary.inviteToken ? (
+                    <button
+                      onClick={() => handleCopyInviteLink(primary)}
+                      className="text-xs font-medium text-gold hover:text-gold-light"
+                    >
+                      {copiedId === primary.id ? t("Invite link copied!") : t("Copy Invite Link")}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingMember(primary); setEditError(null); }}
+                      className="text-xs font-medium text-gold hover:text-gold-light"
+                    >
+                      {t("Edit")}
+                    </button>
+                  )}
                   <button
-                    onClick={() => { setEditingMember(primary); setEditError(null); }}
-                    className="text-xs font-medium text-gold hover:text-gold-light"
-                  >
-                    {t("Edit")}
-                  </button>
-                  <button
-                    onClick={() => handleRemove(primary.id, primary.memberName)}
+                    onClick={() => handleRemove(primary.id, primary.invitedEmail || primary.memberName, primary.status)}
                     disabled={isBusy}
                     className="text-xs font-medium text-danger hover:text-danger/70 disabled:opacity-40"
                   >
-                    {removing === primary.id ? "…" : t("Remove")}
+                    {removing === primary.id ? "…" : (primary.status === "pending" ? t("Cancel Invite") : t("Remove"))}
                   </button>
                 </div>
                 {/* Make Admin — doctors only; receptionists cannot be promoted to admin */}
@@ -721,9 +774,13 @@ function StaffTab() {
       {showModal && (
         <InviteStaffModal
           branches={branches}
+          doctorLimit={doctorLimit}
+          receptionistLimit={receptionistLimit}
+          activeDocCount={activeDocCount}
+          activeReceptCount={activeReceptCount}
           onClose={() => setShowModal(false)}
-          onSave={async (branchId, email, role, specialties, permissions) => {
-            const token = await inviteStaff(branchId, email, role, specialties, permissions);
+          onSave={async (branchId, email, role, specialties) => {
+            const token = await inviteStaff(branchId, email, role, specialties, undefined);
             if (token) setGeneratedToken(token);
             setShowModal(false);
           }}
@@ -1694,6 +1751,45 @@ function SettingsTab() {
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 
+const EGYPTIAN_CITIES = [
+  { key: "cairo",            en: "Cairo",                   ar: "القاهرة" },
+  { key: "alexandria",       en: "Alexandria",              ar: "الإسكندرية" },
+  { key: "giza",             en: "Giza",                    ar: "الجيزة" },
+  { key: "port_said",        en: "Port Said",               ar: "بورسعيد" },
+  { key: "suez",             en: "Suez",                    ar: "السويس" },
+  { key: "ismailia",         en: "Ismailia",                ar: "الإسماعيلية" },
+  { key: "damietta",         en: "Damietta",                ar: "دمياط" },
+  { key: "luxor",            en: "Luxor",                   ar: "الأقصر" },
+  { key: "aswan",            en: "Aswan",                   ar: "أسوان" },
+  { key: "asyut",            en: "Asyut",                   ar: "أسيوط" },
+  { key: "sohag",            en: "Sohag",                   ar: "سوهاج" },
+  { key: "qena",             en: "Qena",                    ar: "قنا" },
+  { key: "minya",            en: "Minya",                   ar: "المنيا" },
+  { key: "beni_suef",        en: "Beni Suef",               ar: "بني سويف" },
+  { key: "faiyum",           en: "Faiyum",                  ar: "الفيوم" },
+  { key: "dakahlia",         en: "Dakahlia (Mansoura)",     ar: "الدقهلية (المنصورة)" },
+  { key: "sharqia",          en: "Sharqia (Zagazig)",       ar: "الشرقية (الزقازيق)" },
+  { key: "qalyubia",         en: "Qalyubia (Banha)",        ar: "القليوبية (بنها)" },
+  { key: "kafr_el_sheikh",   en: "Kafr El Sheikh",          ar: "كفر الشيخ" },
+  { key: "gharbia",          en: "Gharbia (Tanta)",         ar: "الغربية (طنطا)" },
+  { key: "monufia",          en: "Monufia (Shibin El Kom)", ar: "المنوفية (شبين الكوم)" },
+  { key: "beheira",          en: "Beheira (Damanhur)",      ar: "البحيرة (دمنهور)" },
+  { key: "matruh",           en: "Matruh",                  ar: "مطروح" },
+  { key: "north_sinai",      en: "North Sinai (Arish)",     ar: "شمال سيناء (العريش)" },
+  { key: "south_sinai",      en: "South Sinai (Sharm)",     ar: "جنوب سيناء (شرم الشيخ)" },
+  { key: "red_sea",          en: "Red Sea (Hurghada)",      ar: "البحر الأحمر (الغردقة)" },
+  { key: "new_valley",       en: "New Valley (Kharga)",     ar: "الوادي الجديد (الخارجة)" },
+  { key: "new_cairo",        en: "New Cairo",               ar: "القاهرة الجديدة" },
+  { key: "6th_october",      en: "6th of October City",     ar: "مدينة السادس من أكتوبر" },
+  { key: "nasr_city",        en: "Nasr City",               ar: "مدينة نصر" },
+  { key: "maadi",            en: "Maadi",                   ar: "المعادي" },
+  { key: "helwan",           en: "Helwan",                  ar: "حلوان" },
+  { key: "shubra_el_kheima", en: "Shubra El Kheima",        ar: "شبرا الخيمة" },
+  { key: "10th_ramadan",     en: "10th of Ramadan City",    ar: "مدينة العاشر من رمضان" },
+] as const;
+
+type CityKey = typeof EGYPTIAN_CITIES[number]["key"];
+
 function AddBranchModal({
   onClose,
   onSave,
@@ -1701,9 +1797,10 @@ function AddBranchModal({
   onClose: () => void;
   onSave: (data: Omit<Branch, "id" | "orgId">) => Promise<void>;
 }) {
+  const { t, locale } = useLanguage();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
+  const [city, setCity] = useState<CityKey>("cairo");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -1711,18 +1808,31 @@ function AddBranchModal({
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-    await onSave({ name: name.trim(), address: address.trim(), city: city.trim(), phone: phone.trim() });
+    await onSave({ name: name.trim(), address: address.trim(), city, phone: phone.trim() });
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Add Branch" onClose={onClose}>
+    <ModalShell title={t("Add Branch")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
-        <ModalField label="Branch Name *" value={name} onChange={setName} placeholder="Maadi Branch" />
-        <ModalField label="Address *" value={address} onChange={setAddress} placeholder="15 Road 9, Maadi" />
-        <ModalField label="City *" value={city} onChange={setCity} placeholder="Cairo" />
-        <ModalField label="Phone" value={phone} onChange={setPhone} placeholder="02-XXXXXXXX" inputMode="numeric" />
-        <ModalActions onClose={onClose} saving={saving} label="Add Branch" />
+        <ModalField label={t("Branch Name *")} value={name} onChange={setName} placeholder="Maadi Branch" />
+        <ModalField label={t("Address *")} value={address} onChange={setAddress} placeholder="15 Road 9, Maadi" />
+        <div>
+          <label className="block text-sm font-medium text-navy">{t("City *")}</label>
+          <select
+            value={city}
+            onChange={(e) => setCity(e.target.value as CityKey)}
+            className="mt-1.5 h-11 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+          >
+            {EGYPTIAN_CITIES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {locale === "ar" ? c.ar : c.en}
+              </option>
+            ))}
+          </select>
+        </div>
+        <ModalField label={t("Phone")} value={phone} onChange={setPhone} placeholder="02-XXXXXXXX" inputMode="numeric" />
+        <ModalActions onClose={onClose} saving={saving} label={t("Add Branch")} />
       </form>
     </ModalShell>
   );
@@ -1730,92 +1840,89 @@ function AddBranchModal({
 
 function InviteStaffModal({
   branches,
+  doctorLimit,
+  receptionistLimit,
+  activeDocCount,
+  activeReceptCount,
   onClose,
   onSave,
 }: {
   branches: Branch[];
+  doctorLimit: number;
+  receptionistLimit: number;
+  activeDocCount: number;
+  activeReceptCount: number;
   onClose: () => void;
-  onSave: (branchId: string, email: string, role: Membership["userRole"], specialties?: string[], permissions?: string[]) => Promise<void>;
+  onSave: (branchId: string, email: string, role: Membership["userRole"], specialties?: string[]) => Promise<void>;
 }) {
+  const { t } = useLanguage();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Membership["userRole"]>("doctor");
+  const [role, setRole] = useState<"doctor" | "receptionist">("doctor");
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [specialties, setSpecialties] = useState("");
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  function togglePermission(perm: string) {
-    setPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
-    );
-  }
+  const doctorAtLimit = isFinite(doctorLimit) && activeDocCount >= doctorLimit;
+  const receptionistAtLimit = isFinite(receptionistLimit) && activeReceptCount >= receptionistLimit;
+  const receptionistBlocked = receptionistLimit === 0;
+
+  const roleAtLimit = role === "doctor" ? doctorAtLimit : (receptionistBlocked || receptionistAtLimit);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim() || roleAtLimit) return;
     setSaving(true);
     const specialtiesArr = role === "doctor" && specialties.trim()
       ? specialties.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
-    const permissionsArr = role === "admin" && permissions.length > 0 ? permissions : undefined;
-    await onSave(branchId, email.trim(), role, specialtiesArr, permissionsArr);
+    await onSave(branchId, email.trim(), role, specialtiesArr);
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Invite Staff Member" onClose={onClose}>
+    <ModalShell title={t("Invite Staff Member")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
-        <ModalField label="Email Address *" value={email} onChange={setEmail} placeholder="staff@clinic.eg" type="email" />
+        <ModalField label={t("Email Address *")} value={email} onChange={setEmail} placeholder="staff@clinic.eg" type="email" />
 
         <div>
-          <label className="block text-sm font-medium text-navy">Role</label>
-          <div className="mt-1.5 grid grid-cols-3 gap-2">
-            {(["doctor", "receptionist", "admin"] as Membership["userRole"][]).map((r) => (
+          <label className="block text-sm font-medium text-navy">{t("Role")}</label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {(["doctor", "receptionist"] as const).map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRole(r)}
-                className={`rounded-md border py-2 text-xs font-medium capitalize transition ${
+                className={`rounded-md border py-2 text-xs font-medium transition ${
                   role === r ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40"
                 }`}
               >
-                {r}
+                {t(r)}
               </button>
             ))}
           </div>
+          {roleAtLimit && (
+            <p className="mt-1.5 text-xs text-danger">
+              {role === "receptionist" && receptionistBlocked
+                ? t("Receptionists are not available on your current plan.")
+                : role === "doctor"
+                  ? t("Doctor limit reached. Upgrade to add more.")
+                  : t("Receptionist limit reached. Upgrade to add more.")}
+            </p>
+          )}
         </div>
 
         {role === "doctor" && (
           <ModalField
-            label="Specialties (comma-separated)"
+            label={t("Specialties (comma-separated)")}
             value={specialties}
             onChange={setSpecialties}
             placeholder="Cardiology, Internal Medicine"
           />
         )}
 
-        {role === "admin" && (
+        {branches.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-navy">Permissions</p>
-            <div className="mt-1.5 space-y-1.5">
-              {["members.manage", "schedules.manage", "billing.view"].map((perm) => (
-                <label key={perm} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
-                  <input
-                    type="checkbox"
-                    checked={permissions.includes(perm)}
-                    onChange={() => togglePermission(perm)}
-                    className="rounded border-border"
-                  />
-                  {perm}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {role !== "admin" && branches.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-navy">Branch</label>
+            <label className="block text-sm font-medium text-navy">{t("Branch")}</label>
             <select
               value={branchId}
               onChange={(e) => setBranchId(e.target.value)}
@@ -1828,7 +1935,7 @@ function InviteStaffModal({
           </div>
         )}
 
-        <ModalActions onClose={onClose} saving={saving} label="Send Invitation" />
+        <ModalActions onClose={onClose} saving={saving} label={t("Send Invitation")} disabled={roleAtLimit} />
       </form>
     </ModalShell>
   );
@@ -1843,22 +1950,17 @@ function EditMemberModal({
   member: Membership;
   branches: Branch[];
   onClose: () => void;
-  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] }) => Promise<void>;
+  onSave: (data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; branches?: string[] }) => Promise<void>;
 }) {
-  const [role, setRole] = useState<Membership["userRole"]>(member.userRole);
+  const { t } = useLanguage();
+  const initialRole: "doctor" | "receptionist" = member.userRole === "receptionist" ? "receptionist" : "doctor";
+  const [role, setRole] = useState<"doctor" | "receptionist">(initialRole);
   const [specialties, setSpecialties] = useState(member.specialties?.join(", ") ?? "");
   const [bio, setBio] = useState(member.bio ?? "");
-  const [permissions, setPermissions] = useState<string[]>([]);
   const [selectedBranches, setSelectedBranches] = useState<string[]>(
     member.branchId ? [member.branchId] : (branches[0] ? [branches[0].id] : []),
   );
   const [saving, setSaving] = useState(false);
-
-  function togglePermission(perm: string) {
-    setPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
-    );
-  }
 
   function toggleBranch(id: string) {
     setSelectedBranches((prev) =>
@@ -1866,15 +1968,10 @@ function EditMemberModal({
     );
   }
 
-  const hasChanges = role !== member.userRole
-    || (role === "doctor" && specialties.trim() !== (member.specialties?.join(", ") ?? ""))
-    || bio.trim() !== (member.bio ?? "")
-    || (role === "admin" && permissions.length > 0);
-
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; permissions?: string[]; branches?: string[] } = {};
+    const data: { kind?: Membership["userRole"]; specialties?: string[]; bio?: string; branches?: string[] } = {};
     if (role !== member.userRole) data.kind = role;
     if (role === "doctor") {
       const arr = specialties.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1884,13 +1981,12 @@ function EditMemberModal({
       data.branches = selectedBranches;
     }
     if (bio.trim()) data.bio = bio.trim();
-    if (role === "admin" && permissions.length > 0) data.permissions = permissions;
     await onSave(data);
     setSaving(false);
   }
 
   return (
-    <ModalShell title="Edit Staff Member" onClose={onClose}>
+    <ModalShell title={t("Edit Staff Member")} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
         <div className="rounded-md bg-offwhite px-4 py-3">
           <p className="font-medium text-navy">{member.memberName || "—"}</p>
@@ -1898,29 +1994,29 @@ function EditMemberModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-navy">Role</label>
-          <div className="mt-1.5 grid grid-cols-3 gap-2">
-            {(["doctor", "receptionist", "admin"] as Membership["userRole"][]).map((r) => (
+          <label className="block text-sm font-medium text-navy">{t("Role")}</label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {(["doctor", "receptionist"] as const).map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRole(r)}
-                className={`rounded-md border py-2 text-xs font-medium capitalize transition ${
+                className={`rounded-md border py-2 text-xs font-medium transition ${
                   role === r ? "border-navy bg-navy text-white" : "border-border text-navy-mid hover:border-navy/40"
                 }`}
               >
-                {r}
+                {t(r)}
               </button>
             ))}
           </div>
           {role !== member.userRole && (
-            <p className="mt-1.5 text-xs text-gold">Role change will take effect immediately (once per 30 days).</p>
+            <p className="mt-1.5 text-xs text-gold">{t("Role change will take effect immediately (once per 30 days).")}</p>
           )}
         </div>
 
         {role === "doctor" && (
           <ModalField
-            label="Specialties (comma-separated)"
+            label={t("Specialties (comma-separated)")}
             value={specialties}
             onChange={setSpecialties}
             placeholder="Cardiology, Internal Medicine"
@@ -1929,7 +2025,7 @@ function EditMemberModal({
 
         {role === "receptionist" && branches.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-navy">Assigned Branches *</p>
+            <p className="text-sm font-medium text-navy">{t("Assigned Branches *")}</p>
             <div className="mt-1.5 space-y-1.5">
               {branches.map((b) => (
                 <label key={b.id} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
@@ -1944,36 +2040,17 @@ function EditMemberModal({
               ))}
             </div>
             {selectedBranches.length === 0 && (
-              <p className="mt-1 text-xs text-danger">At least one branch is required.</p>
+              <p className="mt-1 text-xs text-danger">{t("At least one branch is required.")}</p>
             )}
           </div>
         )}
 
-        {role === "admin" && (
-          <div>
-            <p className="text-sm font-medium text-navy">Permissions</p>
-            <div className="mt-1.5 space-y-1.5">
-              {["members.manage", "schedules.manage", "billing.view"].map((perm) => (
-                <label key={perm} className="flex cursor-pointer items-center gap-2 text-sm text-navy-mid">
-                  <input
-                    type="checkbox"
-                    checked={permissions.includes(perm)}
-                    onChange={() => togglePermission(perm)}
-                    className="rounded border-border"
-                  />
-                  {perm}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <ModalField label="Bio" value={bio} onChange={setBio} placeholder="Brief bio or notes..." />
+        <ModalField label={t("Bio")} value={bio} onChange={setBio} placeholder={t("Brief bio or notes...")} />
 
         <ModalActions
           onClose={onClose}
           saving={saving}
-          label="Save Changes"
+          label={t("Save Changes")}
           disabled={role === "receptionist" && selectedBranches.length === 0}
         />
       </form>
@@ -2472,6 +2549,7 @@ function ModalField({
 }
 
 function ModalActions({ onClose, saving, label, disabled }: { onClose: () => void; saving: boolean; label: string; disabled?: boolean }) {
+  const { t } = useLanguage();
   return (
     <div className="flex gap-3 pt-2">
       <button
@@ -2479,14 +2557,14 @@ function ModalActions({ onClose, saving, label, disabled }: { onClose: () => voi
         onClick={onClose}
         className="flex h-10 w-full items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy hover:text-navy"
       >
-        Cancel
+        {t("Cancel")}
       </button>
       <button
         type="submit"
         disabled={saving || disabled}
         className="flex h-10 w-full items-center justify-center rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
       >
-        {saving ? "Saving…" : label}
+        {saving ? t("Saving…") : label}
       </button>
     </div>
   );

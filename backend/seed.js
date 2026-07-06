@@ -70,8 +70,9 @@ const PLANS = [
     currency:     'EGP',
     limits: {
       maxBranches:           1,
-      maxDoctors:            5,
-      maxReceptionists:      2,
+      maxDoctors:            1,
+      maxAdmins:             1,
+      maxReceptionists:      0,   // receptionists disabled on free plan
       marketplaceListing:    false,
       whatsappNotifications: false,
     },
@@ -85,8 +86,9 @@ const PLANS = [
     currency:     'EGP',
     limits: {
       maxBranches:           3,
-      maxDoctors:            15,
-      maxReceptionists:      10,
+      maxDoctors:            3,
+      maxAdmins:             2,
+      maxReceptionists:      3,
       marketplaceListing:    true,
       whatsappNotifications: true,
     },
@@ -99,9 +101,10 @@ const PLANS = [
     yearlyDiscount: 25,
     currency:     'EGP',
     limits: {
-      maxBranches:           null,   // null = unlimited
-      maxDoctors:            null,
-      maxReceptionists:      null,
+      maxBranches:           5,
+      maxDoctors:            15,
+      maxAdmins:             5,
+      maxReceptionists:      5,
       marketplaceListing:    true,
       whatsappNotifications: true,
     },
@@ -130,7 +133,7 @@ async function seed() {
   for (const planData of PLANS) {
     const plan = await SubscriptionPlan.findOneAndUpdate(
       { name: planData.name },
-      { $setOnInsert: planData },
+      { $set: planData },
       { upsert: true, new: true },
     );
     console.log(`  ✓ ${plan.name} (${plan._id})`);

@@ -82,7 +82,7 @@ export const orgService = {
           description: 'Get started — no credit card required.',
           priceMonthly: 0,
           currency: 'EGP',
-          limits: { maxBranches: 1, maxDoctors: 5, maxReceptionists: 2, marketplaceListing: false, whatsappNotifications: false },
+          limits: { maxBranches: 1, maxDoctors: 1, maxAdmins: 1, maxReceptionists: 0, marketplaceListing: false, whatsappNotifications: false },
           isActive: true,
         },
         {
@@ -91,7 +91,7 @@ export const orgService = {
           priceMonthly: 299,
           yearlyDiscount: 20,
           currency: 'EGP',
-          limits: { maxBranches: 3, maxDoctors: 15, maxReceptionists: 10, marketplaceListing: true, whatsappNotifications: true },
+          limits: { maxBranches: 3, maxDoctors: 3, maxAdmins: 2, maxReceptionists: 3, marketplaceListing: true, whatsappNotifications: true },
           isActive: true,
         },
         {
@@ -100,7 +100,7 @@ export const orgService = {
           priceMonthly: 799,
           yearlyDiscount: 25,
           currency: 'EGP',
-          limits: { maxBranches: null, maxDoctors: null, maxReceptionists: null, marketplaceListing: true, whatsappNotifications: true },
+          limits: { maxBranches: 5, maxDoctors: 15, maxAdmins: 5, maxReceptionists: 5, marketplaceListing: true, whatsappNotifications: true },
           isActive: true,
         },
       ];

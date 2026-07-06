@@ -118,10 +118,17 @@ function adaptPlan(p: Record<string, unknown>): SubscriptionPlan {
   else if (nameLower.includes("standard") || nameLower.includes("growth") || nameLower.includes("premium")) tier = "growth";
   else tier = "starter";
 
+  const maxDoctors = Number(limits.maxDoctors ?? 1);
+  const maxAdmins = Number(limits.maxAdmins ?? 1);
+  const maxReceptionists = Number(limits.maxReceptionists ?? 0);
+  const maxBranches = Number(limits.maxBranches ?? 1);
+
   const features: string[] = [];
-  if (Number(limits.maxBranches) > 0) features.push(`Up to ${limits.maxBranches} branch${Number(limits.maxBranches) !== 1 ? "es" : ""}`);
-  if (Number(limits.maxDoctors) > 0) features.push(`Up to ${limits.maxDoctors} doctors`);
-  if (Number(limits.maxReceptionists) > 0) features.push(`Up to ${limits.maxReceptionists} receptionists`);
+  features.push(`Up to ${maxBranches} branch${maxBranches !== 1 ? "es" : ""}`);
+  features.push(`Up to ${maxDoctors} doctor${maxDoctors !== 1 ? "s" : ""}`);
+  features.push(`Up to ${maxAdmins} admin${maxAdmins !== 1 ? "s" : ""}`);
+  if (maxReceptionists > 0) features.push(`Up to ${maxReceptionists} receptionist${maxReceptionists !== 1 ? "s" : ""}`);
+  else features.push("No receptionists");
   if (Boolean(limits.marketplaceListing)) features.push("Marketplace listing");
   if (Boolean(limits.whatsappNotifications)) features.push("WhatsApp notifications");
 
@@ -130,8 +137,10 @@ function adaptPlan(p: Record<string, unknown>): SubscriptionPlan {
     tier,
     name: String(p.name ?? ""),
     pricePerMonth: price,
-    maxDoctors: Number(limits.maxDoctors ?? 5),
-    maxBranches: Number(limits.maxBranches ?? 1),
+    maxDoctors,
+    maxAdmins,
+    maxReceptionists,
+    maxBranches,
     features,
     marketplaceListing: Boolean(limits.marketplaceListing),
     whatsappNotifications: Boolean(limits.whatsappNotifications),

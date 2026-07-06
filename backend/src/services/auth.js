@@ -123,10 +123,12 @@ export const authService = {
     await account.save();
 
     // Find the worker's primary active membership to scope the token to their org.
+    // Sort by kind ascending (admin < doctor < receptionist) for deterministic selection
+    // when the user holds multiple roles.
     const membership = await Membership.findOne({
       account: account._id,
       status: 'active',
-    });
+    }).sort({ kind: 1 });
 
     const activeOrgId = membership?.organization || null;
     const accessToken = tokenService.signAccessToken(account, activeOrgId);
@@ -149,7 +151,7 @@ export const authService = {
       const membership = await Membership.findOne({
         account: account._id,
         status:  'active',
-      }).select('organization').lean();
+      }).sort({ kind: 1 }).select('organization').lean();
       activeOrgId = membership?.organization || null;
     }
 

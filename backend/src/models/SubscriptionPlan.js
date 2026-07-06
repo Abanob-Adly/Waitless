@@ -11,11 +11,12 @@ const subscriptionPlanSchema = new Schema({
 
   // Plan limits (embedded — read with the plan)
   limits: {
-    maxBranches:       { type: Number, default: 1 },
-    maxDoctors:        { type: Number, default: 5 },
-    maxReceptionists:  { type: Number, default: 5 },
-    marketplaceListing:{ type: Boolean, default: false },
-    whatsappNotifications: { type: Boolean, default: true },
+    maxBranches:          { type: Number, default: 1 },
+    maxDoctors:           { type: Number, default: 1 },
+    maxAdmins:            { type: Number, default: 1 },
+    maxReceptionists:     { type: Number, default: 0 },
+    marketplaceListing:   { type: Boolean, default: false },
+    whatsappNotifications:{ type: Boolean, default: false },
   },
 
   // Platform cut from each consultation fee (percentage)

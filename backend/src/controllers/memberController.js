@@ -80,13 +80,25 @@ export const memberController = {
       throw Forbidden('Receptionists are not eligible for the admin role');
     }
 
-    const existing = await Membership.findOne({
+    // Check for ANY existing admin membership including revoked ones.
+    // The unique index {account, organization, kind} prevents creating a second doc —
+    // if a revoked one exists we must reactivate it instead of inserting a new one.
+    const anyExisting = await Membership.findOne({
       account:      sourceMembership.account,
       organization: orgId,
       kind:         'admin',
-      status:       { $ne: 'revoked' },
     });
-    if (existing) return res.json({ data: existing }); // idempotent
+
+    if (anyExisting) {
+      if (anyExisting.status !== 'revoked') {
+        return res.json({ data: anyExisting }); // already active — idempotent
+      }
+      anyExisting.status      = 'active';
+      anyExisting.acceptedAt  = new Date();
+      anyExisting.permissions = ['*'];
+      await anyExisting.save();
+      return res.json({ data: anyExisting });
+    }
 
     const adminMembership = await AdminMembership.create({
       account:      sourceMembership.account,
