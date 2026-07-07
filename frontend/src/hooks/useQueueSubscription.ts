@@ -10,6 +10,7 @@ type QueueSubscriptionResult = {
   isCalled: boolean;
   isCompleted: boolean;
   isConnected: boolean;
+  isReady: boolean;
   isOnBreak: boolean;
   sessionDate: string;
   sessionStartTime: string;
@@ -43,6 +44,12 @@ export function useQueueSubscription(
   const [emergencyReason, setEmergencyReason] = useState<string | null>(null);
   const [wasForceInserted, setWasForceInserted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  // Set once, on the first successful response, and never unset — lets callers
+  // avoid rendering a view guessed from default/zero state before real data
+  // arrives (which briefly shows the wrong screen, then flips — a visible
+  // glitch). Deliberately separate from `isConnected`, which toggles on every
+  // transient poll failure and would otherwise cause the same flicker later.
+  const [isReady, setIsReady] = useState(false);
   const [sessionClosureNote, setSessionClosureNote] = useState<string | null>(null);
   const [positionFromServer, setPositionFromServer] = useState<number | null>(null);
 
@@ -89,6 +96,7 @@ export function useQueueSubscription(
         setWasForceInserted(d.wasForceInserted ?? false);
         if (d.sessionClosureNote !== undefined) setSessionClosureNote(d.sessionClosureNote ?? null);
         setIsConnected(true);
+        setIsReady(true);
       } catch {
         if (!alive) return;
         setIsConnected(false);
@@ -128,6 +136,7 @@ export function useQueueSubscription(
     isCalled,
     isCompleted,
     isConnected,
+    isReady,
     isOnBreak,
     sessionDate,
     sessionStartTime,

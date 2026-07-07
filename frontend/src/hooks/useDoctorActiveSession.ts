@@ -8,6 +8,7 @@ type UseDoctorActiveSessionResult = {
   queue: BackendAppointment[];
   isLoading: boolean;
   reload: () => Promise<void>;
+  reloadQueueNow: () => Promise<void>;
 };
 
 function todayString() {
@@ -162,5 +163,19 @@ export function useDoctorActiveSession(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, myMembershipId]);
 
-  return { activeSession, activeBranchId, queue, isLoading, reload };
+  // Lightweight refresh for use right after a queue action (call-next, hold,
+  // skip, etc.) — hits only the current session's queue endpoint instead of
+  // re-fetching every branch's session list like `reload` does, so the UI
+  // updates immediately instead of waiting for the next 10s poll.
+  async function reloadQueueNow() {
+    if (!orgId || !activeBranchId || !activeSession) return;
+    try {
+      const q = await sessionService.getQueue(orgId, activeBranchId, activeSession.id);
+      setQueue(q.appointments);
+    } catch {
+      // Leave stale queue data on transient error — the 10s poll will retry.
+    }
+  }
+
+  return { activeSession, activeBranchId, queue, isLoading, reload, reloadQueueNow };
 }

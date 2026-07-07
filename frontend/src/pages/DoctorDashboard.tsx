@@ -372,7 +372,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
     memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
 
-  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
+  const { activeSession, activeBranchId, queue, isLoading, reload: load, reloadQueueNow } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId, { onCancellation: handleCancellation });
 
   // ── Load sessions list ─────────────────────────────────────────────────────
@@ -417,29 +417,33 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   }, [load]);
 
   // ── Queue actions ──────────────────────────────────────────────────────────
+  // These use reloadQueueNow (a single targeted fetch of this session's queue)
+  // instead of the full load() (which re-scans every branch's session list) so
+  // the UI reflects the change immediately rather than waiting on the next
+  // 10s poll or requiring a manual page refresh.
   async function handleAction(apptId: string, status: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try {
       await sessionService.updateAppointmentStatus(orgId, activeBranchId, activeSession.id, apptId, status);
-      await load();
+      await reloadQueueNow();
     } catch { /* ignore */ }
     setActionInProgress(null);
   }
   async function handleCallNext() {
     if (!activeBranchId || !activeSession) return;
-    try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await load(); } catch { /* ignore */ }
+    try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await reloadQueueNow(); } catch { /* ignore */ }
   }
   async function handleHold(apptId: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
-    try { await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId); await load(); } catch { /* ignore */ }
+    try { await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
   }
   async function handleReinsert(apptId: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
-    try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await load(); } catch { /* ignore */ }
+    try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
   }
   async function handleWalkIn(e: React.FormEvent) {
@@ -454,7 +458,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
       });
       setWalkInMsg({ ok: true, text: `Walk-in added — Queue #${result.queueNumber}` });
       setWalkIn({ phone: "", name: "" });
-      await load();
+      await reloadQueueNow();
     } catch {
       setWalkInMsg({ ok: false, text: "Failed to add walk-in. Check phone format (+20…)." });
     }

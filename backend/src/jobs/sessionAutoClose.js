@@ -4,7 +4,7 @@ import Appointment from '../models/Appointment.js';
 import { queueService } from '../services/queueService.js';
 
 /**
- * Runs every 10 minutes.
+ * Runs every minute.
  *
  * Finds sessions whose end window has passed and auto-closes them:
  *  - status 'scheduled' (never started): → 'cancelled'  (doctor no-show)
@@ -16,14 +16,16 @@ import { queueService } from '../services/queueService.js';
  *
  * Idempotent: the status filter guarantees each session is processed once.
  */
-// Grace period before auto-ending an active session past its endTime.
-// Gives the doctor time to manually end the session after the shift.
-const ACTIVE_GRACE_MS = 10 * 60_000; // 10 minutes
+// Small buffer before auto-ending an active session past its endTime — just
+// enough to absorb cron-tick timing, not a window for the doctor to linger.
+// Sessions should close automatically at their scheduled end, not ~20 minutes
+// after it (the old 10-minute grace + 10-minute cron interval).
+const ACTIVE_GRACE_MS = 60_000; // 1 minute
 // Extra buffer before cancelling a session that was never started.
 const CANCEL_GRACE_MS = 15 * 60_000; // 15 minutes
 
 export function startSessionAutoCloseCron() {
-  cron.schedule('*/10 * * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     const now = new Date();
     // Active sessions: only auto-close after 10-min grace past endTime so the
     // doctor has a window to end the session manually after the scheduled shift.

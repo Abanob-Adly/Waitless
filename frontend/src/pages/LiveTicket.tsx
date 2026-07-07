@@ -158,7 +158,7 @@ function TicketView({
   const {
     position, currentServing, etaMinutes, globalDelayMin, avgConsultationMin,
     isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, sessionStatus, reviewToken,
-    emergencyReason, wasForceInserted, sessionClosureNote, appointmentStatus,
+    emergencyReason, wasForceInserted, sessionClosureNote, appointmentStatus, isReady,
   } = useQueueSubscription(
     trackingToken,
     booking.queueNumber,
@@ -295,7 +295,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && isOnBreak && (
+      {isSessionDay && isReady && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">☕</span>
           <div>
@@ -307,7 +307,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isOnBreak && globalDelayMin >= 5 && (
+      {isSessionDay && isReady && !isOnBreak && globalDelayMin >= 5 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
           <span className="text-base">⏱</span>
           <p className="text-sm text-navy">
@@ -317,7 +317,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && wasForceInserted && (
+      {isSessionDay && isReady && wasForceInserted && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
           <span className="text-base">🚨</span>
           <div>
@@ -329,7 +329,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isCalled && position > 0 && position <= 3 && (
+      {isSessionDay && isReady && !isCalled && position > 0 && position <= 3 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
           <span className="text-base">🔔</span>
           <div>
@@ -379,7 +379,14 @@ function TicketView({
 
         {/* ── Queue position area ── */}
         <div className="px-6 pb-2 pt-6">
-          {!isSessionDay ? (
+          {isSessionDay && !isReady ? (
+            // Wait for the first poll response before deciding which view to
+            // show — otherwise this briefly renders a guess from default/zero
+            // state (e.g. WaitingView at position 0) that then flips to the
+            // real view a moment later, which reads as the ticket "opening
+            // early" and glitching shut.
+            <TicketLoadingView />
+          ) : !isSessionDay ? (
             <CountdownView sessionDate={effectiveDate} />
           ) : sessionNotStarted ? (
             <SessionNotStartedView
@@ -463,6 +470,16 @@ function TicketView({
         </button>
       </p>
     </main>
+  );
+}
+
+// ── Loading placeholder (shown until the first live poll resolves) ──────────
+
+function TicketLoadingView() {
+  return (
+    <div className="flex flex-col items-center justify-center py-10">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-gold" />
+    </div>
   );
 }
 

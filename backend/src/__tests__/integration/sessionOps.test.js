@@ -189,6 +189,38 @@ describe('sessionAutoStart cron logic', () => {
   });
 });
 
+// ── sessionAutoClose cron query ─────────────────────────────────────────────────
+
+describe('sessionAutoClose cron logic', () => {
+  // Mirrors sessionAutoClose.js's ACTIVE_GRACE_MS — kept small (1 min) so active
+  // sessions close automatically at their scheduled end time, not ~20 minutes late.
+  const ACTIVE_GRACE_MS = 60_000;
+
+  it('selects an active session whose endTime is past the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 5 * 60_000),
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(due.some((s) => s._id.equals(session._id)), 'session past grace should be selected for auto-close');
+  });
+
+  it('does not select an active session still within the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 20_000), // 20s past end — within the 60s grace
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(!due.some((s) => s._id.equals(session._id)), 'session within grace should not be auto-closed yet');
+  });
+});
+
 // ── checkDailyCapacity ────────────────────────────────────────────────────────
 
 describe('queueService.checkDailyCapacity', () => {
