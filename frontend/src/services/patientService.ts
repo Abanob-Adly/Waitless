@@ -102,6 +102,7 @@ export type OwnAppointmentItem = {
   specialty: string;
   clinicName: string;
   fee?: number;
+  sessionClosureNote?: string;
 };
 
 // Lightweight type for active tickets loaded from backend on any device.
@@ -175,6 +176,7 @@ export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> 
         doctorName: String(account.fullName ?? "Unknown Doctor"),
         specialty: specialties[0] ?? "",
         clinicName: String(branch.name ?? ""),
+        sessionClosureNote: raw.sessionClosureNote ? String(raw.sessionClosureNote) : undefined,
       };
     });
   } catch {

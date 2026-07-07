@@ -2,9 +2,10 @@ import cron from 'node-cron';
 import Session from '../models/QueueSession.js';
 import { Membership } from '../models/Membership.js';
 import { walletService } from '../services/walletService.js';
-
-const GRACE_PERIOD_MIN = 15;
-const PENALTY_AMOUNT   = 200;
+import {
+  LATE_START_GRACE_MIN as GRACE_PERIOD_MIN,
+  LATE_START_PENALTY_EGP as PENALTY_AMOUNT,
+} from '../config/fees.js';
 
 /**
  * Runs every 5 minutes.
@@ -34,11 +35,13 @@ export function startLateStartPenaltyCron() {
         ],
       }).lean();
 
-      // Case 2: Sessions that started late (lateStartMin > 0) and were already activated,
+      // Case 2: Sessions that started significantly late and were already activated,
       // but the penalty hasn't been applied and no approved excuse exists.
+      // Threshold reuses GRACE_PERIOD_MIN so ~1 minute of auto-start cron jitter
+      // (sessionAutoStart.js) never counts as a doctor-caused late start.
       const startedLate = await Session.find({
         status:      'active',
-        lateStartMin: { $gt: 0 },
+        lateStartMin: { $gt: GRACE_PERIOD_MIN },
         'penaltyApplied.appliedAt': { $exists: false },
         $or: [
           { 'excuse.status': { $ne: 'approved' } },

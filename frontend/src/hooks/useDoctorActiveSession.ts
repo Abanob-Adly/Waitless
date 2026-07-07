@@ -24,6 +24,7 @@ export function useDoctorActiveSession(
   branches: { id: string }[],
   myMembershipId: string,
   _doctorAccountId: string,
+  options?: { onCancellation?: (patientName: string) => void },
 ): UseDoctorActiveSessionResult {
   const [activeSession, setActiveSession] = useState<BackendSession | null>(null);
   const [activeBranchId, setActiveBranchId] = useState<string>("");
@@ -62,7 +63,15 @@ export function useDoctorActiveSession(
     const token = localStorage.getItem("waitless_access_token") ?? "";
     const url = `${apiBase}/orgs/${orgIdArg}/branches/${branchId}/sessions/${sessionId}/queue/sse?token=${encodeURIComponent(token)}`;
     const sse = new EventSource(url);
-    sse.onmessage = () => reloadQueue(orgIdArg, branchId, sessionId);
+    sse.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as { type?: string; patientName?: string };
+        if (data.type === "cancellation" && data.patientName) {
+          options?.onCancellation?.(data.patientName);
+        }
+      } catch { /* malformed or comment event — ignore */ }
+      reloadQueue(orgIdArg, branchId, sessionId);
+    };
     activeSessionRef.current = { orgId: orgIdArg, branchId, sessionId };
     sseCleanupRef.current = () => { sse.close(); activeSessionRef.current = null; };
   }
@@ -76,8 +85,10 @@ export function useDoctorActiveSession(
     const currentBranches = branchesRef.current;
     // Wait until OrgContext has finished loading and we know the doctor's
     // membership ID. Both are required to match sessions correctly.
+    // Do NOT setIsLoading(false) here — keep the skeleton visible while
+    // context is still initializing so the user never sees a premature
+    // "No active session today" flash before memberships have loaded.
     if (!orgId || currentBranches.length === 0 || !myMembershipId) {
-      setIsLoading(false);
       return;
     }
     // Only show the loading skeleton on the very first fetch; subsequent
@@ -87,27 +98,48 @@ export function useDoctorActiveSession(
     }
     try {
       const today = todayString();
-      for (const branch of currentBranches) {
-        const sessions = await sessionService.getSessions(orgId, branch.id, { date: today });
-        // s.doctorId is always the Membership ObjectId — never compare against
-        // the Account ID (doctorAccountId), which is a different namespace.
-        const found = sessions.find(
-          (s) =>
-            (s.status === "active" || s.status === "scheduled") &&
-            s.doctorId === myMembershipId,
-        );
-        if (found) {
+      // Fetch all branches in parallel — sequential was N × RTT per reload.
+      const branchSessions = await Promise.all(
+        currentBranches.map((branch) =>
+          sessionService
+            .getSessions(orgId, branch.id, { date: today })
+            .then((sessions): { branch: { id: string }; sessions: BackendSession[] } => ({ branch, sessions }))
+            .catch((): { branch: { id: string }; sessions: BackendSession[] } => ({ branch, sessions: [] })),
+        ),
+      );
+
+      // Pick the doctor's session for today, preferring an actually-active one
+      // over a merely-scheduled one in a different branch. A single pass that
+      // takes the first (active-or-scheduled) match per branch would let a
+      // not-yet-started session in an earlier branch hide a real active queue
+      // in a later branch — so search all branches for 'active' first, and
+      // only fall back to 'scheduled' if none of them have started yet.
+      // s.doctorId is always the Membership ObjectId — never compare against
+      // the Account ID (doctorAccountId), which is a different namespace.
+      let found: BackendSession | undefined;
+      let foundBranch: { id: string } | undefined;
+      for (const { branch, sessions } of branchSessions) {
+        const match = sessions.find((s) => s.status === "active" && s.doctorId === myMembershipId);
+        if (match) { found = match; foundBranch = branch; break; }
+      }
+      if (!found) {
+        for (const { branch, sessions } of branchSessions) {
+          const match = sessions.find((s) => s.status === "scheduled" && s.doctorId === myMembershipId);
+          if (match) { found = match; foundBranch = branch; break; }
+        }
+      }
+
+      if (found && foundBranch) {
           setActiveSession(found);
-          setActiveBranchId(branch.id);
-          ensureSSE(orgId, branch.id, found.id);
+          setActiveBranchId(foundBranch.id);
+          ensureSSE(orgId, foundBranch.id, found.id);
           try {
-            const q = await sessionService.getQueue(orgId, branch.id, found.id);
+            const q = await sessionService.getQueue(orgId, foundBranch.id, found.id);
             setQueue(q.appointments);
           } catch {
             // Leave stale queue data on transient error
           }
           return;
-        }
       }
       // No active session found — clear state so UI reflects reality.
       setActiveSession(null);

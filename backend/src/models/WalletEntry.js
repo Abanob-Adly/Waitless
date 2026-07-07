@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 const walletEntrySchema = new Schema(
   {
     wallet:        { type: Schema.Types.ObjectId, ref: 'Wallet', required: true, index: true },
-    type:          { type: String, enum: ['topup', 'purchase', 'earning', 'commission', 'refund', 'withdrawal', 'penalty', 'plan_purchase'], required: true },
+    type:          { type: String, enum: ['topup', 'purchase', 'earning', 'commission', 'refund', 'withdrawal', 'penalty', 'cancellation_penalty', 'plan_purchase', 'session_closure_fee', 'session_closure_refund', 'late_start_penalty'], required: true },
     direction:     { type: String, enum: ['credit', 'debit'], required: true },
     amount:        { type: Number, required: true, min: 0 },
     balanceAfter:  { type: Number, required: true },

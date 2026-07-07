@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -12,7 +12,7 @@ import { WalletView } from "../components/ui/WalletView";
 import { SPECIALTIES } from "../data/mockData";
 import { fmt12 } from "../utils/time";
 
-type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "profile";
+type DoctorSection = "workspace" | "calendar" | "wallet" | "profile";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -72,20 +72,16 @@ export function DoctorDashboard() {
   }, [specialtyInput, myMembershipForSpecialty, updateMember]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sectionTitle: Record<DoctorSection, string> = {
-    queue: t("Today's Queue"),
-    manage: t("Manage Queue"),
+    workspace: t("Queue & Sessions"),
     calendar: t("Calendar"),
-    sessions: t("My Sessions"),
     wallet: t("My Wallet"),
     profile: t("My Profile"),
   };
 
   function renderSection() {
     switch (activeSection) {
-      case "queue":    return <QueueTab orgId={orgId} doctorAccountId={profile.id} />;
-      case "manage":   return <ManageQueueTab orgId={orgId} doctorAccountId={profile.id} />;
+      case "workspace": return <QueueWorkspace orgId={orgId} doctorAccountId={profile.id} />;
       case "calendar": return <CalendarTab orgId={orgId} doctorAccountId={profile.id} />;
-      case "sessions": return <SessionsTab orgId={orgId} doctorAccountId={profile.id} />;
       case "wallet":   return <WalletView mode="personal" />;
       case "profile":  return <ProfileTab doctorAccountId={profile.id} doctorName={profile.name} />;
       default:         return null;
@@ -227,12 +223,10 @@ function DoctorHome({
   type CardDef = { id: DoctorSection; icon: React.ReactNode; title: string; desc: string; theme: "navy" | "gold" | "success" };
 
   const cards: CardDef[] = [
-    { id: "queue",    icon: <IconQueue />,    title: t("Today's Queue"),  desc: t("View and serve patients in your active session"),        theme: "success" },
-    { id: "manage",   icon: <IconManage />,   title: t("Manage Queue"),   desc: t("Call, skip, hold, and complete queue items manually"),   theme: "navy"    },
-    { id: "calendar", icon: <IconCalendar />, title: t("Calendar"),       desc: t("Monthly schedule view with booked sessions at a glance"), theme: "gold"    },
-    { id: "sessions", icon: <IconSessions />, title: t("My Sessions"),    desc: t("Upcoming and past sessions with patient appointments"),    theme: "navy"    },
-    { id: "wallet",   icon: <IconWallet />,   title: t("My Wallet"),      desc: t("Track your earnings, commissions, and top-up history"),   theme: "gold"    },
-    { id: "profile",  icon: <IconProfile />,  title: t("My Profile"),     desc: t("Update your bio, specialties, and account settings"),     theme: "navy"    },
+    { id: "workspace", icon: <IconQueue />,    title: t("Queue & Sessions"), desc: t("Manage today's queue, start/end sessions, and add walk-ins in one place"), theme: "success" },
+    { id: "calendar",  icon: <IconCalendar />, title: t("Calendar"),         desc: t("Monthly schedule view with booked sessions at a glance"),                  theme: "gold"    },
+    { id: "wallet",    icon: <IconWallet />,   title: t("My Wallet"),        desc: t("Track your earnings, commissions, and top-up history"),                    theme: "gold"    },
+    { id: "profile",   icon: <IconProfile />,  title: t("My Profile"),       desc: t("Update your bio, specialties, and account settings"),                      theme: "navy"    },
   ];
 
   const themeMap = {
@@ -299,29 +293,12 @@ function IconQueue() {
     </svg>
   );
 }
-function IconManage() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="3" y="4" width="14" height="2.5" rx="1.25" fill="currentColor" opacity=".4" />
-      <rect x="3" y="8.75" width="10" height="2.5" rx="1.25" fill="currentColor" opacity=".7" />
-      <rect x="3" y="13.5" width="7" height="2.5" rx="1.25" fill="currentColor" />
-    </svg>
-  );
-}
 function IconCalendar() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
       <rect x="3" y="5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
       <path d="M3 9h14" stroke="currentColor" strokeWidth="1.5" />
       <path d="M7 3v4M13 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconSessions() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10 6v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -351,11 +328,25 @@ function IconAdmin() {
   );
 }
 
-// ── Today's Queue tab ─────────────────────────────────────────────────────────
+// ── Unified Queue & Sessions workspace ───────────────────────────────────────
 
-function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
+function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
   const { branches, memberships } = useOrg();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
+
+  // ── Sessions sidebar state ─────────────────────────────────────────────────
+  const [sessions, setSessions] = useState<BackendSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsRefreshKey, setSessionsRefreshKey] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [endingSession, setEndingSession] = useState<string | null>(null);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
+  const [excuseReason, setExcuseReason] = useState("");
+  const [submittingExcuse, setSubmittingExcuse] = useState(false);
+  const [excuseError, setExcuseError] = useState<string | null>(null);
+
+  // ── Queue management state ─────────────────────────────────────────────────
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [isOnBreak, setIsOnBreak] = useState(false);
   const [showBreakModal, setShowBreakModal] = useState(false);
@@ -363,123 +354,512 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
   const [breakPending, setBreakPending] = useState(false);
   const [breakError, setBreakError] = useState<string | null>(null);
   const [breakCooldownSec, setBreakCooldownSec] = useState(0);
+  const [showWalkIn, setShowWalkIn] = useState(false);
+  const [walkIn, setWalkIn] = useState({ phone: "", name: "" });
+  const [walkInMsg, setWalkInMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [walkInLoading, setWalkInLoading] = useState(false);
+
+  type CancelToast = { id: number; name: string };
+  const [cancellationLog, setCancellationLog] = useState<CancelToast[]>([]);
+  const nextToastId = useRef(0);
+  function handleCancellation(patientName: string) {
+    const id = ++nextToastId.current;
+    setCancellationLog((prev) => [...prev, { id, name: patientName }]);
+    setTimeout(() => setCancellationLog((prev) => prev.filter((c) => c.id !== id)), 6000);
+  }
 
   const myMembershipId =
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
     memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
-  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
-    useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
 
-  // Sync isOnBreak + cooldown from the session data when it loads
+  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
+    useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId, { onCancellation: handleCancellation });
+
+  // ── Load sessions list ─────────────────────────────────────────────────────
+  function loadSessions() {
+    if (!orgId || branches.length === 0) return;
+    const d = new Date();
+    const today = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+    Promise.all(branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today })))
+      .then((perBranch) => {
+        const all = perBranch.flat().filter((s) => s.doctorId === myMembershipId || s.doctorId === doctorAccountId);
+        setSessions(all);
+      })
+      .catch(() => setSessions([]))
+      .finally(() => setSessionsLoading(false));
+  }
+  useEffect(() => { loadSessions(); }, [orgId, branches, myMembershipId, doctorAccountId, sessionsRefreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  usePolling(() => { void loadSessions(); }, 30_000);
+
+  // ── Sync break state from active session ──────────────────────────────────
   useEffect(() => {
     if (!activeSession) return;
     setIsOnBreak(activeSession.isOnBreak);
     if (!activeSession.isOnBreak && activeSession.lastBreakEndedAt) {
       const elapsedSec = (Date.now() - new Date(activeSession.lastBreakEndedAt).getTime()) / 1000;
-      const remaining = Math.max(0, Math.ceil(30 * 60 - elapsedSec));
-      setBreakCooldownSec(remaining);
+      setBreakCooldownSec(Math.max(0, Math.ceil(30 * 60 - elapsedSec)));
     } else {
       setBreakCooldownSec(0);
     }
   }, [activeSession]);
 
-  // Tick down the cooldown every second
   useEffect(() => {
     if (breakCooldownSec <= 0) return;
     const id = setInterval(() => setBreakCooldownSec((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [breakCooldownSec]);
 
-  // Fire immediately, then poll every 10 s for live queue updates.
+  // ── Queue polling ──────────────────────────────────────────────────────────
   useEffect(() => {
     void load();
     const id = setInterval(() => { void load(); }, 10_000);
     return () => clearInterval(id);
   }, [load]);
 
+  // ── Queue actions ──────────────────────────────────────────────────────────
   async function handleAction(apptId: string, status: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try {
       await sessionService.updateAppointmentStatus(orgId, activeBranchId, activeSession.id, apptId, status);
       await load();
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
     setActionInProgress(null);
   }
-
   async function handleCallNext() {
     if (!activeBranchId || !activeSession) return;
+    try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await load(); } catch { /* ignore */ }
+  }
+  async function handleHold(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId); await load(); } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+  async function handleReinsert(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await load(); } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+  async function handleWalkIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activeBranchId || !activeSession || !walkIn.phone.trim() || !walkIn.name.trim()) return;
+    setWalkInLoading(true);
+    setWalkInMsg(null);
     try {
-      await sessionService.callNext(orgId, activeBranchId, activeSession.id);
+      const result = await appointmentService.bookWalkIn(orgId, activeBranchId, activeSession.id, {
+        patientPhone: walkIn.phone.trim(),
+        patientName: walkIn.name.trim(),
+      });
+      setWalkInMsg({ ok: true, text: `Walk-in added — Queue #${result.queueNumber}` });
+      setWalkIn({ phone: "", name: "" });
       await load();
     } catch {
-      // ignore
+      setWalkInMsg({ ok: false, text: "Failed to add walk-in. Check phone format (+20…)." });
     }
+    setWalkInLoading(false);
   }
 
+  // ── Break actions ──────────────────────────────────────────────────────────
   async function handleStartBreak() {
     if (!activeBranchId || !activeSession) return;
-    setBreakPending(true);
-    setBreakError(null);
+    setBreakPending(true); setBreakError(null);
     try {
       await sessionService.startBreak(orgId, activeBranchId, activeSession.id, breakDuration);
-      setIsOnBreak(true);
-      setShowBreakModal(false);
+      setIsOnBreak(true); setShowBreakModal(false);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        ?? "Failed to start break. Please try again.";
-      setBreakError(msg);
+      setBreakError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to start break.");
     }
     setBreakPending(false);
   }
-
   async function handleResumeFromBreak() {
     if (!activeBranchId || !activeSession) return;
-    setBreakPending(true);
-    setBreakError(null);
+    setBreakPending(true); setBreakError(null);
     try {
       await sessionService.resumeFromBreak(orgId, activeBranchId, activeSession.id);
-      setIsOnBreak(false);
-      setBreakCooldownSec(30 * 60);
+      setIsOnBreak(false); setBreakCooldownSec(30 * 60);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        ?? "Failed to resume. Please try again.";
-      setBreakError(msg);
+      setBreakError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Failed to resume.");
     }
     setBreakPending(false);
   }
 
+  // ── Session actions ────────────────────────────────────────────────────────
+  async function doEndSession(sessionId: string, branchId: string) {
+    setEndingSession(sessionId); setSessionActionError(null);
+    try {
+      await sessionService.endSession(orgId, branchId, sessionId);
+      setSessionsRefreshKey((k) => k + 1); await load();
+    } catch { setSessionActionError("Failed to end session. Please try again."); }
+    setEndingSession(null);
+  }
+  async function handleSubmitExcuse() {
+    if (!excuseModal || !excuseReason.trim()) { setExcuseError("Please enter a reason."); return; }
+    setSubmittingExcuse(true); setExcuseError(null);
+    try {
+      await sessionService.submitExcuse(orgId, excuseModal.branchId, excuseModal.sessionId, excuseReason.trim());
+      setExcuseModal(null); setExcuseReason(""); setSessionsRefreshKey((k) => k + 1);
+    } catch { setExcuseError("Failed to submit excuse. Please try again."); }
+    setSubmittingExcuse(false);
+  }
+
+  // ── Derived queue state ────────────────────────────────────────────────────
   const serving = queue.find((p) => p.status === "called" || p.status === "in_progress");
   const waitingCount = queue.filter((p) => p.status === "booked").length;
   const doneCount = queue.filter((p) => p.status === "completed").length;
+  const heldCount = queue.filter((p) => p.status === "held").length;
 
-  if (isLoading) {
-    return (
-      <div className="space-y-2 py-4">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />
-        ))}
-      </div>
-    );
+  function isOverdue(s: BackendSession) {
+    if (s.status !== "scheduled") return false;
+    return new Date(`${s.date}T${s.startTime}:00Z`) < new Date();
   }
 
-  if (!activeSession) {
-    return (
-      <div className="rounded-xl bg-offwhite py-12 text-center">
-        <p className="text-4xl">📋</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No active session today")}</p>
-        <p className="mt-1 text-sm text-navy-mid">
-          {t("Ask the receptionist to start your session or check the Sessions tab.")}
-        </p>
-      </div>
-    );
-  }
+  const statusBadge: Record<string, string> = {
+    scheduled: "bg-gold-tint text-gold",
+    active:    "bg-success/10 text-success",
+    ended:     "bg-border text-navy-mid",
+    cancelled: "bg-danger/10 text-danger",
+  };
 
   return (
-    <div className="space-y-5">
-      {/* Break modal */}
+    <div className="flex gap-5">
+      {/* ── Main area ─────────────────────────────────────────────────────── */}
+      <div className="min-w-0 flex-1 space-y-5">
+
+        {/* Cancellation toasts */}
+        {cancellationLog.length > 0 && (
+          <div className="fixed bottom-6 right-6 z-50 flex flex-col-reverse gap-2">
+            {cancellationLog.map((c) => (
+              <div key={c.id} className="flex items-start gap-3 rounded-xl border border-danger/20 bg-white px-4 py-3 shadow-lg">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-danger/10 text-sm text-danger">✕</span>
+                <div>
+                  <p className="text-sm font-semibold text-navy">{t("Patient cancelled")}</p>
+                  <p className="text-xs text-navy-mid">{c.name} — {t("booking cancelled")}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="space-y-2">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />)}
+          </div>
+        )}
+
+        {/* No active session */}
+        {!isLoading && !activeSession && (
+          <div className="rounded-xl bg-offwhite py-10 text-center">
+            <p className="text-4xl">📋</p>
+            <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No active session today")}</p>
+            <p className="mt-1 text-sm text-navy-mid">{t("Start a session from the sidebar or ask your receptionist.")}</p>
+          </div>
+        )}
+
+        {/* ── Active session header ──────────────────────────────────────── */}
+        {!isLoading && activeSession && (
+          <>
+            <div className="rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">{t("Active Session")}</p>
+                  <p className="mt-0.5 font-heading text-base font-bold text-navy">
+                    {activeSession.date} · {fmt12(activeSession.startTime, locale)} – {fmt12(activeSession.endTime, locale)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* Break / Resume */}
+                  {isOnBreak ? (
+                    <button
+                      onClick={handleResumeFromBreak}
+                      disabled={breakPending}
+                      className="rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+                    >
+                      {breakPending ? t("Resuming…") : t("Resume Queue")}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { if (breakCooldownSec <= 0) { setBreakError(null); setShowBreakModal(true); } }}
+                      disabled={breakCooldownSec > 0}
+                      title={breakCooldownSec > 0 ? `${t("Break available in")} ${Math.floor(breakCooldownSec / 60)}:${String(breakCooldownSec % 60).padStart(2, "0")}` : undefined}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-navy-mid transition hover:border-navy hover:text-navy disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {breakCooldownSec > 0 ? `☕ ${Math.floor(breakCooldownSec / 60)}:${String(breakCooldownSec % 60).padStart(2, "0")}` : t("☕ Break")}
+                    </button>
+                  )}
+                  {/* End session */}
+                  <button
+                    onClick={() => void doEndSession(activeSession.id, activeBranchId)}
+                    disabled={endingSession === activeSession.id}
+                    className="rounded-md border border-danger/40 bg-danger/5 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
+                  >
+                    {endingSession === activeSession.id ? t("Ending…") : t("End Session")}
+                  </button>
+                </div>
+              </div>
+              {breakError && <p className="mt-2 text-xs text-danger">{breakError}</p>}
+              {sessionActionError && <p className="mt-2 text-xs text-danger">{t(sessionActionError)}</p>}
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-4 gap-3">
+              <StatBox label={t("Total")} value={queue.length.toString()} />
+              <div className="relative">
+                <StatBox label={t("Waiting")} value={waitingCount.toString()} accent />
+                {cancellationLog.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+                    {cancellationLog.length}
+                  </span>
+                )}
+              </div>
+              <StatBox label={t("Held")} value={heldCount.toString()} />
+              <StatBox label={t("Done")} value={doneCount.toString()} success />
+            </div>
+
+            {/* Break banner */}
+            {isOnBreak && (
+              <div className="flex items-center justify-between rounded-xl border border-gold/40 bg-gold-tint px-5 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-navy">{t("You are on a break")}</p>
+                  <p className="mt-0.5 text-xs text-navy-mid">{t("Patients have been notified")}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Now Serving */}
+            {serving && (
+              <div className="flex items-center justify-between rounded-xl border border-gold bg-gold-tint px-5 py-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">{t("Now Serving")}</p>
+                  <p className="mt-0.5 font-heading text-xl font-bold text-navy">
+                    #{serving.queueNumber} — {serving.patientProfile.fullName || "Patient"}
+                  </p>
+                  <p className="text-xs text-navy-mid">{serving.patientProfile.phone}</p>
+                </div>
+                {serving.status === "called" && (
+                  <button
+                    onClick={() => handleAction(serving.id, "in_progress")}
+                    disabled={actionInProgress === serving.id}
+                    className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+                  >
+                    {t("Start Consultation →")}
+                  </button>
+                )}
+                {serving.status === "in_progress" && (
+                  <button
+                    onClick={() => handleAction(serving.id, "completed")}
+                    disabled={actionInProgress === serving.id}
+                    className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+                  >
+                    {t("Mark Complete ✓")}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Call Next */}
+            {waitingCount > 0 && !serving && (
+              <button
+                onClick={handleCallNext}
+                className="h-12 w-full rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light"
+              >
+                {t("Call Next Patient →")}
+              </button>
+            )}
+
+            {/* Queue list */}
+            {queue.length === 0 ? (
+              <div className="rounded-xl bg-offwhite py-8 text-center">
+                <p className="text-3xl">👥</p>
+                <p className="mt-2 text-sm text-navy-mid">{t("Queue is empty")}</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+                {queue.map((appt) => {
+                  const canHold    = appt.status === "called";
+                  const canInsert  = appt.status === "held";
+                  const canSkip    = appt.status === "booked";
+                  const canNoShow  = appt.status === "booked" || appt.status === "held";
+                  return (
+                    <div key={appt.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
+                          {appt.queueNumber}
+                        </span>
+                        <div>
+                          <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
+                          <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          appt.status === "booked"      ? "bg-offwhite text-navy-mid"
+                          : appt.status === "called"    ? "bg-success/10 text-success"
+                          : appt.status === "in_progress" ? "bg-gold-tint text-gold"
+                          : appt.status === "held"      ? "bg-orange-50 text-orange-600"
+                          : appt.status === "completed" ? "bg-success/5 text-success"
+                          : "bg-danger/10 text-danger"
+                        }`}>
+                          {t(appt.status)}
+                        </span>
+                        {canHold && (
+                          <button
+                            onClick={() => handleHold(appt.id)}
+                            disabled={actionInProgress === appt.id}
+                            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-navy disabled:opacity-60"
+                          >
+                            {t("Hold")}
+                          </button>
+                        )}
+                        {canInsert && (
+                          <button
+                            onClick={() => handleReinsert(appt.id)}
+                            disabled={actionInProgress === appt.id}
+                            className="rounded-md bg-navy px-2.5 py-1 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
+                          >
+                            {t("Re-insert")}
+                          </button>
+                        )}
+                        {canSkip && (
+                          <button
+                            onClick={() => handleAction(appt.id, "skipped")}
+                            disabled={actionInProgress === appt.id}
+                            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-danger hover:text-danger disabled:opacity-60"
+                          >
+                            {t("Skip")}
+                          </button>
+                        )}
+                        {canNoShow && (
+                          <button
+                            onClick={() => handleAction(appt.id, "no_show")}
+                            disabled={actionInProgress === appt.id}
+                            className="rounded-md border border-danger/30 px-2.5 py-1 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
+                          >
+                            {t("No-show")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Walk-in form (collapsible) */}
+            <div>
+              <button
+                onClick={() => setShowWalkIn((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg border border-border bg-offwhite px-4 py-2.5 text-sm font-medium text-navy transition hover:border-navy"
+              >
+                <span>{t("+ Add Walk-In Patient")}</span>
+                <span className="text-navy-mid">{showWalkIn ? "▲" : "▼"}</span>
+              </button>
+              {showWalkIn && (
+                <form onSubmit={handleWalkIn} className="mt-2 space-y-3 rounded-xl border border-border bg-offwhite p-4">
+                  <input
+                    type="tel"
+                    value={walkIn.phone}
+                    onChange={(e) => setWalkIn((w) => ({ ...w, phone: e.target.value }))}
+                    placeholder="Phone (+201012345678)"
+                    required
+                    className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                  <input
+                    type="text"
+                    value={walkIn.name}
+                    onChange={(e) => setWalkIn((w) => ({ ...w, name: e.target.value }))}
+                    placeholder={t("Patient full name")}
+                    required
+                    className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+                  />
+                  {walkInMsg && (
+                    <p className={`text-xs ${walkInMsg.ok ? "text-success" : "text-danger"}`}>{walkInMsg.text}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={walkInLoading}
+                    className="w-full rounded-md bg-navy py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
+                  >
+                    {walkInLoading ? t("Adding…") : t("Add to Queue")}
+                  </button>
+                </form>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Sessions sidebar ──────────────────────────────────────────────── */}
+      <div className="w-64 shrink-0">
+        <div className="rounded-xl border border-border bg-white shadow-sm">
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-t-xl px-4 py-3 text-left"
+          >
+            <p className="text-sm font-semibold text-navy">{t("Today's Sessions")}</p>
+            <span className="text-xs text-navy-mid">{sidebarOpen ? "▲" : "▼"}</span>
+          </button>
+
+          {sidebarOpen && (
+            <div className="divide-y divide-border border-t border-border">
+              {sessionsLoading ? (
+                <div className="space-y-2 p-3">
+                  {[0, 1].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-offwhite" />)}
+                </div>
+              ) : sessions.length === 0 ? (
+                <p className="px-4 py-4 text-xs text-navy-mid">{t("No sessions today")}</p>
+              ) : (
+                sessions.map((s) => {
+                  const overdue = isOverdue(s);
+                  return (
+                    <div key={s.id} className={`px-4 py-3 ${overdue ? "bg-danger/3" : ""}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium text-navy">
+                            {fmt12(s.startTime, locale)} – {fmt12(s.endTime, locale)}
+                          </p>
+                          <p className="text-xs text-navy-mid">{s.bookingsCount} {t("booked")}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge[s.status] ?? ""}`}>
+                          {t(s.status)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {s.status === "active" && s.id !== activeSession?.id && (
+                          <button
+                            onClick={() => void doEndSession(s.id, s.branchId)}
+                            disabled={endingSession === s.id}
+                            className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
+                          >
+                            {endingSession === s.id ? t("Ending…") : t("End")}
+                          </button>
+                        )}
+                        {overdue && !s.excuse?.submittedAt && (
+                          <button
+                            onClick={() => setExcuseModal({ sessionId: s.id, branchId: s.branchId })}
+                            className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10"
+                          >
+                            {t("Excuse")}
+                          </button>
+                        )}
+                      </div>
+                      {s.penaltyApplied && (
+                        <p className="mt-1 text-xs text-danger">
+                          {t("Penalty")}: {s.penaltyApplied.amount} EGP
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Break modal ───────────────────────────────────────────────────── */}
       {showBreakModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setShowBreakModal(false)} />
@@ -488,7 +868,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
               <p className="font-heading text-base font-bold text-white">{t("Take a Break")}</p>
               <p className="mt-0.5 text-xs text-white/50">{t("Queue will pause and patients will be notified")}</p>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="space-y-4 p-6">
               <div>
                 <p className="mb-2 text-sm font-medium text-navy">{t("Break duration")}</p>
                 <div className="flex gap-2">
@@ -497,9 +877,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
                       key={min}
                       onClick={() => setBreakDuration(min)}
                       className={`flex-1 rounded-md border py-2 text-sm font-medium transition ${
-                        breakDuration === min
-                          ? "border-gold bg-gold-tint text-navy"
-                          : "border-border text-navy-mid hover:border-navy hover:text-navy"
+                        breakDuration === min ? "border-gold bg-gold-tint text-navy" : "border-border text-navy-mid hover:border-navy hover:text-navy"
                       }`}
                     >
                       {min}m
@@ -507,9 +885,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
                   ))}
                 </div>
               </div>
-              {breakError && (
-                <p className="text-xs text-danger">{breakError}</p>
-              )}
+              {breakError && <p className="text-xs text-danger">{breakError}</p>}
               <div className="flex gap-3">
                 <button
                   onClick={() => { setShowBreakModal(false); setBreakError(null); }}
@@ -530,390 +906,7 @@ function QueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: 
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          <StatBox key="total" label={t("Total Patients")} value={queue.length.toString()} />,
-          <StatBox key="waiting" label={t("Waiting")} value={waitingCount.toString()} accent />,
-          <StatBox key="done" label={t("Completed")} value={doneCount.toString()} success />,
-        ].map((box, i) => (
-          <div key={i} className="animate-fade-up" style={{ animationDelay: `${i * 80}ms` }}>
-            {box}
-          </div>
-        ))}
-      </div>
-
-      {/* Break / Resume button — only available when session is running */}
-      {breakError && (
-        <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger">
-          {breakError}
-        </div>
-      )}
-      {isOnBreak ? (
-        <div className="flex items-center justify-between rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
-          <div>
-            <p className="text-sm font-semibold text-navy">{t("You are on a break")}</p>
-            <p className="mt-0.5 text-xs text-navy-mid">{t("Patients have been notified")}</p>
-          </div>
-          <button
-            onClick={handleResumeFromBreak}
-            disabled={breakPending}
-            className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
-          >
-            {breakPending ? t("Resuming…") : t("Resume Queue")}
-          </button>
-        </div>
-      ) : activeSession.status === "active" ? (
-        <button
-          onClick={() => { if (breakCooldownSec <= 0) { setBreakError(null); setShowBreakModal(true); } }}
-          disabled={breakCooldownSec > 0}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border text-sm font-medium text-navy-mid transition hover:border-navy hover:text-navy disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {breakCooldownSec > 0
-            ? `${t("Break available in")} ${Math.floor(breakCooldownSec / 60)}:${String(breakCooldownSec % 60).padStart(2, "0")}`
-            : t("☕ Take a Break")}
-        </button>
-      ) : (
-        <div className="rounded-lg border border-border bg-offwhite px-4 py-2.5 text-center text-sm text-navy-mid">
-          {t("Session not yet started — break unavailable")}
-        </div>
-      )}
-
-      {serving && (
-        <div className="flex items-center justify-between rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gold">{t("Now Serving")}</p>
-            <p className="mt-0.5 font-heading text-xl font-bold text-navy">
-              #{serving.queueNumber} — {serving.patientProfile.fullName || "Patient"}
-            </p>
-            <p className="text-xs text-navy-mid">{serving.patientProfile.phone}</p>
-          </div>
-          {serving.status === "called" && (
-            <button
-              onClick={() => handleAction(serving.id, "in_progress")}
-              disabled={actionInProgress === serving.id}
-              className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
-            >
-              {t("Start Consultation →")}
-            </button>
-          )}
-          {serving.status === "in_progress" && (
-            <button
-              onClick={() => handleAction(serving.id, "completed")}
-              disabled={actionInProgress === serving.id}
-              className="rounded-md bg-navy px-4 py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
-            >
-              {t("Mark Complete ✓")}
-            </button>
-          )}
-        </div>
-      )}
-
-      {waitingCount > 0 && !serving && (
-        <button
-          onClick={handleCallNext}
-          className="h-12 w-full rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light"
-        >
-          {t("Call Next Patient →")}
-        </button>
-      )}
-
-      {queue.length === 0 ? (
-        <div className="rounded-xl bg-offwhite py-8 text-center">
-          <p className="text-3xl">👥</p>
-          <p className="mt-2 text-sm text-navy-mid">{t("Queue is empty")}</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {queue.map((appt) => (
-            <QueueRow
-              key={appt.id}
-              appt={appt}
-              onSkip={() => handleAction(appt.id, "skipped")}
-              onNoShow={() => handleAction(appt.id, "no_show")}
-              actionInProgress={actionInProgress === appt.id}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Sessions tab ──────────────────────────────────────────────────────────────
-
-function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
-  const { branches, memberships } = useOrg();
-  const { t, locale } = useLanguage();
-  const [sessions, setSessions] = useState<BackendSession[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
-  const [excuseReason, setExcuseReason] = useState("");
-  const [submittingExcuse, setSubmittingExcuse] = useState(false);
-  const [excuseError, setExcuseError] = useState<string | null>(null);
-  const [startingSession, setStartingSession] = useState<string | null>(null);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [endingSession, setEndingSession] = useState<string | null>(null);
-  const [endError, setEndError] = useState<string | null>(null);
-  const [absenceModal, setAbsenceModal] = useState<{ sessionId: string; branchId: string } | null>(null);
-
-  const hasActiveReceptionist = memberships.some(
-    (m) => m.userRole === "receptionist" && m.status === "active",
-  );
-  const receptionistAbsenceKey = `waitless_receptionist_absent_${orgId}`;
-  const receptionistAbsent =
-    !hasActiveReceptionist ||
-    sessionStorage.getItem(receptionistAbsenceKey) === new Date().toISOString().slice(0, 10);
-
-  const myMembershipId =
-    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
-    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
-
-  function loadSessions() {
-    if (!orgId || branches.length === 0) return;
-    const d = new Date();
-    const today = [
-      d.getFullYear(),
-      String(d.getMonth() + 1).padStart(2, "0"),
-      String(d.getDate()).padStart(2, "0"),
-    ].join("-");
-    Promise.all(branches.map((b) => sessionService.getSessions(orgId, b.id, { date: today })))
-      .then((perBranch) => {
-        const all = perBranch.flat().filter(
-          (s) => s.doctorId === myMembershipId || s.doctorId === doctorAccountId,
-        );
-        setSessions(all);
-      })
-      .catch(() => setSessions([]))
-      .finally(() => setIsLoading(false));
-  }
-
-  useEffect(() => { loadSessions(); }, [orgId, branches, myMembershipId, doctorAccountId, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch every 30s so admin edits appear without manual reload
-  usePolling(() => { void loadSessions(); }, 30_000);
-
-  async function handleSubmitExcuse() {
-    if (!excuseModal || !excuseReason.trim()) { setExcuseError("Please enter a reason."); return; }
-    setSubmittingExcuse(true);
-    setExcuseError(null);
-    try {
-      await sessionService.submitExcuse(orgId, excuseModal.branchId, excuseModal.sessionId, excuseReason.trim());
-      setExcuseModal(null);
-      setExcuseReason("");
-      setRefreshKey((k) => k + 1);
-    } catch {
-      setExcuseError("Failed to submit excuse. Please try again.");
-    } finally {
-      setSubmittingExcuse(false);
-    }
-  }
-
-  function requestStartSession(session: BackendSession) {
-    if (receptionistAbsent) {
-      void doStartSession(session.id, session.branchId);
-    } else {
-      setAbsenceModal({ sessionId: session.id, branchId: session.branchId });
-    }
-  }
-
-  async function doStartSession(sessionId: string, branchId: string) {
-    setStartingSession(sessionId);
-    setStartError(null);
-    setAbsenceModal(null);
-    try {
-      await sessionService.startSession(orgId, branchId, sessionId);
-      setRefreshKey((k) => k + 1);
-    } catch {
-      setStartError("Failed to start session. Please try again.");
-    } finally {
-      setStartingSession(null);
-    }
-  }
-
-  async function doEndSession(sessionId: string, branchId: string) {
-    setEndingSession(sessionId);
-    setEndError(null);
-    try {
-      await sessionService.endSession(orgId, branchId, sessionId);
-      setRefreshKey((k) => k + 1);
-    } catch {
-      setEndError("Failed to end session. Please try again.");
-    } finally {
-      setEndingSession(null);
-    }
-  }
-
-  function confirmAbsence() {
-    if (!absenceModal) return;
-    sessionStorage.setItem(receptionistAbsenceKey, new Date().toISOString().slice(0, 10));
-    void doStartSession(absenceModal.sessionId, absenceModal.branchId);
-  }
-
-  const statusBadge: Record<string, string> = {
-    scheduled: "bg-gold-tint text-gold",
-    active:    "bg-success/10 text-success",
-    ended:     "bg-border text-navy-mid",
-    cancelled: "bg-danger/10 text-danger",
-  };
-
-  const now = new Date();
-
-  function isOverdue(session: BackendSession) {
-    if (session.status !== "scheduled") return false;
-    // date + startTime are derived from the UTC ISO startTime, so parse them as
-    // UTC ("Z") — parsing as local time would shift the cutoff by the tz offset.
-    const dt = new Date(`${session.date}T${session.startTime}:00Z`);
-    return dt < now;
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-navy-mid">{t("Today's sessions")}</p>
-        <button
-          onClick={() => { setIsLoading(true); setRefreshKey((k) => k + 1); }}
-          className="text-xs font-medium text-navy-mid transition hover:text-navy"
-        >
-          {t("↻ Refresh")}
-        </button>
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />)}
-        </div>
-      ) : sessions.length === 0 ? (
-        <div className="rounded-xl bg-offwhite py-12 text-center">
-          <p className="text-4xl">📅</p>
-          <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No sessions scheduled today")}</p>
-          <p className="mt-1 text-sm text-navy-mid">{t("Contact your clinic administrator to schedule sessions.")}</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {sessions.map((session) => {
-            const overdue = isOverdue(session);
-            const excuse  = session.excuse;
-            const penalty = session.penaltyApplied;
-            return (
-              <div key={session.id} className={`px-5 py-4 ${overdue ? "bg-danger/3" : ""}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-navy">{session.date}</p>
-                    <p className="mt-0.5 text-sm text-navy-mid">{fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}</p>
-                    <p className="text-xs text-navy-mid">
-                      {session.bookingsCount} booked
-                      {session.maxBookings != null ? ` / ${session.maxBookings} max` : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadge[session.status] ?? ""}`}>
-                      {session.status}
-                    </span>
-                    {/* Doctor-initiated start: only shown for scheduled sessions */}
-                    {session.status === "scheduled" && (
-                      <button
-                        onClick={() => requestStartSession(session)}
-                        disabled={startingSession === session.id}
-                        className="rounded-full border border-success/40 bg-success/5 px-2.5 py-0.5 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
-                      >
-                        {startingSession === session.id ? t("Starting…") : t("Start Session")}
-                      </button>
-                    )}
-                    {/* Doctor-initiated end: only shown for active sessions */}
-                    {session.status === "active" && (
-                      <button
-                        onClick={() => void doEndSession(session.id, session.branchId)}
-                        disabled={endingSession === session.id}
-                        className="rounded-full border border-danger/40 bg-danger/5 px-2.5 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
-                      >
-                        {endingSession === session.id ? t("Ending…") : t("End Session")}
-                      </button>
-                    )}
-                    {/* Excuse submission for overdue sessions */}
-                    {overdue && !excuse?.submittedAt && (
-                      <button
-                        onClick={() => setExcuseModal({ sessionId: session.id, branchId: session.branchId })}
-                        className="rounded-full border border-danger/40 bg-danger/5 px-2.5 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10"
-                      >
-                        {t("Submit Excuse")}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Penalty notice */}
-                {penalty && (
-                  <p className="mt-2 text-xs text-danger">
-                    Penalty applied: {penalty.amount} EGP deducted for unexcused late start.
-                  </p>
-                )}
-
-                {/* Excuse status */}
-                {excuse?.submittedAt && (
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      excuse.status === "approved" ? "bg-success/10 text-success"
-                      : excuse.status === "denied"  ? "bg-danger/10 text-danger"
-                      : "bg-gold-tint text-gold"
-                    }`}>
-                      Excuse: {excuse.status ?? "pending"}
-                    </span>
-                    {excuse.reason && (
-                      <span className="text-xs text-navy-mid truncate max-w-[200px]">{excuse.reason}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {startError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
-          {t(startError)}
-        </div>
-      )}
-      {endError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
-          {t(endError)}
-        </div>
-      )}
-
-      {/* Receptionist absence confirmation modal */}
-      {absenceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setAbsenceModal(null)} />
-          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="bg-navy px-6 py-4">
-              <p className="font-heading text-base font-bold text-white">{t("Start Session")}</p>
-              <p className="mt-0.5 text-xs text-white/50">{t("Confirm before starting without reception")}</p>
-            </div>
-            <div className="space-y-4 p-5">
-              <p className="text-sm text-navy">
-                {t("Your clinic has receptionists. Is the receptionist absent today? You'll be starting this session yourself.")}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setAbsenceModal(null)}
-                  className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
-                >
-                  {t("Cancel")}
-                </button>
-                <button
-                  onClick={confirmAbsence}
-                  className="flex h-10 flex-1 items-center justify-center rounded-md bg-success text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  {t("Yes, Start Session")}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Excuse submission modal */}
+      {/* ── Excuse submission modal ───────────────────────────────────────── */}
       {excuseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => { setExcuseModal(null); setExcuseReason(""); }} />
@@ -1196,87 +1189,6 @@ function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function QueueRow({
-  appt,
-  onSkip,
-  onNoShow,
-  actionInProgress,
-}: {
-  appt: BackendAppointment;
-  onSkip: () => void;
-  onNoShow: () => void;
-  actionInProgress: boolean;
-}) {
-  const { t } = useLanguage();
-  const statusStyles: Record<string, string> = {
-    booked:      "bg-gold-tint text-navy",
-    called:      "bg-success/10 text-success",
-    in_progress: "bg-success/20 text-success",
-    completed:   "bg-border/50 text-navy-mid",
-    no_show:     "bg-danger/10 text-danger",
-    skipped:     "bg-orange-50 text-orange-600",
-    cancelled:   "bg-border/50 text-navy-mid",
-  };
-  const statusLabel: Record<string, string> = {
-    booked:      t("Waiting"),
-    called:      t("Called ↑"),
-    in_progress: t("In Progress"),
-    completed:   t("Done ✓"),
-    no_show:     t("No-Show"),
-    skipped:     t("Skipped ↩"),
-    cancelled:   t("Cancelled"),
-  };
-
-  const isDone =
-    appt.status === "completed" ||
-    appt.status === "no_show" ||
-    appt.status === "cancelled";
-
-  return (
-    <div className={`flex items-center justify-between px-5 py-3.5 ${isDone ? "opacity-50" : ""}`}>
-      <div className="flex items-center gap-4">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-sm font-bold text-white">
-          {appt.queueNumber}
-        </span>
-        <div>
-          <p className="text-sm font-medium text-navy">
-            {appt.patientProfile.fullName || "Patient"}
-          </p>
-          {appt.patientProfile.phone && (
-            <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyles[appt.status] ?? ""}`}>
-          {statusLabel[appt.status] ?? appt.status}
-        </span>
-        {appt.status === "called" && (
-          <>
-            <button
-              onClick={onSkip}
-              disabled={actionInProgress}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
-            >
-              {t("Skip")}
-            </button>
-            <button
-              onClick={onNoShow}
-              disabled={actionInProgress}
-              className="rounded-md border border-danger/30 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
-            >
-              {t("No-Show")}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 
 const INSURANCE_OPTIONS = [
@@ -1549,228 +1461,6 @@ async function handleSave(e: React.FormEvent) {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Manage Queue Tab (doctor-as-receptionist fallback) ───────────────────────
-
-function ManageQueueTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountId: string }) {
-  const { branches, memberships } = useOrg();
-  const { t } = useLanguage();
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
-  const [walkIn, setWalkIn] = useState({ phone: "", name: "" });
-  const [walkInMsg, setWalkInMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [walkInLoading, setWalkInLoading] = useState(false);
-
-  const myMembershipId =
-    memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
-    memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
-  const { activeSession, activeBranchId, queue, isLoading, reload: load } =
-    useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId);
-
-  useEffect(() => {
-    void load();
-    const id = setInterval(() => { void load(); }, 10_000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  async function handleManualCall(apptId: string) {
-    if (!activeBranchId || !activeSession) return;
-    setActionInProgress(apptId);
-    try {
-      await sessionService.updateAppointmentStatus(orgId, activeBranchId, activeSession.id, apptId, "called");
-      await load();
-    } catch { /* ignore */ }
-    setActionInProgress(null);
-  }
-
-  async function handleHold(apptId: string) {
-    if (!activeBranchId || !activeSession) return;
-    setActionInProgress(apptId);
-    try {
-      await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId);
-      await load();
-    } catch { /* ignore */ }
-    setActionInProgress(null);
-  }
-
-  async function handleReinsert(apptId: string) {
-    if (!activeBranchId || !activeSession) return;
-    setActionInProgress(apptId);
-    try {
-      await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId);
-      await load();
-    } catch { /* ignore */ }
-    setActionInProgress(null);
-  }
-
-  async function handleWalkIn(e: React.FormEvent) {
-    e.preventDefault();
-    if (!activeBranchId || !activeSession || !walkIn.phone.trim() || !walkIn.name.trim()) return;
-    setWalkInLoading(true);
-    setWalkInMsg(null);
-    try {
-      const result = await appointmentService.bookWalkIn(orgId, activeBranchId, activeSession.id, {
-        patientPhone: walkIn.phone.trim(),
-        patientName: walkIn.name.trim(),
-      });
-      setWalkInMsg({ ok: true, text: `Walk-in added — Queue #${result.queueNumber}` });
-      setWalkIn({ phone: "", name: "" });
-      await load();
-    } catch {
-      setWalkInMsg({ ok: false, text: "Failed to add walk-in. Check phone format (+20…)." });
-    }
-    setWalkInLoading(false);
-  }
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2 py-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-offwhite" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!activeSession) {
-    return (
-      <div className="rounded-xl bg-offwhite py-12 text-center">
-        <p className="text-4xl">🏥</p>
-        <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No active session today")}</p>
-        <p className="mt-1 text-sm text-navy-mid">
-          {t("Start a session first (via the Sessions tab or ask reception).")}
-        </p>
-      </div>
-    );
-  }
-
-  const booked = queue.filter((a) => a.status === "booked");
-  const called = queue.filter((a) => a.status === "called");
-  const held   = queue.filter((a) => a.status === "held");
-
-  return (
-    <div className="space-y-6">
-      {/* Banner */}
-      <div className="rounded-xl border border-gold/40 bg-gold-tint px-4 py-3 text-sm text-navy">
-        <strong>{t("Receptionist mode")}</strong> — {t("Use this tab when operating without reception staff.")}
-      </div>
-
-      {/* Waiting Section */}
-      <div>
-        <h3 className="mb-2 font-heading text-base font-bold text-navy">
-          {t("Waiting")} ({booked.length})
-        </h3>
-        {booked.length === 0 ? (
-          <p className="rounded-xl bg-offwhite py-6 text-center text-sm text-navy-mid">
-            {t("No patients waiting")}
-          </p>
-        ) : (
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-            {booked.map((appt) => (
-              <div key={appt.id} className="flex items-center justify-between px-5 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
-                    {appt.queueNumber}
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
-                    <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleManualCall(appt.id)}
-                  disabled={actionInProgress === appt.id}
-                  className="rounded-md bg-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
-                >
-                  {t("Call Next →")}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Called / Held Section */}
-      {(called.length > 0 || held.length > 0) && (
-        <div>
-          <h3 className="mb-2 font-heading text-base font-bold text-navy">
-            {t("Called & Held")} ({called.length + held.length})
-          </h3>
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-            {[...called, ...held].map((appt) => (
-              <div key={appt.id} className="flex items-center justify-between px-5 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
-                    {appt.queueNumber}
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
-                    <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${appt.status === "called" ? "bg-success/10 text-success" : "bg-orange-50 text-orange-600"}`}>
-                    {appt.status === "called" ? t("Called") : t("Held")}
-                  </span>
-                  {appt.status === "called" && (
-                    <button
-                      onClick={() => handleHold(appt.id)}
-                      disabled={actionInProgress === appt.id}
-                      className="rounded-md border border-border px-3 py-1.5 text-xs text-navy-mid transition hover:border-navy hover:text-navy disabled:opacity-60"
-                    >
-                      {t("Hold")}
-                    </button>
-                  )}
-                  {appt.status === "held" && (
-                    <button
-                      onClick={() => handleReinsert(appt.id)}
-                      disabled={actionInProgress === appt.id}
-                      className="rounded-md bg-navy px-3 py-1.5 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
-                    >
-                      {t("Re-insert")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Walk-In Form */}
-      <div>
-        <h3 className="mb-2 font-heading text-base font-bold text-navy">{t("Add Walk-In Patient")}</h3>
-        <form onSubmit={handleWalkIn} className="space-y-3 rounded-xl border border-border bg-offwhite p-4">
-          <input
-            type="tel"
-            value={walkIn.phone}
-            onChange={(e) => setWalkIn((w) => ({ ...w, phone: e.target.value }))}
-            placeholder="Phone (+201012345678)"
-            required
-            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-          />
-          <input
-            type="text"
-            value={walkIn.name}
-            onChange={(e) => setWalkIn((w) => ({ ...w, name: e.target.value }))}
-            placeholder={t("Patient full name")}
-            required
-            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-          />
-          {walkInMsg && (
-            <p className={`text-xs ${walkInMsg.ok ? "text-success" : "text-danger"}`}>{walkInMsg.text}</p>
-          )}
-          <button
-            type="submit"
-            disabled={walkInLoading}
-            className="w-full rounded-md bg-navy py-2 text-sm font-medium text-white transition hover:bg-navy-mid disabled:opacity-60"
-          >
-            {walkInLoading ? t("Adding…") : t("Add to Queue")}
-          </button>
-        </form>
-      </div>
     </div>
   );
 }

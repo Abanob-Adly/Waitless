@@ -15,6 +15,7 @@ type QueueSubscriptionResult = {
   sessionStartTime: string;
   sessionStatus: string;
   appointmentStatus: string;
+  sessionClosureNote: string | null;
   reviewToken: string | null;
   emergencyReason: string | null;
   wasForceInserted: boolean;
@@ -42,6 +43,8 @@ export function useQueueSubscription(
   const [emergencyReason, setEmergencyReason] = useState<string | null>(null);
   const [wasForceInserted, setWasForceInserted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [sessionClosureNote, setSessionClosureNote] = useState<string | null>(null);
+  const [positionFromServer, setPositionFromServer] = useState<number | null>(null);
 
   useEffect(() => {
     if (!trackingToken) return;
@@ -54,9 +57,11 @@ export function useQueueSubscription(
             queueNumber: number;
             currentlyServing: number;
             estimatedWaitMin: number;
+            position?: number;
             globalDelayMin?: number;
             avgConsultationMin?: number;
             status: string;
+            sessionClosureNote?: string | null;
             sessionDate?: string;
             sessionStartTime?: string;
             sessionStatus?: string;
@@ -70,6 +75,7 @@ export function useQueueSubscription(
         if (!alive) return;
         const d = res.data.data;
         setCurrentServing(d.currentlyServing ?? 0);
+        if (d.position != null) setPositionFromServer(d.position);
         setEtaMinutes(d.estimatedWaitMin ?? 0);
         setGlobalDelayMin(d.globalDelayMin ?? 0);
         if (d.avgConsultationMin != null) setAvgConsultationMin(d.avgConsultationMin);
@@ -81,6 +87,7 @@ export function useQueueSubscription(
         setIsOnBreak(d.isOnBreak ?? false);
         setEmergencyReason(d.emergencyReason ?? null);
         setWasForceInserted(d.wasForceInserted ?? false);
+        if (d.sessionClosureNote !== undefined) setSessionClosureNote(d.sessionClosureNote ?? null);
         setIsConnected(true);
       } catch {
         if (!alive) return;
@@ -96,7 +103,7 @@ export function useQueueSubscription(
     };
   }, [trackingToken]);
 
-  const position = Math.max(1, queueNumber - currentServing);
+  const position = positionFromServer ?? Math.max(1, queueNumber - currentServing);
 
   // Guard against false positive: 0 >= 0 is true but means "not yet loaded"
   const isCalled =
@@ -126,6 +133,7 @@ export function useQueueSubscription(
     sessionStartTime,
     sessionStatus,
     appointmentStatus,
+    sessionClosureNote,
     reviewToken,
     emergencyReason,
     wasForceInserted,

@@ -94,12 +94,12 @@ export const appointmentController = {
       ? String(appointment.patientProfile.accountId)
       : null;
 
-    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment: updated, penaltyApplied, penaltyAmount } = await appointmentService.cancelAppointment({
       appointment,
       reason:           'Patient self-cancelled',
       patientAccountId,
     });
-    res.json({ data: updated, penaltyApplied });
+    res.json({ data: updated, penaltyApplied, penaltyAmount });
   },
 
   async getOwn(req, res) {
@@ -149,12 +149,12 @@ export const appointmentController = {
     });
     if (!appointment) throw new AppError('Appointment not found', 404);
 
-    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment: updated, penaltyApplied, penaltyAmount } = await appointmentService.cancelAppointment({
       appointment,
       reason:           'Patient self-cancelled',
       patientAccountId: String(req.actor.account._id),
     });
-    res.json({ data: updated, penaltyApplied });
+    res.json({ data: updated, penaltyApplied, penaltyAmount });
   },
 
   // SSE endpoint: streams queue updates to the patient's live ticket (token-based, no auth)
@@ -176,21 +176,26 @@ export const appointmentController = {
     res.write(': connected\n\n');
 
     const channel = `queue.session.${appointment.session}`;
-    const sub = redis.duplicate();
-    await sub.subscribe(channel);
+    try {
+      const sub = redis.duplicate();
+      await sub.subscribe(channel);
 
-    sub.on('message', (_ch, message) => {
-      res.write(`data: ${message}\n\n`);
-    });
+      sub.on('message', (_ch, message) => {
+        res.write(`data: ${message}\n\n`);
+      });
 
-    const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
-    }, 25_000);
+      const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 25_000);
 
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      sub.unsubscribe().catch(() => {});
-      sub.quit().catch(() => {});
-    });
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        sub.unsubscribe().catch(() => {});
+        sub.quit().catch(() => {});
+      });
+    } catch {
+      // Redis unavailable — close stream so the client retries with backoff
+      res.end();
+    }
   },
 };

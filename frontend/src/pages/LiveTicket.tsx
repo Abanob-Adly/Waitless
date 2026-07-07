@@ -157,8 +157,8 @@ function TicketView({
   const [ratingDismissed, setRatingDismissed] = useState(false);
   const {
     position, currentServing, etaMinutes, globalDelayMin, avgConsultationMin,
-    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, reviewToken,
-    emergencyReason, wasForceInserted,
+    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, sessionStatus, reviewToken,
+    emergencyReason, wasForceInserted, sessionClosureNote, appointmentStatus,
   } = useQueueSubscription(
     trackingToken,
     booking.queueNumber,
@@ -175,20 +175,12 @@ function TicketView({
   ].join("-");
   const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
 
-  // True when it's session day but the scheduled start time is still in the future
-  // (or the doctor hasn't pressed Start yet). We parse the start time from the
-  // booking because the queue subscription doesn't expose session status.
-  const sessionNotStarted = isSessionDay && (() => {
-    const startStr = sessionStartTime || null;
-    if (startStr) {
-      return new Date(startStr) > now;
-    }
-    // Fallback: parse HH:MM from booking.session.startTime against session date
-    const [hh, mm] = (booking.session.startTime ?? "00:00").split(":").map(Number);
-    const scheduledStart = new Date(`${effectiveDate || todayLocal}T00:00:00`);
-    scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
-    return scheduledStart > now;
-  })();
+  // True when it's session day but the doctor hasn't started the session yet.
+  // Uses the backend's real session status rather than guessing from wall-clock
+  // time, so this stays accurate whether the session starts early, late, or on
+  // schedule. Before the first poll resolves, sessionStatus is "" — treat that
+  // as "not yet known" (false) rather than flashing a premature banner.
+  const sessionNotStarted = isSessionDay && sessionStatus === "scheduled";
 
   // True when it's session day and the scheduled end time has already passed.
   // At this point the session window is over; if the patient wasn't served they
@@ -252,13 +244,20 @@ function TicketView({
     if (!window.confirm(t("Cancel your appointment? This cannot be undone.")))
       return;
     setCancelling(true);
-    // Best-effort cancel — if it fails the booking is removed from local state anyway
     try {
-      await api.delete(`/appointments/${booking.id}`);
+      const res = await api.delete<{ data?: unknown; penaltyApplied?: boolean; penaltyAmount?: number }>(
+        `/appointments/${booking.id}/cancel`,
+      );
+      if (res.data?.penaltyApplied) {
+        window.alert(
+          `${t("A late-cancellation fee of")} ${res.data.penaltyAmount ?? 0} EGP ${t("has been deducted from your wallet.")}`,
+        );
+      }
+      onCancel();
     } catch {
-      // ignore — booking was cancelled locally
+      setCancelling(false);
+      window.alert(t("Failed to cancel your appointment. Please try again."));
     }
-    onCancel();
   }
 
   return (
@@ -277,6 +276,24 @@ function TicketView({
           {isSessionDay ? t("Live queue · syncing in real-time") : t("Appointment confirmed · awaiting session day")}
         </span>
       </div>
+
+      {appointmentStatus === "no_show" && sessionClosureNote && (
+        <div className="mb-6 rounded-xl border border-danger/30 bg-danger/5 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 text-lg">🏥</span>
+            <div className="flex-1">
+              <p className="font-semibold text-navy">{t("Session Closed by Clinic")}</p>
+              <p className="mt-1 text-sm text-navy-mid">{t(sessionClosureNote)}</p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="mt-4 w-full rounded-md border border-danger/30 py-2 text-sm font-medium text-danger transition hover:bg-danger/5"
+          >
+            {t("Remove Ticket")}
+          </button>
+        </div>
+      )}
 
       {isSessionDay && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">

@@ -16,6 +16,7 @@ import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import { startLateStartPenaltyCron } from "./jobs/lateStartPenalty.js";
 import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
+import { startSessionAutoStartCron } from "./jobs/sessionAutoStart.js";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 
@@ -82,6 +83,7 @@ app.use(errorHandler);
 startSessionGeneratorCron();
 startLateStartPenaltyCron();
 startSessionAutoCloseCron();
+startSessionAutoStartCron();
 
 app.listen(env.port, () => {
   console.log(`Server Started on port: ${env.port}`);

@@ -2,8 +2,12 @@ import Session from '../models/QueueSession.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import ScheduleException from '../models/ScheduleException.js';
 import Appointment from '../models/Appointment.js';
+import PatientProfile from '../models/PatientProfile.js';
+import Account from '../models/Account.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { queueService } from './queueService.js';
+import { walletService } from './walletService.js';
+import { SESSION_CLOSURE_FEE_EGP } from '../config/fees.js';
 
 export const sessionService = {
   async generateSessions({ scheduleId, orgId, fromDate, toDate }) {
@@ -138,10 +142,48 @@ export const sessionService = {
     session.actualEndTime = new Date();
     await session.save();
 
-    await Appointment.updateMany(
-      { session: session._id, status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } },
-      { $set: { status: 'no_show' } }
+    // Find all pending appointments before bulk-closing them so we can
+    // process refunds and write per-appointment closure notes.
+    const pendingAppointments = await Appointment.find({
+      session: session._id,
+      status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
+    }).populate('patientProfile', 'accountId fullName').lean();
+
+    // Process wallet charge + note for each pending appointment in parallel.
+    // Non-fatal: if one refund fails we still close the appointment.
+    await Promise.all(
+      pendingAppointments.map(async (appt) => {
+        let closureNote = `Session closed. ${SESSION_CLOSURE_FEE_EGP} EGP fee retained.`;
+        try {
+          const accountId = appt.patientProfile?.accountId;
+          if (accountId) {
+            const paidAmount = (appt.paymentStatus === 'success' && appt.paidAmount > 0)
+              ? appt.paidAmount
+              : 0;
+            const { refundAmount } = await walletService.sessionClosureCharge({
+              accountId: String(accountId),
+              appointmentId: appt._id,
+              paidAmount,
+              sessionId: session._id,
+            });
+            closureNote = refundAmount > 0
+              ? `Session closed by clinic. ${SESSION_CLOSURE_FEE_EGP} EGP fee retained; ${refundAmount} EGP refunded to your wallet.`
+              : `Session closed by clinic. ${SESSION_CLOSURE_FEE_EGP} EGP fee applied.`;
+          }
+        } catch {
+          // Wallet charge failed (e.g. anonymous walk-in) — still write the note
+        }
+        await Appointment.updateOne(
+          { _id: appt._id },
+          { $set: { status: 'no_show', sessionClosureNote: closureNote } },
+        );
+      }),
     );
+
+    // Notify all waiting patients via SSE that the session has ended.
+    try {
+      await queueService.publishSessionEnded(session._id);
+    } catch { /* non-fatal */ }
 
     return session;
   },

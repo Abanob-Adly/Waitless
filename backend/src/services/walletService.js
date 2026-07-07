@@ -1,5 +1,12 @@
 import Wallet from '../models/Wallet.js';
 import WalletEntry from '../models/WalletEntry.js';
+import {
+  CANCELLATION_PENALTY_EGP as _CANCELLATION_PENALTY,
+  SESSION_CLOSURE_FEE_EGP,
+} from '../config/fees.js';
+
+// Re-export so callers that already import from this file keep working.
+export const CANCELLATION_PENALTY_EGP = _CANCELLATION_PENALTY;
 
 /**
  * Find or create a personal wallet for an account (patient or doctor).
@@ -153,8 +160,9 @@ export const walletService = {
    * Deduct a cancellation penalty from a patient's wallet.
    * Bypasses the balance floor — allows the wallet to go negative so the
    * cancellation is never blocked by a zero balance.
+   * Returns { wallet, amount } so callers can surface the deducted amount.
    */
-  async cancellationPenalty({ accountId, amount, appointmentId }) {
+  async cancellationPenalty({ accountId, appointmentId, amount = CANCELLATION_PENALTY_EGP }) {
     const wallet = await getOrCreateAccountWallet(accountId, 'patient');
     const updated = await Wallet.findOneAndUpdate(
       { _id: wallet._id, status: 'active' },
@@ -164,7 +172,7 @@ export const walletService = {
     if (!updated) throw new Error('Patient wallet is not active');
     await WalletEntry.create({
       wallet:        wallet._id,
-      type:          'penalty',
+      type:          'cancellation_penalty',
       direction:     'debit',
       amount,
       balanceAfter:  updated.balance,
@@ -173,7 +181,65 @@ export const walletService = {
       description:   `Late cancellation fee (${amount} EGP)`,
       status:        'settled',
     });
-    return updated;
+    return { wallet: updated, amount };
+  },
+
+  /**
+   * Charge a patient the session-closure fee and, if they paid upfront, refund
+   * the remainder.  Two wallet entries are created so the patient's statement
+   * clearly shows both the fee and the partial refund.
+   *
+   * Returns { feeAmount, refundAmount } — both may be 0 if the patient never
+   * paid (e.g. pay-at-desk walk-in whose payment wasn't confirmed yet).
+   */
+  async sessionClosureCharge({ accountId, appointmentId, paidAmount = 0, sessionId }) {
+    const wallet = await getOrCreateAccountWallet(accountId, 'patient');
+
+    const feeAmount = SESSION_CLOSURE_FEE_EGP;
+    const refundAmount = Math.max(0, paidAmount - feeAmount);
+
+    // Debit the fee regardless of balance (penalty — allowed to go negative).
+    const afterFee = await Wallet.findOneAndUpdate(
+      { _id: wallet._id, status: 'active' },
+      { $inc: { balance: -feeAmount } },
+      { new: true },
+    );
+    if (!afterFee) throw new Error('Patient wallet is not active');
+    await WalletEntry.create({
+      wallet:        wallet._id,
+      type:          'session_closure_fee',
+      direction:     'debit',
+      amount:        feeAmount,
+      balanceAfter:  afterFee.balance,
+      reference:     appointmentId,
+      referenceKind: 'appointment',
+      description:   `Session closure fee (${feeAmount} EGP retained)`,
+      status:        'settled',
+    });
+
+    // Credit the refund only when something was paid upfront.
+    if (refundAmount > 0) {
+      const afterRefund = await Wallet.findByIdAndUpdate(
+        wallet._id,
+        { $inc: { balance: refundAmount } },
+        { new: true },
+      );
+      if (afterRefund) {
+        await WalletEntry.create({
+          wallet:        wallet._id,
+          type:          'session_closure_refund',
+          direction:     'credit',
+          amount:        refundAmount,
+          balanceAfter:  afterRefund.balance,
+          reference:     sessionId,
+          referenceKind: 'session',
+          description:   `Session closure refund (${refundAmount} EGP returned)`,
+          status:        'settled',
+        });
+      }
+    }
+
+    return { feeAmount, refundAmount };
   },
 
   async topUp({ accountId, ownerKind, amount }) {

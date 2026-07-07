@@ -208,6 +208,8 @@ export const queueService = {
       );
     }
 
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
+
     const now = new Date();
     appointment.status = newStatus;
     if (newStatus === 'called')      appointment.calledAt              = now;
@@ -374,9 +376,18 @@ export const queueService = {
 
     // Broadcast queue change for statuses not already covered above.
     // 'called' publishes inline; 'completed' publishes via delay_updated.
-    // no_show / cancelled / skipped shift EWTs for remaining patients.
+    // no_show / cancelled / skipped shift EWTs for remaining patients — and if
+    // the affected appointment was the one currently being served, advance the
+    // queue to the next patient instead of leaving currentServing stuck.
     if (['no_show', 'cancelled', 'skipped'].includes(newStatus)) {
-      await publishUpdate(session._id, { type: 'updated' });
+      if (wasCurrentlyServed) {
+        const result = await queueService.callNext({ session });
+        if (result?.done) {
+          await publishUpdate(session._id, { type: 'updated' });
+        }
+      } else {
+        await publishUpdate(session._id, { type: 'updated' });
+      }
     }
 
     return appointment;
@@ -490,11 +501,20 @@ export const queueService = {
 
   async trackByToken({ token }) {
     const appointment = await Appointment.findOne({ accessToken: token })
-      .populate('session')
-      .populate('patientProfile', 'fullName');
+      .populate('session', 'currentServing avgConsultationMin globalDelayMin status isOnBreak doctor doctorBranchSchedule startTime')
+      .populate('patientProfile', 'fullName')
+      .lean();
     if (!appointment) throw NotFound('Appointment not found');
 
     const session = appointment.session;
+
+    // Doctor/schedule lookups are independent of queue state — start them immediately
+    // so they overlap with getQueueState + aheadAppointments instead of running after.
+    const doctorScheduleP = Promise.all([
+      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
+      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
+    ]);
+
     const state = await getQueueState(session._id);
 
     const currentServing     = state?.currentServing     ?? session.currentServing;
@@ -504,29 +524,31 @@ export const queueService = {
     // Sum type-specific durations of all active appointments ahead in queue.
     // Cancelled / no-show appointments are excluded, giving accurate ETAs
     // after any gap-creating events.
-    const aheadAppointments = await Appointment.find({
-      session:     session._id,
-      queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
-      status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
-    }).select('appointmentType').lean();
+    const [aheadAppointments, [doctorDoc, scheduleDoc]] = await Promise.all([
+      Appointment.find({
+        session:     session._id,
+        queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
+        status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
+      }).select('appointmentType').lean(),
+      doctorScheduleP,
+    ]);
 
     const estimatedWaitMin = aheadAppointments.reduce(
       (sum, a) => sum + apptDuration(a, avgConsultationMin),
       globalDelayMin,
     );
 
-    const [doctorDoc, scheduleDoc] = await Promise.all([
-      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
-      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
-    ]);
-
     return {
       queueNumber:        appointment.queueNumber,
       currentlyServing:   currentServing,
+      // position = active patients still ahead of this patient (gaps from cancelled/no-show
+      // appointments are excluded), so C correctly shows "2" even if B (queue #2) cancelled.
+      position:           aheadAppointments.length + 1,
       estimatedWaitMin,
       globalDelayMin,
       avgConsultationMin,
       status:             appointment.status,
+      sessionClosureNote: appointment.sessionClosureNote ?? null,
       reviewToken:        appointment.status === 'completed' ? (appointment.reviewToken ?? null) : null,
       patientName:        appointment.patientProfile.fullName,
       sessionDate:        session.startTime.toISOString().slice(0, 10),
@@ -547,5 +569,15 @@ export const queueService = {
 
   async publishQueueUpdated(sessionId) {
     await publishUpdate(sessionId, { type: 'updated' });
+  },
+
+  /**
+   * Publish a typed cancellation event that carries the patient's name.
+   * The doctor's dashboard SSE handler checks for type === 'cancellation' to show a toast.
+   * All other clients (patients, receptionists) treat it like a generic 'updated' event
+   * and simply re-fetch their status.
+   */
+  async publishCancellation(sessionId, patientName) {
+    await publishUpdate(sessionId, { type: 'cancellation', patientName: patientName ?? '' });
   },
 };

@@ -347,6 +347,14 @@ const AR: Record<string, string> = {
   "End Session": "إنهاء الجلسة",
   "Ending…": "جارٍ الإنهاء…",
   "Submit Excuse": "تقديم عذر",
+  "Session Start Time": "وقت بدء الجلسة",
+  "Your session is ready to start. Would you like to start now?": "جلستك جاهزة للبدء. هل تريد البدء الآن؟",
+  "I Need More Time": "أحتاج إلى مزيد من الوقت",
+  "Start Now": "ابدأ الآن",
+  "How long do you need? Patients will be notified of the delay.": "كم من الوقت تحتاج؟ سيتم إخطار المرضى بالتأخير.",
+  "min": "دقيقة",
+  "Notify Patients": "إخطار المرضى",
+  "Notifying…": "جارٍ الإخطار…",
   "Failed to end session. Please try again.": "فشل إنهاء الجلسة. حاول مرة أخرى.",
   "Failed to start session. Please try again.": "فشل بدء الجلسة. حاول مرة أخرى.",
   "Yes, Start Session": "نعم، ابدأ الجلسة",
@@ -474,6 +482,16 @@ const AR: Record<string, string> = {
   "No past bookings": "لا توجد حجوزات سابقة",
   "Your completed and cancelled appointments will appear here.": "ستظهر هنا مواعيدك المكتملة والملغية.",
   "Leave a Review →": "اترك تقييماً →",
+
+  // ── Session closure notices ───────────────────────────────────────────────────
+  "Session closed by clinic. 50 EGP fee retained; {n} EGP refunded to your wallet.":
+    "تم إغلاق الجلسة من قِبل العيادة. تم احتجاز 50 ج.م رسوم؛ تم استرداد {n} ج.م إلى محفظتك.",
+  "Session closed by clinic. 50 EGP fee applied.":
+    "تم إغلاق الجلسة من قِبل العيادة. تم تطبيق رسوم 50 ج.م.",
+  "Session closed. 50 EGP fee retained.":
+    "تم إغلاق الجلسة. تم احتجاز 50 ج.م رسوم.",
+  "Session Closed by Clinic": "تم إغلاق الجلسة من قِبل العيادة",
+  "Remove Ticket": "إزالة التذكرة",
   "Completed": "مكتمل",
   "Cancelled": "ملغى",
   "Keep Booking": "الاحتفاظ بالحجز",
@@ -523,6 +541,16 @@ const AR: Record<string, string> = {
   // ── Receptionist Dashboard ───────────────────────────────────────────────────
   "Reception Desk": "طاولة الاستقبال",
   "Today's Sessions": "جلسات اليوم",
+  "Queue & Sessions": "الطابور والجلسات",
+  "Manage today's queue, start/end sessions, and add walk-ins in one place": "إدارة طابور اليوم وبدء/إنهاء الجلسات وإضافة المرضى المباشرين في مكان واحد",
+  "Start a session from the sidebar or ask your receptionist.": "ابدأ جلسة من الشريط الجانبي أو اطلب من الاستقبال.",
+  "No-show": "لم يحضر",
+  "+ Add Walk-In Patient": "+ إضافة مريض مباشر",
+  "Total": "الإجمالي",
+  "Penalty": "غرامة",
+  "Start": "بدء",
+  "End": "إنهاء",
+  "Excuse": "عذر",
   "Walk-In Booking": "حجز مباشر",
   "Patient Check-In": "تسجيل دخول المريض",
   "No sessions today": "لا توجد جلسات اليوم",
@@ -930,6 +958,22 @@ const AR: Record<string, string> = {
   "pending excuse": "عذر معلق",
   "pending excuses": "أعذار معلقة",
   "require your review": "تتطلب مراجعتك",
+
+  // ── Live Ticket — cancellation & penalty ────────────────────────────────────
+  "Appointment cancelled": "تم إلغاء الموعد",
+  "Your appointment has been cancelled. You can rebook at any time.": "تم إلغاء موعدك. يمكنك الحجز مجدداً في أي وقت.",
+  "A late-cancellation fee of": "تم خصم رسوم إلغاء متأخر بمبلغ",
+  "has been deducted from your wallet.": "من محفظتك.",
+  "View wallet history": "عرض سجل المحفظة",
+  "Find Another Doctor": "ابحث عن طبيب آخر",
+
+  // ── Live Ticket — session not started yet ───────────────────────────────────
+  "Session not started yet": "لم تبدأ الجلسة بعد",
+  "The doctor has not started the session. You will be notified when it begins.": "لم يبدأ الطبيب الجلسة بعد. سيتم إعلامك عند بدئها.",
+
+  // ── Doctor Dashboard — cancellation notifications ───────────────────────────
+  "Patient cancelled": "المريض ألغى الحجز",
+  "booking cancelled": "تم إلغاء الحجز",
 };
 
 // ── Context ────────────────────────────────────────────────────────────────────

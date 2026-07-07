@@ -6,8 +6,7 @@ import { walletService } from './walletService.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
 
-const CANCELLATION_PENALTY_EGP = 50;
-const CANCELLATION_GRACE_MS    = 60 * 60 * 1000; // 1 hour
+const CANCELLATION_GRACE_MS = 60 * 60 * 1000; // 1 hour — penalty window before session start
 
 const TERMINAL_STATUSES = ['completed', 'cancelled', 'no_show'];
 
@@ -145,23 +144,25 @@ export const appointmentService = {
       throw new AppError('Cannot cancel a closed appointment', 409);
     }
 
-    // Cancellation penalty: 50 EGP if patient cancels within 1 hour of session start.
-    // Only applies to patient self-cancellations (patientAccountId supplied).
-    // Staff cancellations (patientAccountId = null) are penalty-free.
+    const session = await Session.findById(appointment.session);
+    if (!session) throw NotFound('Session not found');
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
+
+    // Cancellation penalty: applied only when the patient cancels within 1 hour
+    // BEFORE the session start time (not after). Staff cancellations are always free.
     let penaltyApplied = false;
+    let penaltyAmount  = 0;
     if (patientAccountId) {
-      const session = await Session.findById(appointment.session).select('startTime').lean();
-      if (session) {
-        const msTillStart = new Date(session.startTime).getTime() - Date.now();
-        if (msTillStart < CANCELLATION_GRACE_MS && msTillStart > -CANCELLATION_GRACE_MS) {
-          // Within the 1-hour window — apply penalty regardless of balance (allows negative)
-          await walletService.cancellationPenalty({
-            accountId:     patientAccountId,
-            amount:        CANCELLATION_PENALTY_EGP,
-            appointmentId: appointment._id,
-          });
-          penaltyApplied = true;
-        }
+      const msTillStart = session.startTime.getTime() - Date.now();
+      // msTillStart > 0  → session hasn't started yet
+      // msTillStart < CANCELLATION_GRACE_MS → less than 1 hour until start
+      if (msTillStart > 0 && msTillStart < CANCELLATION_GRACE_MS) {
+        const result = await walletService.cancellationPenalty({
+          accountId:     patientAccountId,
+          appointmentId: appointment._id,
+        });
+        penaltyApplied = true;
+        penaltyAmount  = result.amount;
       }
     }
 
@@ -170,14 +171,34 @@ export const appointmentService = {
     appointment.cancelledReason = reason || null;
     await appointment.save();
 
-    // Publish queue update so live-tracking clients recalculate positions
+    // Resolve the patient name for the doctor's cancellation notification.
+    // Non-fatal: if lookup fails the publish still goes out, just without the name.
+    let patientName = '';
     try {
-      await queueService.publishQueueUpdated(appointment.session);
-    } catch {
-      // Non-fatal: Redis unavailable
+      const PatientProfile = (await import('../models/PatientProfile.js')).default;
+      // patientProfile may be a populated doc (has ._id) or a raw ObjectId — extract _id safely
+      const profileId = appointment.patientProfile?._id ?? appointment.patientProfile;
+      const pp = await PatientProfile.findById(profileId).select('fullName').lean();
+      patientName = pp?.fullName ?? '';
+    } catch { /* ignore */ }
+
+    // Publish a typed cancellation event so the doctor's dashboard can show a toast.
+    // All connected clients (patients, staff) also receive this and re-fetch their status.
+    try {
+      await queueService.publishCancellation(appointment.session, patientName);
+    } catch { /* Non-fatal: Redis unavailable */ }
+
+    // If the cancelled patient was the one currently being served, advance the
+    // queue so the next patient is called automatically instead of the doctor's
+    // "currently serving" slot staying stuck on this now-cancelled appointment.
+    if (wasCurrentlyServed) {
+      const result = await queueService.callNext({ session });
+      if (result?.done) {
+        await queueService.publishQueueUpdated(session._id);
+      }
     }
 
-    return { appointment, penaltyApplied };
+    return { appointment, penaltyApplied, penaltyAmount };
   },
 
   async getOwnAppointments({ actor }) {

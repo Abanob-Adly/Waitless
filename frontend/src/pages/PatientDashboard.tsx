@@ -992,6 +992,11 @@ function HistoryRow({ record }: { record: OwnAppointmentItem }) {
         {record.clinicName && (
           <p className="text-xs text-navy-mid">{record.clinicName}</p>
         )}
+        {record.sessionClosureNote && (
+          <p className="mt-1 rounded bg-danger/5 px-2 py-1 text-xs text-danger">
+            {t(record.sessionClosureNote)}
+          </p>
+        )}
         {isCompleted && record.accessToken && (
           <a
             href={`/review?token=${record.accessToken}`}

@@ -66,6 +66,10 @@ const appointmentSchema = new Schema({
   // ── Force-insert tracking ──────────────────────────────────────────────────
   emergencyReason:  { type: String, default: null },
   wasForceInserted: { type: Boolean, default: false },
+
+  // Set when a session is closed while this appointment is still pending.
+  // Shown as a persistent notice on the patient dashboard.
+  sessionClosureNote: { type: String, default: null },
 }, { timestamps: true });
 
 // Hot query: today's queue ordering
