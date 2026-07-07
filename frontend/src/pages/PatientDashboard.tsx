@@ -728,7 +728,7 @@ function BookingCard({
   const [savingNotes, setSavingNotes] = useState(false);
 
   // Live queue position per booking — use tracking token if available
-  const { position, currentServing, etaMinutes, appointmentStatus } = useQueueSubscription(
+  const { position, currentServing, etaMinutes, appointmentStatus, sessionStatus } = useQueueSubscription(
     booking.accessToken ?? booking.id,
     booking.queueNumber,
     booking.session.avgConsultationMin,
@@ -753,14 +753,21 @@ function BookingCard({
     setShowNotesModal(false);
   }
 
-  const sessionWindowClosed = (() => {
-    try {
-      const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
-      const end = new Date(`${booking.session.date}T00:00:00`);
-      end.setHours(hh ?? 0, mm ?? 0, 0, 0);
-      return end < new Date();
-    } catch { return false; }
-  })();
+  // Prefer the backend's authoritative session status (already polled live by
+  // useQueueSubscription, same as the live ticket page) over guessing from
+  // wall-clock time — the wall-clock check only stands in before the first
+  // poll resolves (sessionStatus === ""), so this card doesn't go stale
+  // relative to what the live ticket page shows for the same appointment.
+  const sessionWindowClosed = sessionStatus
+    ? sessionStatus === "ended" || sessionStatus === "cancelled"
+    : (() => {
+        try {
+          const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
+          const end = new Date(`${booking.session.date}T00:00:00`);
+          end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+          return end < new Date();
+        } catch { return false; }
+      })();
 
   const paymentBadge = {
     success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },

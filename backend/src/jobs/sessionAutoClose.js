@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
 import { queueService } from '../services/queueService.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 /**
  * Runs every minute.
@@ -26,7 +27,11 @@ const CANCEL_GRACE_MS = 15 * 60_000; // 15 minutes
 
 export function startSessionAutoCloseCron() {
   cron.schedule('* * * * *', async () => {
-    const now = new Date();
+    // wallClockNow(), not new Date() — startTime/endTime are stored as local
+    // wall-clock digits (see wallClockNow.js), so comparing against a genuine
+    // UTC instant would close sessions this server's UTC-offset worth of
+    // hours off from the time staff actually scheduled.
+    const now = wallClockNow();
     // Active sessions: only auto-close after 10-min grace past endTime so the
     // doctor has a window to end the session manually after the scheduled shift.
     // Scheduled sessions: cancel after the 15-min grace (doctor may still start).

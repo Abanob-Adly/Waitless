@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import Session from '../models/QueueSession.js';
 import { sessionService } from '../services/sessionService.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 /**
  * Runs every minute.
@@ -15,7 +16,11 @@ import { sessionService } from '../services/sessionService.js';
  */
 export function startSessionAutoStartCron() {
   cron.schedule('* * * * *', async () => {
-    const now = new Date();
+    // wallClockNow(), not new Date() — startTime/endTime are stored as local
+    // wall-clock digits (see wallClockNow.js), so comparing against a genuine
+    // UTC instant would fire this server's UTC-offset worth of hours off from
+    // the time staff actually scheduled.
+    const now = wallClockNow();
 
     let sessions;
     try {

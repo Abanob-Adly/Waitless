@@ -178,6 +178,12 @@ export const appointmentController = {
     const channel = `queue.session.${appointment.session}`;
     try {
       const sub = redis.duplicate();
+      // A duplicated client does not inherit the parent's 'error' listener —
+      // an EventEmitter with no 'error' listener throws and crashes the whole
+      // process on connection failure (e.g. Redis down), independent of this
+      // try/catch around the subscribe() promise. Must attach before any
+      // command is issued on `sub`.
+      sub.on('error', (err) => console.warn('[appointments] SSE subscriber error:', err.message));
       await sub.subscribe(channel);
 
       sub.on('message', (_ch, message) => {

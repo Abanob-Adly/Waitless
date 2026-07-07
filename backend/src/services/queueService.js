@@ -515,11 +515,26 @@ export const queueService = {
       DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
     ]);
 
-    const state = await getQueueState(session._id);
+    // Redis-only lookup (not the shared getQueueState helper): that helper's
+    // fallback re-fetches the session from Mongo on a cache miss, which is a
+    // wasted round-trip here since `session` was already populated above —
+    // falling back to it directly avoids a second DB query on every poll tick
+    // whenever Redis is unavailable or cold.
+    let cached = null;
+    try {
+      const raw = await redis.hgetall(redisKey(session._id));
+      if (raw && raw.currentServing != null) {
+        cached = {
+          currentServing:     Number(raw.currentServing),
+          avgConsultationMin: Number(raw.avgConsultationMin),
+          globalDelayMin:     Number(raw.globalDelayMin || 0),
+        };
+      }
+    } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
 
-    const currentServing     = state?.currentServing     ?? session.currentServing;
-    const avgConsultationMin = state?.avgConsultationMin ?? session.avgConsultationMin;
-    const globalDelayMin     = state?.globalDelayMin     ?? session.globalDelayMin ?? 0;
+    const currentServing     = cached?.currentServing     ?? session.currentServing;
+    const avgConsultationMin = cached?.avgConsultationMin ?? session.avgConsultationMin;
+    const globalDelayMin     = cached?.globalDelayMin     ?? session.globalDelayMin ?? 0;
 
     // Sum type-specific durations of all active appointments ahead in queue.
     // Cancelled / no-show appointments are excluded, giving accurate ETAs

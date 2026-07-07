@@ -14,9 +14,16 @@ const redis = new IORedis(env.redis.url, {
   // gracefully degrading. Cap it at 1 so a down Redis fails in milliseconds.
   maxRetriesPerRequest: isTest ? 0 : 1,
   // Disable reconnect loop in test environment so ECONNREFUSED doesn't flood output.
-  // In other environments, keep reconnecting in the background (capped backoff)
-  // so Redis is used again automatically once it comes back up.
-  retryStrategy:        isTest ? () => null : (times) => Math.min(times * 200, 2000),
+  // In other environments, keep reconnecting in the background so Redis is used
+  // again automatically once it comes back up — but at a flat, small delay
+  // rather than a growing backoff. ioredis's reconnect-attempt counter climbs
+  // continuously in the background regardless of whether anyone is issuing
+  // commands, and maxRetriesPerRequest:1 makes each foreground command wait
+  // out exactly one such attempt before failing over — so a growing backoff
+  // (e.g. capped at 2000ms) makes every Redis-touching request progressively
+  // slower the longer Redis stays down, up to +2s each. A flat delay keeps
+  // that worst case small and constant instead.
+  retryStrategy:        isTest ? () => null : () => 200,
 });
 
 redis.on('error', (err) => {

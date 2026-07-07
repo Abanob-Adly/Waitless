@@ -139,7 +139,19 @@ export const queueController = {
 
     const channel = `queue.session.${sessionId}`;
     const sub = redis.duplicate();
-    await sub.subscribe(channel);
+    // A duplicated client does not inherit the parent's 'error' listener — an
+    // EventEmitter with no 'error' listener throws and crashes the whole
+    // process on connection failure (e.g. Redis down). Must attach this
+    // before any command is issued on `sub`.
+    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', err.message));
+
+    try {
+      await sub.subscribe(channel);
+    } catch (err) {
+      console.warn('[queue] SSE subscribe failed:', err.message);
+      res.end();
+      return;
+    }
 
     sub.on('message', (_ch, message) => {
       res.write(`data: ${message}\n\n`);
