@@ -6,7 +6,7 @@ import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { walletService } from './walletService.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { generateToken } from '../utils/otp.js';
@@ -41,7 +41,7 @@ async function getQueueState(sessionId) {
         status:             raw.status,
       };
     }
-  } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
+  } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
 
   const session = await Session.findById(sessionId).lean();
   if (!session) return null;
@@ -56,7 +56,7 @@ async function getQueueState(sessionId) {
 async function publishUpdate(sessionId, payload) {
   try {
     await redis.publish(redisPubChan(sessionId), JSON.stringify(payload));
-  } catch (err) { console.warn('[queue] Redis publish failed:', err.message); }
+  } catch (err) { console.warn('[queue] Redis publish failed:', describeRedisError(err)); }
 }
 
 export const queueService = {
@@ -70,7 +70,7 @@ export const queueService = {
       });
       await redis.expire(redisKey(session._id), 86400);
     } catch (err) {
-      console.warn('[queue] Redis populate failed:', err.message);
+      console.warn('[queue] Redis populate failed:', describeRedisError(err));
     }
   },
 
@@ -139,13 +139,16 @@ export const queueService = {
     await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, { type: 'updated', currentServing: next.queueNumber });
 
     return { appointment: next };
   },
 
   async holdPatient({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'called') {
       throw new AppError('Only a called appointment can be held', 422);
     }
@@ -158,6 +161,9 @@ export const queueService = {
   },
 
   async reinsertPatient({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'held') {
       throw new AppError('Only a held appointment can be re-inserted', 422);
     }
@@ -170,7 +176,7 @@ export const queueService = {
     });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, {
       type: 'updated',
       currentServing: appointment.queueNumber,
@@ -191,7 +197,7 @@ export const queueService = {
     if (data.globalDelayMin     != null) patch.globalDelayMin     = String(data.globalDelayMin);
     try {
       await redis.hmset(redisKey(session._id), patch);
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     const state = await getQueueState(session._id);
     await publishUpdate(session._id, { type: 'delay_updated', ...state });
@@ -200,6 +206,9 @@ export const queueService = {
   },
 
   async updateAppointmentStatus({ appointment, session, newStatus }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     const allowed = VALID_TRANSITIONS[appointment.status];
     if (!allowed || !allowed.includes(newStatus)) {
       throw new AppError(
@@ -239,7 +248,7 @@ export const queueService = {
       });
       try {
         await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-      } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+      } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
       await publishUpdate(session._id, {
         type: 'updated',
         currentServing: appointment.queueNumber,
@@ -259,7 +268,7 @@ export const queueService = {
             const prev    = Number(await redis.hget(redisKey(session._id), 'globalDelayMin') || 0);
             const updated = Math.round((prev + rounded) * 10) / 10;
             await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
-          } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
           await publishUpdate(session._id, { type: 'delay_updated', overrunMin: rounded });
         }
 
@@ -275,7 +284,7 @@ export const queueService = {
           session.avgConsultationMin = newAvg; // keep in-memory ref consistent
           try {
             await redis.hset(redisKey(session._id), 'avgConsultationMin', String(newAvg));
-          } catch (err) { console.warn('[adaptive] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[adaptive] Redis write failed:', describeRedisError(err)); }
 
           // Persist a slowly-drifting long-term average on the doctor's membership
           // (α=0.1) so future sessions start with a personalised baseline.
@@ -394,6 +403,9 @@ export const queueService = {
   },
 
   async forceInsert({ appointment, session, emergencyReason }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'booked') {
       throw new AppError('Only booked appointments can be force-inserted', 422);
     }
@@ -459,7 +471,7 @@ export const queueService = {
       await redis.hmset(redisKey(session._id), {
         globalDelayMin: String(session.globalDelayMin),
       });
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     await publishUpdate(session._id, {
       type:           'break_started',
@@ -530,7 +542,7 @@ export const queueService = {
           globalDelayMin:     Number(raw.globalDelayMin || 0),
         };
       }
-    } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
 
     const currentServing     = cached?.currentServing     ?? session.currentServing;
     const avgConsultationMin = cached?.avgConsultationMin ?? session.avgConsultationMin;

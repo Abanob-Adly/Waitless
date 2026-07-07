@@ -558,12 +558,29 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
           <div className="rounded-xl bg-offwhite py-10 text-center">
             <p className="text-4xl">📋</p>
             <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No active session today")}</p>
-            <p className="mt-1 text-sm text-navy-mid">{t("Start a session from the sidebar or ask your receptionist.")}</p>
+            <p className="mt-1 text-sm text-navy-mid">{t("Sessions open automatically at their scheduled start time.")}</p>
+          </div>
+        )}
+
+        {/* Session found but not started yet — block queue access (can't call/hold/
+            skip/etc. a session that hasn't opened), but still surface how many
+            patients are already booked so the doctor knows what's waiting. */}
+        {!isLoading && activeSession && activeSession.status !== "active" && (
+          <div className="rounded-xl bg-offwhite py-10 text-center">
+            <p className="text-4xl">⏰</p>
+            <p className="mt-3 font-heading text-lg font-bold text-navy">{t("Session hasn't started yet")}</p>
+            <p className="mt-1 text-sm text-navy-mid">
+              {activeSession.date} · {fmt12(activeSession.startTime, locale)} – {fmt12(activeSession.endTime, locale)}
+            </p>
+            <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-gold-tint px-3 py-1 text-xs font-medium text-navy">
+              👥 {activeSession.bookingsCount} {t("patients booked")}
+            </p>
+            <p className="mt-3 text-xs text-navy-mid">{t("The queue opens automatically at the scheduled start time.")}</p>
           </div>
         )}
 
         {/* ── Active session header ──────────────────────────────────────── */}
-        {!isLoading && activeSession && (
+        {!isLoading && activeSession && activeSession.status === "active" && (
           <>
             <div className="rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
               <div className="flex items-start justify-between gap-3">

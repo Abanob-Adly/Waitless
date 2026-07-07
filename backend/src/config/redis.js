@@ -26,8 +26,20 @@ const redis = new IORedis(env.redis.url, {
   retryStrategy:        isTest ? () => null : () => 200,
 });
 
+// ioredis often surfaces connection failures as an AggregateError (e.g. one
+// ECONNREFUSED per resolved address for "localhost") whose own .message is
+// empty — logging err.message alone prints nothing useful. Prefer the error
+// code, then the individual causes, then fall back to the message/name.
+export function describeRedisError(err) {
+  if (err?.code) return err.code;
+  if (Array.isArray(err?.errors) && err.errors.length > 0) {
+    return err.errors.map((e) => e.message || e.code || String(e)).join('; ');
+  }
+  return err?.message || err?.name || String(err);
+}
+
 redis.on('error', (err) => {
-  if (!isTest) console.error('[redis]', err.message);
+  if (!isTest) console.error('[redis]', describeRedisError(err));
 });
 
 export default redis;

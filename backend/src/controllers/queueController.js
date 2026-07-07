@@ -4,7 +4,7 @@ import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { NotFound } from '../utils/errors.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const queueSchemas = {
   updateStatus: z.object({
@@ -143,12 +143,12 @@ export const queueController = {
     // EventEmitter with no 'error' listener throws and crashes the whole
     // process on connection failure (e.g. Redis down). Must attach this
     // before any command is issued on `sub`.
-    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', err.message));
+    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', describeRedisError(err)));
 
     try {
       await sub.subscribe(channel);
     } catch (err) {
-      console.warn('[queue] SSE subscribe failed:', err.message);
+      console.warn('[queue] SSE subscribe failed:', describeRedisError(err));
       res.end();
       return;
     }

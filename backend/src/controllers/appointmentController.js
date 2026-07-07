@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { appointmentService } from '../services/appointmentService.js';
 import { queueService } from '../services/queueService.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const appointmentSchemas = {
   confirmPayment: z.object({
@@ -183,7 +183,7 @@ export const appointmentController = {
       // process on connection failure (e.g. Redis down), independent of this
       // try/catch around the subscribe() promise. Must attach before any
       // command is issued on `sub`.
-      sub.on('error', (err) => console.warn('[appointments] SSE subscriber error:', err.message));
+      sub.on('error', (err) => console.warn('[appointments] SSE subscriber error:', describeRedisError(err)));
       await sub.subscribe(channel);
 
       sub.on('message', (_ch, message) => {

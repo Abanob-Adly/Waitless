@@ -137,3 +137,45 @@ describe('cancelling the currently-served appointment advances the queue', () =>
     assert.equal(a1.status, 'cancelled');
   });
 });
+
+describe('queue actions are blocked until the session is actually active', () => {
+  it('updateAppointmentStatus rejects on a scheduled (not yet started) session', async () => {
+    const session = await makeSession({ status: 'scheduled', currentServing: 0 });
+    const p1 = await makeAppt(session, 1, 'called');
+
+    await assert.rejects(
+      () => queueService.updateAppointmentStatus({ appointment: p1, session, newStatus: 'in_progress' }),
+      /not active/i,
+    );
+  });
+
+  it('holdPatient rejects on a scheduled (not yet started) session', async () => {
+    const session = await makeSession({ status: 'scheduled', currentServing: 1 });
+    const p1 = await makeAppt(session, 1, 'called');
+
+    await assert.rejects(
+      () => queueService.holdPatient({ appointment: p1, session }),
+      /not active/i,
+    );
+  });
+
+  it('reinsertPatient rejects on a scheduled (not yet started) session', async () => {
+    const session = await makeSession({ status: 'scheduled', currentServing: 1 });
+    const p1 = await makeAppt(session, 1, 'held');
+
+    await assert.rejects(
+      () => queueService.reinsertPatient({ appointment: p1, session }),
+      /not active/i,
+    );
+  });
+
+  it('forceInsert rejects on a scheduled (not yet started) session', async () => {
+    const session = await makeSession({ status: 'scheduled', currentServing: 1 });
+    const p3 = await makeAppt(session, 3, 'booked');
+
+    await assert.rejects(
+      () => queueService.forceInsert({ appointment: p3, session }),
+      /not active/i,
+    );
+  });
+});
