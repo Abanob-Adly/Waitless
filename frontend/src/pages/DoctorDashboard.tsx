@@ -8,11 +8,10 @@ import * as sessionService from "../services/sessionService";
 import * as appointmentService from "../services/appointmentService";
 import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
-import { WalletView } from "../components/ui/WalletView";
 import { SPECIALTIES } from "../data/mockData";
 import { fmt12 } from "../utils/time";
 
-type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "wallet" | "profile";
+type DoctorSection = "queue" | "manage" | "calendar" | "sessions" | "profile";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -76,7 +75,6 @@ export function DoctorDashboard() {
     manage: t("Manage Queue"),
     calendar: t("Calendar"),
     sessions: t("My Sessions"),
-    wallet: t("My Wallet"),
     profile: t("My Profile"),
   };
 
@@ -86,7 +84,6 @@ export function DoctorDashboard() {
       case "manage":   return <ManageQueueTab orgId={orgId} doctorAccountId={profile.id} />;
       case "calendar": return <CalendarTab orgId={orgId} doctorAccountId={profile.id} />;
       case "sessions": return <SessionsTab orgId={orgId} doctorAccountId={profile.id} />;
-      case "wallet":   return <WalletView mode="personal" />;
       case "profile":  return <ProfileTab doctorAccountId={profile.id} doctorName={profile.name} />;
       default:         return null;
     }
@@ -231,7 +228,6 @@ function DoctorHome({
     { id: "manage",   icon: <IconManage />,   title: t("Manage Queue"),   desc: t("Call, skip, hold, and complete queue items manually"),   theme: "navy"    },
     { id: "calendar", icon: <IconCalendar />, title: t("Calendar"),       desc: t("Monthly schedule view with booked sessions at a glance"), theme: "gold"    },
     { id: "sessions", icon: <IconSessions />, title: t("My Sessions"),    desc: t("Upcoming and past sessions with patient appointments"),    theme: "navy"    },
-    { id: "wallet",   icon: <IconWallet />,   title: t("My Wallet"),      desc: t("Track your earnings, commissions, and top-up history"),   theme: "gold"    },
     { id: "profile",  icon: <IconProfile />,  title: t("My Profile"),     desc: t("Update your bio, specialties, and account settings"),     theme: "navy"    },
   ];
 
@@ -627,10 +623,6 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
-  const [excuseReason, setExcuseReason] = useState("");
-  const [submittingExcuse, setSubmittingExcuse] = useState(false);
-  const [excuseError, setExcuseError] = useState<string | null>(null);
   const [startingSession, setStartingSession] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [endingSession, setEndingSession] = useState<string | null>(null);
@@ -672,22 +664,6 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
 
   // Re-fetch every 30s so admin edits appear without manual reload
   usePolling(() => { void loadSessions(); }, 30_000);
-
-  async function handleSubmitExcuse() {
-    if (!excuseModal || !excuseReason.trim()) { setExcuseError("Please enter a reason."); return; }
-    setSubmittingExcuse(true);
-    setExcuseError(null);
-    try {
-      await sessionService.submitExcuse(orgId, excuseModal.branchId, excuseModal.sessionId, excuseReason.trim());
-      setExcuseModal(null);
-      setExcuseReason("");
-      setRefreshKey((k) => k + 1);
-    } catch {
-      setExcuseError("Failed to submit excuse. Please try again.");
-    } finally {
-      setSubmittingExcuse(false);
-    }
-  }
 
   function requestStartSession(session: BackendSession) {
     if (receptionistAbsent) {
@@ -737,16 +713,6 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
     cancelled: "bg-danger/10 text-danger",
   };
 
-  const now = new Date();
-
-  function isOverdue(session: BackendSession) {
-    if (session.status !== "scheduled") return false;
-    // date + startTime are derived from the UTC ISO startTime, so parse them as
-    // UTC ("Z") — parsing as local time would shift the cutoff by the tz offset.
-    const dt = new Date(`${session.date}T${session.startTime}:00Z`);
-    return dt < now;
-  }
-
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -772,11 +738,8 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {sessions.map((session) => {
-            const overdue = isOverdue(session);
-            const excuse  = session.excuse;
-            const penalty = session.penaltyApplied;
             return (
-              <div key={session.id} className={`px-5 py-4 ${overdue ? "bg-danger/3" : ""}`}>
+              <div key={session.id} className="px-5 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-navy">{session.date}</p>
@@ -810,40 +773,8 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
                         {endingSession === session.id ? t("Ending…") : t("End Session")}
                       </button>
                     )}
-                    {/* Excuse submission for overdue sessions */}
-                    {overdue && !excuse?.submittedAt && (
-                      <button
-                        onClick={() => setExcuseModal({ sessionId: session.id, branchId: session.branchId })}
-                        className="rounded-full border border-danger/40 bg-danger/5 px-2.5 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10"
-                      >
-                        {t("Submit Excuse")}
-                      </button>
-                    )}
                   </div>
                 </div>
-
-                {/* Penalty notice */}
-                {penalty && (
-                  <p className="mt-2 text-xs text-danger">
-                    Penalty applied: {penalty.amount} EGP deducted for unexcused late start.
-                  </p>
-                )}
-
-                {/* Excuse status */}
-                {excuse?.submittedAt && (
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      excuse.status === "approved" ? "bg-success/10 text-success"
-                      : excuse.status === "denied"  ? "bg-danger/10 text-danger"
-                      : "bg-gold-tint text-gold"
-                    }`}>
-                      Excuse: {excuse.status ?? "pending"}
-                    </span>
-                    {excuse.reason && (
-                      <span className="text-xs text-navy-mid truncate max-w-[200px]">{excuse.reason}</span>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -886,44 +817,6 @@ function SessionsTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
                   className="flex h-10 flex-1 items-center justify-center rounded-md bg-success text-sm font-semibold text-white transition hover:opacity-90"
                 >
                   {t("Yes, Start Session")}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Excuse submission modal */}
-      {excuseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => { setExcuseModal(null); setExcuseReason(""); }} />
-          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="bg-navy px-6 py-4">
-              <p className="font-heading text-base font-bold text-white">{t("Submit Late-Start Excuse")}</p>
-              <p className="mt-0.5 text-xs text-white/50">{t("Explain why your session started late")}</p>
-            </div>
-            <div className="space-y-4 p-5">
-              <textarea
-                value={excuseReason}
-                onChange={(e) => setExcuseReason(e.target.value)}
-                placeholder={t("Describe the reason (e.g. traffic, emergency, technical issue)…")}
-                rows={4}
-                className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-              />
-              {excuseError && <p className="text-xs text-danger">{excuseError}</p>}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setExcuseModal(null); setExcuseReason(""); }}
-                  className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
-                >
-                  {t("Cancel")}
-                </button>
-                <button
-                  onClick={() => void handleSubmitExcuse()}
-                  disabled={submittingExcuse || !excuseReason.trim()}
-                  className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
-                >
-                  {submittingExcuse ? t("Submitting…") : t("Submit")}
                 </button>
               </div>
             </div>

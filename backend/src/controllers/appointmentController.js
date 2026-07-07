@@ -63,16 +63,16 @@ export const appointmentController = {
 
   async cancel(req, res) {
     // Pass the patient's account ID only if the actor is the patient themselves.
-    // Staff cancellations (receptionist/admin) are penalty-free.
+    // Staff cancellations (receptionist/admin)
     const patientAccountId =
       req.actor?.account?.role === 'patient' ? String(req.actor.account._id) : null;
 
-    const { appointment, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment } = await appointmentService.cancelAppointment({
       appointment:       req.resource,
       reason:            req.body.reason,
       patientAccountId,
     });
-    res.json({ data: appointment, penaltyApplied });
+    res.json({ data: appointment });
   },
 
   async track(req, res) {
@@ -127,11 +127,11 @@ export const appointmentController = {
     });
     if (!appointment) throw new AppError('Appointment not found', 404);
 
-    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment: updated } = await appointmentService.cancelAppointment({
       appointment,
       reason:           'Patient self-cancelled',
       patientAccountId: String(req.actor.account._id),
     });
-    res.json({ data: updated, penaltyApplied });
+    res.json({ data: updated });
   },
 };

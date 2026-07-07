@@ -7,7 +7,7 @@ import WalletEntry from '../models/WalletEntry.js';
 import Invoice from '../models/Invoice.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { tokenService } from './token.js';
-import { paymobService } from './paymobService.js';
+// import { paymobService } from './paymobService.js';
 import { AppError, Conflict, Forbidden } from '../utils/errors.js';
 import Branch from '../models/Branch.js';
 import { walletService } from './walletService.js';
@@ -190,8 +190,8 @@ export const orgService = {
     const plan = await SubscriptionPlan.findById(planId);
     if (!plan) throw new AppError('Plan not found', 404);
 
-    // Validate branch count against new plan limits (can't downgrade with too many branches)
-    if (plan.limits.maxBranches !== null && plan.limits.maxBranches !== undefined) {
+    // Branch-limit check (unchanged)
+    if (plan.limits.maxBranches != null) {
       const branchCount = await Branch.countDocuments({ organization: org._id, isActive: true });
       if (branchCount > plan.limits.maxBranches) {
         const err = new AppError(
@@ -204,103 +204,43 @@ export const orgService = {
       }
     }
 
-    // Free plan — activate immediately, no payment required
+    // Free plan — activate immediately
     if (plan.priceMonthly === 0) {
       const sub = await _activatePlan(org._id, plan);
       await _createInvoice(org._id, plan, 0, 'manual');
       return { method: 'free', subscription: sub };
     }
 
-    // Check org wallet balance (creates the wallet document if it doesn't exist yet)
-    const wallet = await walletService.getOrCreateOrgWallet(org._id);
+    const wallet  = await walletService.getOrCreateOrgWallet(org._id);
     const balance = wallet?.balance ?? 0;
 
+    // Wallet-sufficient path
     if (balance >= plan.priceMonthly) {
-      // Guard: reject explicitly frozen/closed wallets before attempting debit
-      if (wallet.status === 'frozen' || wallet.status === 'closed') {
-        throw new AppError('Organization wallet is frozen', 402, 'WALLET_FROZEN');
+      if (wallet.status !== 'active') {
+        throw new AppError('Organization wallet is not active', 402, 'WALLET_INACTIVE');
       }
 
-      // Debit wallet atomically — balance constraint only (status already checked above)
-      const updatedWallet = await Wallet.findOneAndUpdate(
-        { _id: wallet._id, balance: { $gte: plan.priceMonthly } },
-        { $inc: { balance: -plan.priceMonthly } },
-        { new: true },
-      );
-      if (!updatedWallet) throw new AppError('Wallet balance changed — please try again', 402, 'WALLET_DEBIT_FAILED');
-
-      await WalletEntry.create({
-        wallet: wallet._id,
-        type: 'plan_purchase',
-        direction: 'debit',
-        amount: plan.priceMonthly,
-        balanceAfter: updatedWallet.balance,
-        referenceKind: 'plan',
-        description: `Plan subscription: ${plan.name}`,
-        status: 'settled',
+      const updated = await walletService.planPurchaseDebit({
+        orgId:    org._id,
+        amount:   plan.priceMonthly,
+        planId:   plan._id,
+        planName: plan.name,
       });
 
-      const sub = await _activatePlan(org._id, plan);
+      const sub     = await _activatePlan(org._id, plan);
       const invoice = await _createInvoice(org._id, plan, plan.priceMonthly, 'wallet');
-      return { method: 'wallet', subscription: sub, invoice, walletBalance: updatedWallet.balance };
+      return { method: 'wallet', subscription: sub, invoice, walletBalance: updated.balance };
     }
 
-    // Insufficient wallet — initiate Paymob card payment
-    const merchantOrderId = `plan-${org._id}-${plan._id}-${Date.now()}`;
-    const account = actor.account;
-    const billingData = {
-      first_name:   (account.fullName ?? 'Admin').split(' ')[0] || 'Admin',
-      last_name:    (account.fullName ?? 'Admin').split(' ').slice(1).join(' ') || 'N/A',
-      email:        account.email ?? 'admin@waitless.app',
-      phone_number: account.phone ?? '+201000000000',
-      country:      'EG',
-      city:         'Cairo',
-      street:       'N/A',
-      building:     'N/A',
-      floor:        'N/A',
-      apartment:    'N/A',
-      postal_code:  '00000',
-    };
-
-    const { iframeUrl, orderId } = await paymobService.initiatePayment({
-      amountCents:  plan.priceMonthly * 100,
-      currency:     'EGP',
-      appointmentId: merchantOrderId,
-      billingData,
-    });
-
-    return {
-      method:       'card',
-      iframeUrl,
-      orderId,
-      walletBalance: balance,
-      planPrice:    plan.priceMonthly,
-      planName:     plan.name,
-    };
+    // Wallet insufficient → tell the client to start a Paymob checkout
+    throw new AppError(
+      'Insufficient wallet balance. Use the billing checkout endpoint to pay by card.',
+      402,
+      'INSUFFICIENT_WALLET',
+      { walletBalance: balance, planPrice: plan.priceMonthly, planName: plan.name },
+    );
   },
-
-  // ── Activate plan after Paymob webhook confirms payment ──────────────────
-  async activatePlanAfterPayment({ merchantOrderId, paymobTransactionId }) {
-    // merchantOrderId format: plan-{orgId}-{planId}-{timestamp}
-    const parts = merchantOrderId.split('-');
-    if (parts.length < 4 || parts[0] !== 'plan') return null;
-
-    // ObjectIds are 24-char hex; timestamp suffix comes last
-    // Format: plan-<orgId 24>-<planId 24>-<timestamp>
-    const orgId  = parts[1];
-    const planId = parts[2];
-
-    const [org, plan] = await Promise.all([
-      Organization.findById(orgId),
-      SubscriptionPlan.findById(planId),
-    ]);
-    if (!org || !plan) return null;
-
-    const sub = await _activatePlan(org._id, plan);
-    await _createInvoice(org._id, plan, plan.priceMonthly, 'card', { paymobTransactionId });
-    return sub;
-  },
-
+  
   // ── Billing history ───────────────────────────────────────────────────────
   async getInvoices({ org, page = 1, limit = 20 }) {
     const skip = (page - 1) * limit;

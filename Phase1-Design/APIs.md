@@ -775,6 +775,35 @@ PATCH /billing/subscription/cancel
 ```
 
 ---
+## Transactions (Final API surface)
+* Public webhook
+> POST /webhooks/paymob
+
+* Money-mutating endpoints (all Paymob-mediated)
+
+> POST /orgs/:orgId/billing/checkout — subscription
+
+> POST /appointments/:appointmentId/pay — appointment
+
+* Money-reading endpoints (admin only)
+
+> GET /orgs/:orgId/wallet — balance
+
+> GET /orgs/:orgId/wallet/entries — ledger
+
+> GET /orgs/:orgId/invoices — invoices
+
+> GET /orgs/:orgId/transactions — commission history
+
+> GET /orgs/:orgId/transactions/summary — earnings summary
+
+> GET /orgs/:orgId/billing/result?paymentId=… — poll subscription payment
+
+> GET /appointments/payments/result?paymentId=… — poll appointment payment (patient)
+
+* Admin-only wallet spend
+
+> POST /orgs/:orgId/subscription/purchase (via orgController.purchasePlan) — wallet-first, returns 402 INSUFFICIENT_WALLET if empty so client falls back to /billing/checkout
 
 ## Payment Webhook
 

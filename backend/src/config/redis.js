@@ -10,8 +10,13 @@ const redis = new IORedis(env.redis.url, {
   retryStrategy:        isTest ? () => null : undefined,
 });
 
+let loggedRedisError = false;
 redis.on('error', (err) => {
-  if (!isTest) console.error('[redis]', err.message);
+  if (!isTest && !loggedRedisError) {
+    loggedRedisError = true;
+    console.error('[redis]', err.message);
+    console.error('[redis] Redis is not available — queue features will be degraded');
+  }
 });
 
 export default redis;

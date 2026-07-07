@@ -65,6 +65,8 @@ export const sessionService = {
             endTime,
             avgConsultationMin:   schedule.avgConsultationMin || 15,
             maxBookings:          schedule.defaultMaxBookings ?? null,
+            consultationFee:      schedule.consultationFee?.amount ?? 0,
+            currency:             schedule.consultationFee?.currency || 'EGP',
             status:               'scheduled',
             bookingsCount:        0,
             currentServing:       0,

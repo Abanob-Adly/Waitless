@@ -4,7 +4,7 @@ import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../services/api";
-import { initiatePaymobPayment } from "../services/paymentService";
+import { startAppointmentCheckout } from "../services/paymentService";
 import { fmt12 } from "../utils/time";
 import type { ActiveBooking } from "../context/AppContext";
 
@@ -228,21 +228,21 @@ function TicketView({
 
   const [launchingPayment, setLaunchingPayment] = useState(false);
 
-  const isCardPending = booking.paymentMethod === "card" && booking.paymentStatus === "pending";
+  const isPaymobPending = booking.paymentMethod === "paymob" && booking.paymentStatus === "pending";
 
-  const paymentBadge = isCardPending
-    ? { label: t("Unpaid — Pay with Card"), cls: "bg-danger/10 text-danger" }
+  const paymentBadge = isPaymobPending
+    ? { label: t("Unpaid — Pay with Paymob"), cls: "bg-danger/10 text-danger" }
     : {
         success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
         failed:  { label: t("Payment Failed"), cls: "bg-danger/10 text-danger" },
         pending: { label: t("Pay at Clinic"), cls: "bg-gold-tint text-navy" },
       }[booking.paymentStatus] ?? { label: booking.paymentStatus, cls: "bg-gold-tint text-navy" };
 
-  async function handlePayWithCard() {
+  async function handlePayWithPaymob() {
     setLaunchingPayment(true);
     try {
-      const { iframeUrl } = await initiatePaymobPayment(booking.id);
-      window.location.href = iframeUrl;
+      const { checkoutUrl } = await startAppointmentCheckout(booking.id);
+      window.location.assign(checkoutUrl);
     } catch {
       setLaunchingPayment(false);
     }
@@ -400,13 +400,13 @@ function TicketView({
               {booking.doctor.fee} EGP
             </span>
           </div>
-          {isCardPending && (
+          {isPaymobPending && (
             <button
-              onClick={() => void handlePayWithCard()}
+              onClick={() => void handlePayWithPaymob()}
               disabled={launchingPayment}
               className="mt-2 w-full rounded-lg bg-navy py-2.5 text-sm font-semibold text-white transition hover:bg-navy/80 disabled:opacity-60"
             >
-              {launchingPayment ? t("Redirecting…") : t("Pay with Card →")}
+              {launchingPayment ? t("Redirecting…") : t("Pay with Paymob →")}
             </button>
           )}
         </div>

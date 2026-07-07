@@ -6,16 +6,15 @@ import membershipRoutes from "./routes/membership.js";
 import orgRoutes from "./routes/orgRoutes.js";
 import marketplaceRoutes from "./routes/marketplaceRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
-import walletRoutes from "./routes/walletRoutes.js";
+import appointmentPaymentRoutes from "./routes/appointmentPaymentRoutes.js";
 import webhookRoutes from './routes/webhookRoutes.js';;
-import paymobRoutes from "./routes/paymobRoutes.js";
+import { paymentController } from './controllers/paymentController.js';
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { validate } from "./middleware/validate.js";
 import { patientController, patientSchemas } from "./controllers/patientController.js";
 import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
-import { startLateStartPenaltyCron } from "./jobs/lateStartPenalty.js";
 import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -57,14 +56,17 @@ app.use("/marketplace", marketplaceRoutes);
 // Reviews (public — token-based)
 app.use("/reviews", reviewRoutes);
 
-// Wallet (personal — patient / doctor)
-app.use("/wallet", walletRoutes);
+// /:appointmentId/pay + /payments/:paymentId/result
+app.use("/appointments", appointmentPaymentRoutes); 
+
+// Generic payment result lookup (works for both subscription & appointment payments)
+app.get('/payments/result', authenticate, paymentController.result);
 
 // payment and billing (organization-level)
 app.use('/webhooks', webhookRoutes)
 
 // Paymob payment gateway
-app.use("/payment/paymob", paymobRoutes);
+// app.use("/payment/paymob", paymobRoutes);
 
 // Patient self-service endpoints
 app.get("/patients/me", authenticate, patientController.getOwn);
@@ -73,7 +75,7 @@ app.patch("/patients/me", authenticate, validate(patientSchemas.updateOwn), pati
 // Patient: own appointment history
 app.get("/appointments/mine", authenticate, appointmentController.getOwn);
 
-// Patient: self-cancel — applies cancellation penalty if within 1 hour of session start
+// Patient: self-cancel
 app.delete("/appointments/:appointmentId/cancel", authenticate, appointmentController.selfCancel);
 
 // Public appointment tracking (no auth — token-based)
@@ -82,7 +84,6 @@ app.get("/appointments/track/:token", appointmentController.track);
 app.use(errorHandler);
 
 startSessionGeneratorCron();
-startLateStartPenaltyCron();
 startSessionAutoCloseCron();
 
 app.listen(env.port, () => {

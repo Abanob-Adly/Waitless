@@ -215,8 +215,7 @@ export async function getPlans(): Promise<SubscriptionPlan[]> {
 
 export type PurchasePlanResult =
   | { method: "free";   subscription: Subscription }
-  | { method: "wallet"; subscription: Subscription; invoice: Invoice; walletBalance: number }
-  | { method: "card";   iframeUrl: string; orderId: string; walletBalance: number; planPrice: number; planName: string };
+  | { method: "wallet"; subscription: Subscription; invoice: Invoice; walletBalance: number };
 
 export type Invoice = {
   id: string;
@@ -259,22 +258,11 @@ export async function purchasePlan(orgId: string, planId: string): Promise<Purch
   if (method === "free") {
     return { method: "free", subscription: adaptSubscription(d.subscription as Record<string, unknown>) };
   }
-  if (method === "wallet") {
-    return {
-      method:       "wallet",
-      subscription: adaptSubscription(d.subscription as Record<string, unknown>),
-      invoice:      adaptInvoice(d.invoice as Record<string, unknown>),
-      walletBalance: Number(d.walletBalance ?? 0),
-    };
-  }
-  // card
   return {
-    method:       "card",
-    iframeUrl:    String(d.iframeUrl ?? ""),
-    orderId:      String(d.orderId ?? ""),
+    method:       "wallet",
+    subscription: adaptSubscription(d.subscription as Record<string, unknown>),
+    invoice:      adaptInvoice(d.invoice as Record<string, unknown>),
     walletBalance: Number(d.walletBalance ?? 0),
-    planPrice:    Number(d.planPrice ?? 0),
-    planName:     String(d.planName ?? ""),
   };
 }
 

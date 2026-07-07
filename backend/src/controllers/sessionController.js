@@ -105,41 +105,6 @@ export const sessionController = {
     session.excuse.reviewedAt = new Date();
     session.excuse.reviewedBy = m._id;
 
-    // If admin approves an excuse after a penalty was already applied, reverse it.
-    if (req.body.verdict === 'approved' && session.penaltyApplied?.amount > 0) {
-      const { Membership } = await import('../models/Membership.js');
-      const { walletService } = await import('../services/walletService.js');
-      const mem = await Membership.findById(session.doctor).select('account').lean();
-      if (mem?.account) {
-        try {
-          const wallet = await walletService.getOrCreateAccountWallet(String(mem.account), 'doctor');
-          const Wallet = (await import('../models/Wallet.js')).default;
-          const WalletEntry = (await import('../models/WalletEntry.js')).default;
-          const refundAmt = session.penaltyApplied.amount;
-          const updated = await Wallet.findByIdAndUpdate(
-            wallet._id,
-            { $inc: { balance: refundAmt } },
-            { new: true },
-          );
-          if (updated) {
-            await WalletEntry.create({
-              wallet:        updated._id,
-              type:          'refund',
-              direction:     'credit',
-              amount:        refundAmt,
-              balanceAfter:  updated.balance,
-              reference:     session._id,
-              referenceKind: 'session',
-              description:   'Late-start penalty reversed (excuse approved)',
-              status:        'settled',
-            });
-          }
-        } catch (err) {
-          console.warn('[excuse] Penalty reversal failed:', err.message);
-        }
-      }
-    }
-
     await session.save();
     res.json({ data: { excuse: session.excuse } });
   },

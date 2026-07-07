@@ -10,7 +10,7 @@ import { AppError } from '../../utils/errors.js';
  */
 
 export const paymobProvider = {
-  async createIntention({ amountCents, currency, merchantOrderId, billingData, items }) {
+  async createIntention({ amountCents, currency, merchantOrderId, billingData, items, redirectionUrl }) {
     // Dev stub — no creds, no calls.
     if (!env.paymob?.secretKey) {
       console.log('[Paymob stub] Would create intention:', { amountCents, currency, merchantOrderId });
@@ -31,7 +31,7 @@ export const paymobProvider = {
         billing_data:      billingData,
         special_reference: merchantOrderId,
         notification_url:  env.paymob.notificationUrl,
-        redirection_url:   env.paymob.redirectionUrl,
+        redirection_url:   redirectionUrl ?? env.paymob.redirectionUrl,
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -70,6 +70,8 @@ export const paymobProvider = {
       .update(signedString)
       .digest('hex');
 
-    return expected === String(providedHmac);
+    const provided = String(providedHmac);
+    if (expected.length !== provided.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
   },
 };

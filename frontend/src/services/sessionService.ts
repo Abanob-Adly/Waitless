@@ -2,13 +2,6 @@ import { api } from "./api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SessionExcuse = {
-  submittedAt: string | null;
-  reason: string | null;
-  status: "pending" | "approved" | "denied" | null;
-  reviewedAt: string | null;
-};
-
 export type BackendSession = {
   id: string;
   branchId: string;
@@ -27,8 +20,6 @@ export type BackendSession = {
   maxBookings: number | null;
   isOnBreak: boolean;
   globalDelayMin: number;
-  excuse: SessionExcuse | null;
-  penaltyApplied: { amount: number; appliedAt: string } | null;
   lateStartMin: number;
 };
 
@@ -66,11 +57,9 @@ function base(orgId: string, branchId: string) {
 }
 
 function adaptSession(s: Record<string, unknown>): BackendSession {
-  // Backend may populate doctor membership with account data
   const doctorObj = s.doctor as Record<string, unknown> | null | undefined;
   const doctorAccount = (doctorObj?.account as Record<string, unknown>) ?? {};
 
-  // Parse date from ISO startTime
   const startIso = String(s.startTime ?? "");
   const date = startIso ? startIso.slice(0, 10) : "";
 
@@ -103,20 +92,6 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     isOnBreak: Boolean(s.isOnBreak ?? false),
     globalDelayMin: Number(s.globalDelayMin ?? 0),
     lateStartMin: Number(s.lateStartMin ?? 0),
-    excuse: s.excuse
-      ? {
-          submittedAt: (s.excuse as Record<string, unknown>).submittedAt as string | null,
-          reason:      (s.excuse as Record<string, unknown>).reason as string | null,
-          status:      (s.excuse as Record<string, unknown>).status as SessionExcuse["status"],
-          reviewedAt:  (s.excuse as Record<string, unknown>).reviewedAt as string | null,
-        }
-      : null,
-    penaltyApplied: s.penaltyApplied
-      ? {
-          amount:    Number((s.penaltyApplied as Record<string, unknown>).amount ?? 0),
-          appliedAt: String((s.penaltyApplied as Record<string, unknown>).appliedAt ?? ""),
-        }
-      : null,
   };
 }
 
@@ -304,32 +279,6 @@ export async function resumeFromBreak(
   await api.post(
     `${base(orgId, branchId)}/${sessionId}/resume`,
   );
-}
-
-export async function submitExcuse(
-  orgId: string,
-  branchId: string,
-  sessionId: string,
-  reason: string,
-): Promise<{ excuse: SessionExcuse }> {
-  const res = await api.post<{ data: { excuse: SessionExcuse } }>(
-    `${base(orgId, branchId)}/${sessionId}/excuse`,
-    { reason },
-  );
-  return res.data.data;
-}
-
-export async function reviewExcuse(
-  orgId: string,
-  branchId: string,
-  sessionId: string,
-  verdict: "approved" | "denied",
-): Promise<{ excuse: SessionExcuse }> {
-  const res = await api.patch<{ data: { excuse: SessionExcuse } }>(
-    `${base(orgId, branchId)}/${sessionId}/excuse`,
-    { verdict },
-  );
-  return res.data.data;
 }
 
 // ── Force Insert ──────────────────────────────────────────────────────────────

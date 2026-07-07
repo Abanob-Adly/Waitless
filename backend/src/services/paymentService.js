@@ -1,10 +1,10 @@
+import { env } from '../config/env.js';
 import Payment from '../models/Payment.js';
-import Account from '../models/Account.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import Appointment from '../models/Appointment.js';
 import { paymobProvider } from './providers/paymob.js';
 import { subscriptionService } from './subscriptionService.js';
-import { walletService } from './walletService.js';
-import { AppError, NotFound } from '../utils/errors.js';
+import { AppError, NotFound, Forbidden, Conflict } from '../utils/errors.js';
 
 /**
  * Build Paymob billing_data from an Account. Paymob requires ALL these fields
@@ -24,21 +24,17 @@ function billingFromAccount(account) {
 export const paymentService = {
   // ── Checkout starters ───────────────────────────────────────────────────
 
-  /**
-   * Start a subscription checkout for an organization.
-   */
+  // Start a subscription checkout for an organization.   
   async startSubscriptionCheckout({ orgId, planId, billingCycle, actor }) {
     const plan = await SubscriptionPlan.findById(planId);
     if (!plan || !plan.isActive) throw NotFound('Plan not found');
 
-    // Compute price
     const monthly = plan.priceMonthly;
     const amount  = billingCycle === 'yearly'
       ? Math.round(monthly * 12 * (1 - (plan.yearlyDiscount || 0) / 100))
       : monthly;
     const amountCents = Math.round(amount * 100);
 
-    // Create pending payment record FIRST so the webhook can find it
     const payment = await Payment.create({
       purpose:      'subscription',
       organization: orgId,
@@ -48,7 +44,7 @@ export const paymentService = {
       currency:     plan.currency || 'EGP',
     });
 
-    const { checkoutUrl } = await paymobProvider.createIntention({
+    const { checkoutUrl, intentionId } = await paymobProvider.createIntention({
       amountCents,
       currency:        plan.currency || 'EGP',
       merchantOrderId: String(payment._id),
@@ -58,62 +54,87 @@ export const paymentService = {
         amount:   amountCents,
         quantity: 1,
       }],
+      redirectionUrl: `${env.app.url}/payment-result?paymentId=${payment._id}`,
     });
+
+    if (intentionId) {
+      payment.paymobIntentionId = String(intentionId);
+      await payment.save();
+    }
 
     return { checkoutUrl, paymentId: payment._id };
   },
 
-  /**
-   * Start a wallet top-up for the authenticated user (patient/doctor).
-   */
-  async startWalletTopup({ accountId, ownerKind, amount, actor }) {
-    const amountCents = Math.round(amount * 100);
+  // Start an appointment checkout for a patient.
+  async startAppointmentCheckout({ appointmentId, actor }) {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('patientProfile', 'accountId')
+      .populate({
+        path: 'session',
+        select: 'consultationFee currency doctorBranchSchedule',
+        populate: { path: 'doctorBranchSchedule', select: 'consultationFee' },
+      });
+    if (!appointment) throw NotFound('Appointment not found');
 
-    const payment = await Payment.create({
-      purpose:     'wallet_topup',
-      account:     accountId,
-      ownerKind,
-      amountCents,
-      currency:    'EGP',
+    // Ownership: patient can only pay for their own appointments
+    if (String(appointment.patientProfile?.accountId) !== String(actor.account._id)) {
+      throw Forbidden('Appointment does not belong to this user');
+    }
+
+    // Idempotency
+    if (appointment.paymentStatus === 'success') {
+      throw Conflict('Appointment is already paid');
+    }
+    if (['completed', 'cancelled', 'no_show'].includes(appointment.status)) {
+      throw Conflict(`Cannot pay for an appointment in status "${appointment.status}"`);
+    }
+
+    // Fee precedence: session.consultationFee > schedule.consultationFee.amount
+    const sess = appointment.session;
+    let fee = sess?.consultationFee;
+    if (!fee || fee <= 0) {
+      fee = sess?.doctorBranchSchedule?.consultationFee?.amount;
+    }
+    if (!fee || fee <= 0) throw new AppError('Session has no consultation fee configured', 400);
+
+    const currency    = sess.currency || sess?.doctorBranchSchedule?.consultationFee?.currency || 'EGP';
+    const amountCents = Math.round(fee * 100);
+
+    // If a previous pending payment exists for this appointment, reuse it
+    let payment = await Payment.findOne({
+      purpose:     'appointment',
+      appointment: appointment._id,
+      status:      'pending',
     });
 
-    const { checkoutUrl } = await paymobProvider.createIntention({
+    if (!payment) {
+      payment = await Payment.create({
+        purpose:     'appointment',
+        account:     actor.account._id,
+        appointment: appointment._id,
+        amountCents,
+        currency,
+      });
+    }
+
+    const { checkoutUrl, intentionId } = await paymobProvider.createIntention({
       amountCents,
-      currency:        'EGP',
+      currency,
       merchantOrderId: String(payment._id),
       billingData:     billingFromAccount(actor.account),
-      items: [{ name: 'Wallet top-up', amount: amountCents, quantity: 1 }],
+      items: [{ name: 'Appointment consultation', amount: amountCents, quantity: 1 }],
+      redirectionUrl: `${env.app.url}/payment-result?paymentId=${payment._id}`,
     });
+
+    if (intentionId) {
+      payment.paymobIntentionId = String(intentionId);
+      await payment.save();
+    }
 
     return { checkoutUrl, paymentId: payment._id };
   },
 
-  /**
-   * Start an organization wallet top-up (admin).
-   */
-  async startOrgWalletTopup({ orgId, amount, actor }) {
-    const amountCents = Math.round(amount * 100);
-
-    const payment = await Payment.create({
-      purpose:      'org_wallet_topup',
-      organization: orgId,
-      ownerKind:    'organization',
-      amountCents,
-      currency:     'EGP',
-    });
-
-    const { checkoutUrl } = await paymobProvider.createIntention({
-      amountCents,
-      currency:        'EGP',
-      merchantOrderId: String(payment._id),
-      billingData:     billingFromAccount(actor.account),
-      items: [{ name: 'Organization wallet top-up', amount: amountCents, quantity: 1 }],
-    });
-
-    return { checkoutUrl, paymentId: payment._id };
-  },
-
-  // ── Webhook handler ─────────────────────────────────────────────────────
+  // Webhook handler
 
   /**
    * Called by the Paymob webhook after HMAC verification.
@@ -126,26 +147,23 @@ export const paymentService = {
     const payment = await Payment.findById(merchantOrderId);
     if (!payment) throw NotFound('Payment record not found');
 
-    // Idempotency — Paymob may retry webhooks
+    // Idempotency
     if (payment.status === 'success') return { alreadyProcessed: true };
 
     payment.paymobTransactionId = String(obj.id);
     payment.processedAt         = new Date();
 
-    // Failed payment
     if (!obj.success || obj.error_occured) {
       payment.status        = 'failed';
       payment.failureReason = obj.data?.message || 'Payment failed';
       await payment.save();
 
-      // Downgrade the subscription only if this was a renewal attempt.
       if (payment.purpose === 'subscription') {
         await subscriptionService.markPastDue(payment.organization);
       }
       return { ok: true, status: 'failed' };
     }
 
-    // Successful payment — dispatch by purpose
     payment.status = 'success';
     await payment.save();
 
@@ -159,18 +177,13 @@ export const paymentService = {
         });
         break;
 
-      case 'wallet_topup':
-        await walletService.topUp({
-          accountId: payment.account,
-          ownerKind: payment.ownerKind,
-          amount:    payment.amountCents / 100,
-        });
-        break;
-
-      case 'org_wallet_topup':
-        await walletService.orgTopUp({
-          orgId:  payment.organization,
-          amount: payment.amountCents / 100,
+      case 'appointment':
+        await Appointment.findByIdAndUpdate(payment.appointment, {
+          $set: {
+            paymentMethod: 'paymob',
+            paymentStatus: 'success',
+            paidAt:        new Date(),
+          },
         });
         break;
     }

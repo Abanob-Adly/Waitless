@@ -13,7 +13,7 @@ const loadOrg = (req) =>
 router.post(
   '/checkout',
   authenticate,
-  authorize('organization.manage', loadOrg),
+  authorize('subscription.manage', loadOrg),
   paymentController.subscriptionCheckout,
 );
 

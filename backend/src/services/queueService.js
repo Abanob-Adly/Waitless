@@ -216,10 +216,8 @@ export const queueService = {
     if (newStatus === 'completed') {
       appointment.completedAt = now;
       appointment.reviewToken = generateToken(24); // one-time review link token
-      // Clinic payments stay 'pending' until receptionist confirms cash received.
-      if (appointment.paymentMethod !== 'clinic') {
-        appointment.paymentStatus = 'success';
-      }
+      // Do NOT auto-mark paymentStatus here. Paymob webhook sets it on online payments;
+      // receptionist explicitly confirms cash/clinic payments
     }
     if (newStatus === 'cancelled')   appointment.cancelledAt = now;
     if (newStatus === 'skipped')     appointment.skippedAt   = now;
@@ -326,34 +324,6 @@ export const queueService = {
         if (fee > 0) {
           const apptId = appointment._id;
           const orgId  = appointment.organization;
-
-          // Debit patient wallet — skip if already paid via wallet at booking time,
-          // or if paying cash (receptionist collects physically).
-          // card: charged externally via Paymob; wallet: prepaid at booking;
-          // cash/clinic: physically collected — never debit the in-app patient wallet.
-          if (!['wallet', 'cash', 'clinic', 'card'].includes(appointment.paymentMethod) && appointment.patientProfile) {
-            try {
-              const PatientProfile = (await import('../models/PatientProfile.js')).default;
-              const pp = await PatientProfile.findById(appointment.patientProfile).select('accountId').lean();
-              if (pp?.accountId) {
-                await walletService.purchaseDebit({ accountId: pp.accountId, amount: fee, appointmentId: apptId });
-              }
-            } catch (e) {
-              console.error('[WALLET] patient debit failed for appointment', apptId, ':', e.message);
-            }
-          }
-
-          // Credit doctor wallet — independent of patient debit
-          if (session.doctor && doctorNet > 0) {
-            try {
-              const mem = await Membership.findById(session.doctor).select('account').lean();
-              if (mem?.account) {
-                await walletService.doctorEarningCredit({ accountId: mem.account, amount: doctorNet, appointmentId: apptId });
-              }
-            } catch (e) {
-              console.error('[WALLET] doctor credit failed for appointment', apptId, ':', e.message);
-            }
-          }
 
           // Credit org wallet — independent
           if (commissionAmt > 0) {

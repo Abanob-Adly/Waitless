@@ -8,6 +8,7 @@ import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
 import * as orgService from "../../services/orgService";
+import * as paymentService from "../../services/paymentService";
 import type { WalletSummary, WalletTransaction, Invoice } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import type { AdminJoinRequest } from "../../services/joinRequestService";
@@ -1187,7 +1188,6 @@ function SchedulesTab() {
 
 type BranchConflict = { currentBranches: number; allowedBranches: number; planName: string };
 type PaymentModal = { planId: string; planName: string; planPrice: number; walletBalance: number };
-type IframeModal  = { iframeUrl: string; planName: string; planPrice: number };
 
 function BillingTab() {
   const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
@@ -1198,8 +1198,6 @@ function BillingTab() {
   const [toast, setToast]           = useState<{ ok: boolean; msg: string } | null>(null);
   const [conflict, setConflict]     = useState<(BranchConflict & { planId: string }) | null>(null);
   const [removingBranch, setRemovingBranch] = useState<string | null>(null);
-  const [paymentModal, setPaymentModal]     = useState<PaymentModal | null>(null);
-  const [iframeModal, setIframeModal]       = useState<IframeModal | null>(null);
 
   // Invoices (billing history)
   const [invoices, setInvoices]       = useState<Invoice[]>([]);
@@ -1270,7 +1268,7 @@ function BillingTab() {
       return;
     }
 
-    // For paid plans: wallet-first, Paymob card fallback
+    // For paid plans: wallet-first, Paymob checkout fallback
     setProcessing(planId);
     try {
       const result = await orgService.purchasePlan(org.id, planId);
@@ -1278,13 +1276,18 @@ function BillingTab() {
         await refresh();
         await loadInvoices(1);
         showToast(true, `${t("Payment successful")} — ${t("Pay from Wallet")}: ${plan.pricePerMonth} ${locale === "ar" ? "ج.م" : "EGP"}`);
-      } else if (result.method === "card") {
-        setIframeModal({ iframeUrl: result.iframeUrl, planName: result.planName, planPrice: result.planPrice });
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
       if (e?.response?.data?.error === "BRANCH_LIMIT_EXCEEDED" && e.response!.data!.details) {
         setConflict({ ...e.response!.data!.details, planId });
+      } else if (e?.response?.data?.error === "INSUFFICIENT_WALLET") {
+        try {
+          const checkout = await paymentService.startSubscriptionCheckout(org.id, { planId });
+          window.location.assign(checkout.checkoutUrl);
+        } catch {
+          showToast(false, e?.response?.data?.message ?? t("Payment failed"));
+        }
       } else {
         showToast(false, e?.response?.data?.message ?? t("Payment failed"));
       }
@@ -1345,7 +1348,7 @@ function BillingTab() {
       [isAr ? "الخطة" : "Plan",                 inv.planName],
       [isAr ? "طريقة الدفع" : "Payment Method",
         inv.paymentMethod === "wallet" ? (isAr ? "محفظة" : "Wallet")
-        : inv.paymentMethod === "card"  ? (isAr ? "بطاقة ائتمان" : "Credit Card")
+        : inv.paymentMethod === "card"  ? (isAr ? "Paymob" : "Paymob")
         : (isAr ? "يدوي" : "Manual")],
       [isAr ? "بداية الفترة" : "Period Start",  new Date(inv.periodStart).toLocaleDateString("en-EG")],
       [isAr ? "نهاية الفترة" : "Period End",    new Date(inv.periodEnd).toLocaleDateString("en-EG")],
@@ -1523,7 +1526,7 @@ function BillingTab() {
                       {inv.paymentMethod === "wallet"
                         ? t("Pay from Wallet")
                         : inv.paymentMethod === "card"
-                          ? t("Add Credit Card")
+                          ? t("Paymob Checkout")
                           : t("Manual")}
                     </td>
                     <td className="px-4 py-3">
@@ -1610,36 +1613,6 @@ function BillingTab() {
             >
               {t("Keep Current Plan")}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Paymob iframe modal (card payment) ───────────────────────────── */}
-      {iframeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl animate-fade-up rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <p className="font-heading text-base font-bold text-navy">{t("Add Credit Card")}</p>
-                <p className="text-xs text-navy-mid">
-                  {iframeModal.planName} — {iframeModal.planPrice} {locale === "ar" ? "ج.م" : "EGP"}/{t("mo")}
-                </p>
-              </div>
-              <button
-                onClick={() => setIframeModal(null)}
-                className="rounded-md px-3 py-1.5 text-sm text-navy-mid hover:bg-offwhite"
-              >
-                {t("Cancel")}
-              </button>
-            </div>
-            <div className="h-[480px] w-full">
-              <iframe
-                src={iframeModal.iframeUrl}
-                className="h-full w-full rounded-b-2xl border-0"
-                title="Paymob Payment"
-                allow="payment"
-              />
-            </div>
           </div>
         </div>
       )}
@@ -1783,7 +1756,7 @@ function WalletTab() {
   return (
     <div className="space-y-8">
       {/* Organization Wallet (balance + top-up + wallet entries) */}
-      <WalletView mode="org" orgId={orgId} />
+      <WalletView orgId={orgId} />
 
       {/* Session Revenue — detailed transaction list from completed appointments */}
       <div className="space-y-5">
@@ -2602,7 +2575,6 @@ function SessionsTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [editingMax, setEditingMax] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
-  const [reviewingExcuse, setReviewingExcuse] = useState<string | null>(null);
 
   // Default to first branch
   useEffect(() => {
@@ -2642,29 +2614,12 @@ function SessionsTab() {
     }
   }
 
-  async function handleReviewExcuse(session: BackendSession, verdict: "approved" | "denied") {
-    setReviewingExcuse(`${session.id}-${verdict}`);
-    try {
-      await sessionService.reviewExcuse(orgId, session.branchId, session.id, verdict);
-      // Refresh sessions list
-      const updated = await sessionService.getSessions(orgId, branchId, { date });
-      setSessions(updated);
-    } catch {
-      // ignore
-    } finally {
-      setReviewingExcuse(null);
-    }
-  }
-
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
     active:    "bg-success/10 text-success",
     ended:     "bg-border text-navy-mid",
     cancelled: "bg-danger/10 text-danger",
   };
-
-  // Count sessions with pending excuses for a quick summary
-  const pendingExcuseCount = sessions.filter((s) => s.excuse?.status === "pending").length;
 
   return (
     <div className="space-y-5">
@@ -2686,16 +2641,6 @@ function SessionsTab() {
         />
       </div>
 
-      {/* Pending excuse alert */}
-      {pendingExcuseCount > 0 && (
-        <div className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
-          <span className="text-base">📋</span>
-          <p className="text-sm font-medium text-navy">
-            {pendingExcuseCount} {locale === "ar" ? (pendingExcuseCount > 1 ? t("pending excuses") : t("pending excuse")) : `pending excuse${pendingExcuseCount > 1 ? "s" : ""}`} {t("require your review")}
-          </p>
-        </div>
-      )}
-
       {isLoading ? (
         <Skeleton />
       ) : sessions.length === 0 ? (
@@ -2705,8 +2650,6 @@ function SessionsTab() {
           {sessions.map((session) => {
             const isEditing = editingMax[session.id] !== undefined;
             const maxVal = isEditing ? editingMax[session.id] : session.maxBookings != null ? String(session.maxBookings) : "";
-            const excuse  = session.excuse;
-            const penalty = session.penaltyApplied;
             return (
               <div key={session.id} className="px-5 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -2746,51 +2689,6 @@ function SessionsTab() {
                     </span>
                   </div>
                 </div>
-
-                {/* Penalty info */}
-                {penalty && (
-                  <p className="mt-2 text-xs text-danger">
-                    Penalty: {penalty.amount} EGP deducted at {new Date(penalty.appliedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </p>
-                )}
-
-                {/* Excuse review panel */}
-                {excuse?.submittedAt && (
-                  <div className="mt-3 rounded-lg border border-border bg-offwhite p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-semibold text-navy">{t("Doctor excuse submitted")}</p>
-                        <p className="mt-0.5 text-xs text-navy-mid">{excuse.reason}</p>
-                      </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                        excuse.status === "approved" ? "bg-success/10 text-success"
-                        : excuse.status === "denied"  ? "bg-danger/10 text-danger"
-                        : "bg-gold-tint text-gold"
-                      }`}>
-                        {excuse.status ?? "pending"}
-                      </span>
-                    </div>
-
-                    {excuse.status === "pending" && (
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => void handleReviewExcuse(session, "approved")}
-                          disabled={!!reviewingExcuse}
-                          className="rounded-md border border-success/30 bg-success/5 px-3 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
-                        >
-                          {reviewingExcuse === `${session.id}-approved` ? "…" : t("Approve")}
-                        </button>
-                        <button
-                          onClick={() => void handleReviewExcuse(session, "denied")}
-                          disabled={!!reviewingExcuse}
-                          className="rounded-md border border-danger/30 bg-danger/5 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
-                        >
-                          {reviewingExcuse === `${session.id}-denied` ? "…" : t("Deny")}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

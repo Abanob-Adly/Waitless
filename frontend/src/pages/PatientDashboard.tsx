@@ -9,7 +9,6 @@ import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActive
 import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
-import { WalletView } from "../components/ui/WalletView";
 import { fmt12 } from "../utils/time";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -104,11 +103,6 @@ export function PatientDashboard() {
         id: "history",
         label: `${t("Past History")} (${appointmentHistory.length})`,
         content: <HistoryTab history={appointmentHistory} />,
-      },
-      {
-        id: "wallet",
-        label: "Wallet",
-        content: <WalletView mode="personal" />,
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps

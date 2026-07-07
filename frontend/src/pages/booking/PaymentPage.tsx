@@ -3,16 +3,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { Button } from "../../components/ui/Button";
 import { mockBooking } from "../../data/mockBooking";
-import type { PaymentMethod } from "../../types/booking";
 
 export function PaymentPage() {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const navigate = useNavigate();
+  const [processing, setProcessing] = useState(false);
 
-  function handlePaymentSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    // مؤقتًا لحد ما نعمل backend integration
+  function handlePaymobRedirect() {
+    setProcessing(true);
     navigate(`/ticket/${mockBooking.id}`);
   }
 
@@ -35,154 +32,37 @@ export function PaymentPage() {
             </h1>
 
             <p className="mt-2 text-navy-mid">
-              Choose your preferred payment method and confirm your booking.
+              Your appointment will be confirmed after payment via Paymob.
             </p>
 
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              <PaymentMethodButton
-                active={paymentMethod === "card"}
-                label="💳 Credit/Debit"
-                onClick={() => setPaymentMethod("card")}
-              />
-
-              <PaymentMethodButton
-                active={paymentMethod === "vodafone_cash"}
-                label="📱 Vodafone Cash"
-                onClick={() => setPaymentMethod("vodafone_cash")}
-              />
-
-              <PaymentMethodButton
-                active={paymentMethod === "pay_at_clinic"}
-                label="🏥 Pay at Clinic"
-                onClick={() => setPaymentMethod("pay_at_clinic")}
-              />
+            <div className="mt-8 rounded-xl border border-border bg-offwhite p-6">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gold-tint">
+                  <span className="text-2xl">💳</span>
+                </div>
+                <div>
+                  <p className="font-heading text-lg font-bold text-navy">Pay with Paymob</p>
+                  <p className="mt-1 text-sm text-navy-mid">
+                    You will be redirected to Paymob&apos;s secure checkout page to complete payment.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <form onSubmit={handlePaymentSubmit} className="mt-8">
-              {paymentMethod === "card" && <CardPaymentForm />}
+            <div className="mt-8">
+              <Button size="lg" className="w-full md:w-auto" onClick={handlePaymobRedirect} disabled={processing}>
+                {processing ? "Redirecting…" : `Pay ${mockBooking.total} EGP with Paymob →`}
+              </Button>
 
-              {paymentMethod === "vodafone_cash" && (
-                <div className="rounded-md border border-border bg-gold-tint p-5">
-                  <h2 className="font-heading text-2xl font-bold text-navy">
-                    Vodafone Cash
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-navy-mid">
-                    Enter your Vodafone Cash number. Payment confirmation will
-                    be handled later when we connect the real payment provider.
-                  </p>
-
-                  <label className="mt-5 block">
-                    <span className="text-sm font-medium text-navy">
-                      Vodafone Cash Number *
-                    </span>
-                    <input
-                      type="tel"
-                      placeholder="01XXXXXXXXX"
-                      className="mt-2 h-11 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none focus:border-gold"
-                    />
-                  </label>
-                </div>
-              )}
-
-              {paymentMethod === "pay_at_clinic" && (
-                <div className="rounded-md border border-border bg-gold-tint p-5">
-                  <h2 className="font-heading text-2xl font-bold text-navy">
-                    Pay at Clinic
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-navy-mid">
-                    Your appointment will be reserved and payment will be made
-                    at the clinic reception.
-                  </p>
-                </div>
-              )}
-
-              <div className="mt-8">
-                <Button size="lg" className="w-full md:w-auto">
-                  {paymentMethod === "pay_at_clinic"
-                    ? "Confirm Booking"
-                    : `Pay ${mockBooking.total} EGP`}
-                </Button>
-
-                <p className="mt-3 text-xs text-navy-mid">
-                  256-bit SSL · PCI DSS compliant
-                </p>
-              </div>
-            </form>
+              <p className="mt-3 text-xs text-navy-mid">
+                256-bit SSL · PCI DSS compliant · Powered by Paymob
+              </p>
+            </div>
           </section>
 
           <OrderSummary />
         </div>
       </main>
-    </div>
-  );
-}
-
-type PaymentMethodButtonProps = {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-};
-
-function PaymentMethodButton({
-  label,
-  active,
-  onClick,
-}: PaymentMethodButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        active
-          ? "rounded-md border border-gold bg-gold-tint px-4 py-3 text-left text-sm font-medium text-navy"
-          : "rounded-md border border-border bg-white px-4 py-3 text-left text-sm font-medium text-navy-mid transition hover:border-gold hover:text-navy"
-      }
-    >
-      {label}
-    </button>
-  );
-}
-
-function CardPaymentForm() {
-  return (
-    <div className="space-y-5">
-      <label className="block">
-        <span className="text-sm font-medium text-navy">Cardholder Name *</span>
-        <input
-          type="text"
-          placeholder="As printed on card"
-          className="mt-2 h-11 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none focus:border-gold"
-        />
-      </label>
-
-      <label className="block">
-        <span className="text-sm font-medium text-navy">Card Number *</span>
-        <input
-          type="text"
-          placeholder="0000 0000 0000 0000"
-          className="mt-2 h-11 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none focus:border-gold"
-        />
-      </label>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <label className="block">
-          <span className="text-sm font-medium text-navy">Expiry *</span>
-          <input
-            type="text"
-            placeholder="MM / YY"
-            className="mt-2 h-11 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none focus:border-gold"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-sm font-medium text-navy">CVV *</span>
-          <input
-            type="password"
-            placeholder="•••"
-            className="mt-2 h-11 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none focus:border-gold"
-          />
-        </label>
-      </div>
     </div>
   );
 }
@@ -227,12 +107,7 @@ function OrderSummary() {
   );
 }
 
-type SummaryRowProps = {
-  label: string;
-  value: string;
-};
-
-function SummaryRow({ label, value }: SummaryRowProps) {
+function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4">
       <span className="text-sm text-navy-mid">{label}</span>
