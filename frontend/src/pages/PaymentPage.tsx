@@ -130,16 +130,11 @@ export function PaymentPage() {
     let appointmentId = "";
     let queueNumber = 0;
     let accessToken = "";
-    let appointmentStatus = "";
     try {
-      // "clinic" bookings are held out of the active queue until a
-      // receptionist/doctor confirms the payment — see confirmPayment.
-      const backendMethod = method === "vodafone" ? "vodafone_cash" : method;
-      const appt = await bookMarketplace(session.id, { paymentMethod: backendMethod });
+      const appt = await bookMarketplace(session.id);
       appointmentId = appt.id;
       queueNumber = appt.queueNumber;
       accessToken = appt.accessToken ?? "";
-      appointmentStatus = appt.status;
     } catch (err: unknown) {
       // Wallet payments need a confirmed appointment ID before charging —
       // abort and surface the error rather than silently skipping the debit.
@@ -189,7 +184,6 @@ export function PaymentPage() {
         appointmentId,
         queueNumber,
         accessToken,
-        appointmentStatus,
       },
     });
   }
