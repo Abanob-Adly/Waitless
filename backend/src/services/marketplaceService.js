@@ -121,6 +121,21 @@ export const marketplaceService = {
       });
     }
 
+    // Resume an existing unpaid booking instead of creating a duplicate and
+    // burning another queue slot — this happens when a patient cancels/returns
+    // from the Paymob checkout page and retries payment for the same session.
+    const existing = await Appointment.findOne({
+      session:        sessionId,
+      patientProfile: profile._id,
+      status:         { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] },
+    });
+    if (existing) {
+      if (existing.paymentStatus === 'success') {
+        throw Conflict('You already have an active booking in this session');
+      }
+      return { appointment: existing, accessToken: existing.accessToken };
+    }
+
     const updated = await Session.reserveQueueNumber(sessionId);
     if (!updated) throw new AppError('Session is no longer accepting bookings', 409);
 
