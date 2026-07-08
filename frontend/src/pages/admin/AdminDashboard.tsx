@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
@@ -2553,11 +2553,17 @@ function AddScheduleModal({
   const [saving, setSaving] = useState(false);
 
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const [selectedDays, setSelectedDays] = useState<Record<number, { start: string; end: string }>>(
-    initialValues?.weeklySlots.length
-      ? Object.fromEntries(initialValues.weeklySlots.map((s) => [s.dayOfWeek, { start: s.startTime, end: s.endTime }]))
-      : { 1: { start: "09:00", end: "13:00" } },
-  );
+  type Slot = { start: string; end: string };
+  // A day can hold more than one time range (e.g. a morning and an evening
+  // session), so each day maps to an array of slots rather than a single one.
+  const [selectedDays, setSelectedDays] = useState<Record<number, Slot[]>>(() => {
+    if (!initialValues?.weeklySlots.length) return { 1: [{ start: "09:00", end: "13:00" }] };
+    const byDay: Record<number, Slot[]> = {};
+    for (const s of initialValues.weeklySlots) {
+      (byDay[s.dayOfWeek] ??= []).push({ start: s.startTime, end: s.endTime });
+    }
+    return byDay;
+  });
 
   function toggleDay(idx: number) {
     setSelectedDays((prev) => {
@@ -2565,14 +2571,64 @@ function AddScheduleModal({
       if (next[idx]) {
         delete next[idx];
       } else {
-        next[idx] = { start: "09:00", end: "13:00" };
+        next[idx] = [{ start: "09:00", end: "13:00" }];
       }
       return next;
     });
   }
 
+  function addSlot(dow: number) {
+    setSelectedDays((prev) => ({
+      ...prev,
+      [dow]: [...(prev[dow] ?? []), { start: "14:00", end: "17:00" }],
+    }));
+  }
+
+  function removeSlot(dow: number, slotIdx: number) {
+    setSelectedDays((prev) => {
+      const remaining = (prev[dow] ?? []).filter((_, i) => i !== slotIdx);
+      if (remaining.length === 0) {
+        const next = { ...prev };
+        delete next[dow];
+        return next;
+      }
+      return { ...prev, [dow]: remaining };
+    });
+  }
+
+  function updateSlot(dow: number, slotIdx: number, field: keyof Slot, value: string) {
+    setSelectedDays((prev) => ({
+      ...prev,
+      [dow]: (prev[dow] ?? []).map((slot, i) => (i === slotIdx ? { ...slot, [field]: value } : slot)),
+    }));
+  }
+
+  // Validate before saving: each slot's own range must make sense, and slots
+  // on the same day must not overlap. Checked client-side so the admin sees
+  // the problem immediately instead of round-tripping to the server.
+  const scheduleError = useMemo(() => {
+    if (Object.keys(selectedDays).length === 0) return "Select at least one day.";
+    for (const [dow, slots] of Object.entries(selectedDays)) {
+      const dayLabel = days[Number(dow)];
+      for (const slot of slots) {
+        if (!slot.start || !slot.end) return `${dayLabel}: pick both a start and end time.`;
+        if (slot.start >= slot.end) return `${dayLabel}: end time must be after start time.`;
+      }
+      const sorted = [...slots].sort((a, b) => a.start.localeCompare(b.start));
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].start < sorted[i - 1].end) return `${dayLabel}: time ranges overlap — adjust them so they don't cross.`;
+      }
+    }
+    return null;
+    // `days` is a new array reference each render but its contents never
+    // change — omitting it keeps this memo from recomputing on unrelated
+    // re-renders (e.g. every keystroke in the fee field).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDays]);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (scheduleError) return;
     const foundDoctor = doctors.find((d) => d.id === doctorId);
     if (!isEditMode && !foundDoctor) return;
     const doctorDisplayName = foundDoctor?.memberName ?? initialValues?.doctorName ?? "";
@@ -2582,11 +2638,13 @@ function AddScheduleModal({
       branchId,
       doctorName: doctorDisplayName,
       specialty,
-      weeklySlots: Object.entries(selectedDays).map(([dow, times]) => ({
-        dayOfWeek: Number(dow),
-        startTime: times.start,
-        endTime: times.end,
-      })),
+      weeklySlots: Object.entries(selectedDays).flatMap(([dow, slots]) =>
+        slots.map((slot) => ({
+          dayOfWeek: Number(dow),
+          startTime: slot.start,
+          endTime:   slot.end,
+        })),
+      ),
       fee: Number(fee),
       avgConsultationMin: Number(avgMin),
       defaultMaxBookings: defaultMax.trim() !== "" ? Number(defaultMax) : null,
@@ -2672,24 +2730,48 @@ function AddScheduleModal({
               </button>
             ))}
           </div>
-          {Object.entries(selectedDays).map(([dow, times]) => (
-            <div key={dow} className="mt-2 flex items-center gap-2 text-xs">
-              <span className="w-8 text-navy-mid">{days[Number(dow)]}</span>
-              <input
-                type="time"
-                value={times.start}
-                onChange={(e) => setSelectedDays((p) => ({ ...p, [dow]: { ...times, start: e.target.value } }))}
-                className="rounded border border-border px-2 py-1 text-xs"
-              />
-              <span>–</span>
-              <input
-                type="time"
-                value={times.end}
-                onChange={(e) => setSelectedDays((p) => ({ ...p, [dow]: { ...times, end: e.target.value } }))}
-                className="rounded border border-border px-2 py-1 text-xs"
-              />
+          {Object.entries(selectedDays).map(([dow, slots]) => (
+            <div key={dow} className="mt-2 space-y-1.5">
+              {slots.map((slot, slotIdx) => (
+                <div key={slotIdx} className="flex items-center gap-2 text-xs">
+                  <span className="w-8 shrink-0 text-navy-mid">{slotIdx === 0 ? days[Number(dow)] : ""}</span>
+                  <input
+                    type="time"
+                    value={slot.start}
+                    onChange={(e) => updateSlot(Number(dow), slotIdx, "start", e.target.value)}
+                    className="rounded border border-border px-2 py-1 text-xs"
+                  />
+                  <span>–</span>
+                  <input
+                    type="time"
+                    value={slot.end}
+                    onChange={(e) => updateSlot(Number(dow), slotIdx, "end", e.target.value)}
+                    className="rounded border border-border px-2 py-1 text-xs"
+                  />
+                  {slots.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeSlot(Number(dow), slotIdx)}
+                      className="ml-1 text-navy-mid transition hover:text-danger"
+                      title="Remove this time range"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addSlot(Number(dow))}
+                className="ml-10 text-xs font-medium text-gold transition hover:text-gold-light"
+              >
+                + Add another time on {days[Number(dow)]}
+              </button>
             </div>
           ))}
+          {scheduleError && (
+            <p className="mt-2 text-xs text-danger">{scheduleError}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -2705,7 +2787,7 @@ function AddScheduleModal({
           inputMode="numeric"
         />
 
-        <ModalActions onClose={onClose} saving={saving} label={isEditMode ? "Save Changes" : "Create Schedule"} />
+        <ModalActions onClose={onClose} saving={saving} label={isEditMode ? "Save Changes" : "Create Schedule"} disabled={!!scheduleError} />
       </form>
     </ModalShell>
   );

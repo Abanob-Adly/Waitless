@@ -8,6 +8,7 @@ import { AppError, NotFound } from '../utils/errors.js';
 import { queueService } from './queueService.js';
 import { walletService } from './walletService.js';
 import { SESSION_CLOSURE_FEE_EGP } from '../config/fees.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 export const sessionService = {
   async generateSessions({ scheduleId, orgId, fromDate, toDate }) {
@@ -54,8 +55,11 @@ export const sessionService = {
         endTime.setUTCHours(eh, em, 0, 0);
 
         // Skip slots whose end time has already passed — creating them would
-        // cause the auto-close cron to immediately cancel them.
-        if (endTime <= new Date()) {
+        // cause the auto-close cron to immediately cancel them. wallClockNow(),
+        // not new Date() — startTime/endTime are local wall-clock digits (see
+        // wallClockNow.js), so comparing against a genuine UTC instant would
+        // be off by this server's UTC offset.
+        if (endTime <= wallClockNow()) {
           skipped++;
           continue;
         }
