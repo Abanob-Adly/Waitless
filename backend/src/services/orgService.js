@@ -11,6 +11,7 @@ import { tokenService } from './token.js';
 import { AppError, Conflict, Forbidden } from '../utils/errors.js';
 import Branch from '../models/Branch.js';
 import { walletService } from './walletService.js';
+import { env } from '../config/env.js';
 
 // ── Plan fallback defaults (used only when DB has no plans) ──────────────────
 

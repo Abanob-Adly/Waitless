@@ -10,4 +10,9 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
     tailwindcss()
   ],
+  server: {
+    allowedHosts: ['cider-feline-decal.ngrok-free.dev'],
+  }
 })
+
+

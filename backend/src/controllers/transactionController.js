@@ -41,16 +41,16 @@ export const transactionController = {
         {
           $group: {
             _id: null,
-            totalEarnings: { $sum: '$commissionAmount' },
+            totalEarnings: { $sum: '$orgNet' },
             pendingAmount: {
-              $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$commissionAmount', 0] },
+              $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$orgNet', 0] },
             },
           },
         },
       ]),
       Transaction.aggregate([
         { $match: { org: orgObjectId, createdAt: { $gte: monthStart } } },
-        { $group: { _id: null, thisMonthEarnings: { $sum: '$commissionAmount' } } },
+        { $group: { _id: null, thisMonthEarnings: { $sum: '$orgNet' } } },
       ]),
     ]);
 

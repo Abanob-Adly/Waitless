@@ -39,3 +39,39 @@ export async function getOrgWalletEntries(
   const res = await api.get<{ data: WalletEntriesPage }>(`/orgs/${orgId}/wallet/entries`, { params });
   return res.data.data;
 }
+
+// ── Withdrawals ──────────────────────────────────────────────────────────────
+
+export type PayoutRequest = {
+  _id: string;
+  amount: number;
+  currency: string;
+  destinationType: string;
+  destinationDetails: Record<string, string>;
+  status: "pending" | "processing" | "completed" | "rejected";
+  notes: string;
+  createdAt: string;
+};
+
+export type PayoutRequestResult = {
+  payouts: PayoutRequest[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export async function withdrawFromWallet(
+  orgId: string,
+  data: { amount: number; destinationType: "bank" | "mobile_wallet"; destinationDetails: Record<string, string> },
+): Promise<PayoutRequest> {
+  const res = await api.post<{ data: PayoutRequest }>(`/orgs/${orgId}/wallet/withdraw`, data);
+  return res.data.data;
+}
+
+export async function getOrgWithdrawals(
+  orgId: string,
+  params?: { page?: number; limit?: number },
+): Promise<PayoutRequestResult> {
+  const res = await api.get<{ data: PayoutRequestResult }>(`/orgs/${orgId}/wallet/withdrawals`, { params });
+  return res.data.data;
+}

@@ -7,7 +7,8 @@ import orgRoutes from "./routes/orgRoutes.js";
 import marketplaceRoutes from "./routes/marketplaceRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import appointmentPaymentRoutes from "./routes/appointmentPaymentRoutes.js";
-import webhookRoutes from './routes/webhookRoutes.js';;
+import webhookRoutes from './routes/webhookRoutes.js';
+import adminPayoutRoutes from './routes/adminPayoutRoutes.js';
 import { paymentController } from './controllers/paymentController.js';
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authenticate } from "./middleware/authenticate.js";
@@ -16,6 +17,7 @@ import { patientController, patientSchemas } from "./controllers/patientControll
 import { appointmentController } from "./controllers/appointmentController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
+import { startSessionAutoStartCron } from "./jobs/sessionAutoStart.js";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 
@@ -39,7 +41,7 @@ const authLimiter = rateLimit({
 });
 
 // Health check
-app.get("/", (_req, res) => res.send("OK"));
+app.get("/", (_req, res) => res.send("UP"));
 
 // Auth
 app.use("/auth", authLimiter, authRoutes);
@@ -65,8 +67,8 @@ app.get('/payments/result', authenticate, paymentController.result);
 // payment and billing (organization-level)
 app.use('/webhooks', webhookRoutes)
 
-// Paymob payment gateway
-// app.use("/payment/paymob", paymobRoutes);
+// Platform admin: payout management
+app.use('/admin', adminPayoutRoutes);
 
 // Patient self-service endpoints
 app.get("/patients/me", authenticate, patientController.getOwn);
@@ -78,13 +80,16 @@ app.get("/appointments/mine", authenticate, appointmentController.getOwn);
 // Patient: self-cancel
 app.delete("/appointments/:appointmentId/cancel", authenticate, appointmentController.selfCancel);
 
-// Public appointment tracking (no auth — token-based)
+// Public appointment tracking & self-cancel (no auth — token-based)
 app.get("/appointments/track/:token", appointmentController.track);
+app.get("/appointments/track/:token/sse", appointmentController.trackSSE);
+app.delete("/appointments/track/:token", appointmentController.cancelByToken);
 
 app.use(errorHandler);
 
 startSessionGeneratorCron();
 startSessionAutoCloseCron();
+startSessionAutoStartCron();
 
 app.listen(env.port, () => {
   console.log(`Server Started on port: ${env.port}`);

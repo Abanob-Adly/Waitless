@@ -16,10 +16,13 @@ import { Unauthorized } from '../utils/errors.js';
  */
 export async function authenticate(req, _res, next) {
     try {
+        // Accept token from Authorization header OR ?token= query param (for SSE / EventSource)
         const header = req.headers.authorization;
-        if (!header?.startsWith('Bearer ')) throw Unauthorized();
+        const rawToken = (header?.startsWith('Bearer ') ? header.slice(7) : null)
+            ?? (typeof req.query.token === 'string' ? req.query.token : null);
+        if (!rawToken) throw Unauthorized();
 
-        const payload = tokenService.verifyAccessToken(header.slice(7));
+        const payload = tokenService.verifyAccessToken(rawToken);
 
         const account = await Account.findById(payload.sub);
         if (!account || account.status !== 'active') throw Unauthorized('Account inactive');

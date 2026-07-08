@@ -32,21 +32,19 @@ const invoiceSchema = new Schema({
   periodEnd:           { type: Date, required: true },
 }, { timestamps: true });
 
-invoiceSchema.pre('save', async function (next) {
+invoiceSchema.pre('save', async function () {
   if (!this.invoiceNumber) {
     this.invoiceNumber = await generateInvoiceNumber();
   }
-  next();
 });
 
 // Also handle insertMany / create paths that bypass pre-save
-invoiceSchema.pre('insertMany', async function (next, docs) {
+invoiceSchema.pre('insertMany', async function (docs) {
   for (const doc of docs) {
     if (!doc.invoiceNumber) {
       doc.invoiceNumber = await generateInvoiceNumber();
     }
   }
-  next();
 });
 
 export default mongoose.model('Invoice', invoiceSchema);

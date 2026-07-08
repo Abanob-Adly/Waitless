@@ -2,6 +2,8 @@ import Session from '../models/QueueSession.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import ScheduleException from '../models/ScheduleException.js';
 import Appointment from '../models/Appointment.js';
+import PatientProfile from '../models/PatientProfile.js';
+import Account from '../models/Account.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { queueService } from './queueService.js';
 
@@ -127,6 +129,8 @@ export const sessionService = {
     session.status = 'active';
     await session.save();
     await queueService.populateRedis({ session });
+    // Notify waiting patients that the session has started
+    await queueService.publishQueueUpdated(session._id);
     return session;
   },
 
@@ -135,12 +139,19 @@ export const sessionService = {
       throw new AppError('Session is not active', 409);
     }
     session.status = 'ended';
+    session.actualEndTime = new Date();
     await session.save();
 
+    // Mark all pending appointments as no_show with a closure note.
     await Appointment.updateMany(
       { session: session._id, status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } },
-      { $set: { status: 'no_show' } }
+      { $set: { status: 'no_show', sessionClosureNote: 'Session ended by clinic.' } },
     );
+
+    // Notify all waiting patients via SSE that the session has ended.
+    try {
+      await queueService.publishSessionEnded(session._id);
+    } catch { /* non-fatal */ }
 
     return session;
   },

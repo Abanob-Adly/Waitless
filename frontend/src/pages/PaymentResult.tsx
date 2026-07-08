@@ -52,7 +52,7 @@ export function PaymentResult() {
       if (paymobSuccess === "true") {
         setStatus("success");
       } else {
-        setStatus("timeout");
+      setStatus("timeout");
       }
     }, POLL_TIMEOUT_MS);
 
@@ -111,7 +111,7 @@ export function PaymentResult() {
 
         <div className="mt-6 space-y-3">
           <button
-            onClick={() => navigate(payment?.purpose === "subscription" ? "/admin?tab=billing" : "/ticket")}
+            onClick={() => navigate(payment?.purpose === "subscription" ? "/admin?tab=billing" : `/ticket/${payment?.appointmentToken ?? ""}`)}
             className="h-13 w-full rounded-md bg-gold py-3 text-base font-medium text-navy transition hover:bg-gold-light"
           >
             {payment?.purpose === "subscription" ? "Back to Billing" : "View My Ticket →"}

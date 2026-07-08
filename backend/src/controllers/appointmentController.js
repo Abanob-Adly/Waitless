@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { appointmentService } from '../services/appointmentService.js';
 import { queueService } from '../services/queueService.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const appointmentSchemas = {
   confirmPayment: z.object({
@@ -8,14 +9,14 @@ export const appointmentSchemas = {
   }),
 
   bookWalkIn: z.object({
-    patientPhone:    z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    patientPhone:    z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX'),
     patientName:     z.string().min(2).max(100),
     notes:           z.string().max(500).optional(),
     appointmentType: z.enum(['new_consultation', 'follow_up', 'medical_rep']).optional(),
   }),
 
   bookOverride: z.object({
-    patientPhone: z.string().regex(/^\+?[1-9]\d{7,14}$/, 'Invalid phone number'),
+    patientPhone: z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX'),
     patientName:  z.string().min(2).max(100),
     notes:        z.string().max(500).optional(),
   }),
@@ -80,6 +81,27 @@ export const appointmentController = {
     res.json({ data: result });
   },
 
+  // Token-based self-cancel — no auth required; token ownership is the proof
+  async cancelByToken(req, res) {
+    const Appointment  = (await import('../models/Appointment.js')).default;
+    const { AppError } = await import('../utils/errors.js');
+
+    const appointment = await Appointment.findOne({ accessToken: req.params.token })
+      .populate('patientProfile', 'accountId');
+    if (!appointment) throw new AppError('Appointment not found', 404);
+
+    const patientAccountId = appointment.patientProfile?.accountId
+      ? String(appointment.patientProfile.accountId)
+      : null;
+
+    const { appointment: updated } = await appointmentService.cancelAppointment({
+      appointment,
+      reason:           'Patient self-cancelled',
+      patientAccountId,
+    });
+    res.json({ data: updated });
+  },
+
   async getOwn(req, res) {
     const result = await appointmentService.getOwnAppointments({ actor: req.actor });
     res.json({ data: result });
@@ -133,5 +155,53 @@ export const appointmentController = {
       patientAccountId: String(req.actor.account._id),
     });
     res.json({ data: updated });
+  },
+
+  // SSE endpoint: streams queue updates to the patient's live ticket (token-based, no auth)
+  async trackSSE(req, res) {
+    const Appointment = (await import('../models/Appointment.js')).default;
+    const appointment = await Appointment.findOne({ accessToken: req.params.token })
+      .select('session').lean();
+    if (!appointment) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Appointment not found' });
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type':    'text/event-stream',
+      'Cache-Control':   'no-cache',
+      'Connection':      'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write(': connected\n\n');
+
+    const channel = `queue.session.${appointment.session}`;
+    try {
+      const sub = redis.duplicate();
+      // A duplicated client does not inherit the parent's 'error' listener —
+      // an EventEmitter with no 'error' listener throws and crashes the whole
+      // process on connection failure (e.g. Redis down), independent of this
+      // try/catch around the subscribe() promise. Must attach before any
+      // command is issued on `sub`.
+      sub.on('error', (err) => console.warn('[appointments] SSE subscriber error:', describeRedisError(err)));
+      await sub.subscribe(channel);
+
+      sub.on('message', (_ch, message) => {
+        res.write(`data: ${message}\n\n`);
+      });
+
+      const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 25_000);
+
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        sub.unsubscribe().catch(() => {});
+        sub.quit().catch(() => {});
+      });
+    } catch {
+      // Redis unavailable — close stream so the client retries with backoff
+      res.end();
+    }
   },
 };

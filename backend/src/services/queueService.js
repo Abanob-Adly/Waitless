@@ -1,12 +1,11 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
 import Transaction from '../models/Transaction.js';
-import Branch from '../models/Branch.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { walletService } from './walletService.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { generateToken } from '../utils/otp.js';
@@ -41,7 +40,7 @@ async function getQueueState(sessionId) {
         status:             raw.status,
       };
     }
-  } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
+  } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
 
   const session = await Session.findById(sessionId).lean();
   if (!session) return null;
@@ -56,7 +55,7 @@ async function getQueueState(sessionId) {
 async function publishUpdate(sessionId, payload) {
   try {
     await redis.publish(redisPubChan(sessionId), JSON.stringify(payload));
-  } catch (err) { console.warn('[queue] Redis publish failed:', err.message); }
+  } catch (err) { console.warn('[queue] Redis publish failed:', describeRedisError(err)); }
 }
 
 export const queueService = {
@@ -70,7 +69,7 @@ export const queueService = {
       });
       await redis.expire(redisKey(session._id), 86400);
     } catch (err) {
-      console.warn('[queue] Redis populate failed:', err.message);
+      console.warn('[queue] Redis populate failed:', describeRedisError(err));
     }
   },
 
@@ -78,14 +77,17 @@ export const queueService = {
     const state = await getQueueState(sessionId);
     if (!state) throw NotFound('Session not found');
 
-    const appointments = await Appointment.find({
-      session: sessionId,
-      status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
-    })
-      .populate('patientProfile', 'fullName phone')
-      .sort({ queueNumber: 1 });
+    const [appointments, session] = await Promise.all([
+      Appointment.find({
+        session: sessionId,
+        status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
+      })
+        .populate('patientProfile', 'fullName phone')
+        .sort({ queueNumber: 1 })
+        .lean(),
+      Session.findById(sessionId).lean(),
+    ]);
 
-    const session       = await Session.findById(sessionId).lean();
     const capacityInfo  = session ? queueService.checkDailyCapacity({ session }) : null;
 
     return {
@@ -136,13 +138,16 @@ export const queueService = {
     await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, { type: 'updated', currentServing: next.queueNumber });
 
     return { appointment: next };
   },
 
   async holdPatient({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'called') {
       throw new AppError('Only a called appointment can be held', 422);
     }
@@ -155,6 +160,9 @@ export const queueService = {
   },
 
   async reinsertPatient({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'held') {
       throw new AppError('Only a held appointment can be re-inserted', 422);
     }
@@ -167,7 +175,7 @@ export const queueService = {
     });
     try {
       await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, {
       type: 'updated',
       currentServing: appointment.queueNumber,
@@ -188,7 +196,7 @@ export const queueService = {
     if (data.globalDelayMin     != null) patch.globalDelayMin     = String(data.globalDelayMin);
     try {
       await redis.hmset(redisKey(session._id), patch);
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     const state = await getQueueState(session._id);
     await publishUpdate(session._id, { type: 'delay_updated', ...state });
@@ -197,6 +205,9 @@ export const queueService = {
   },
 
   async updateAppointmentStatus({ appointment, session, newStatus }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     const allowed = VALID_TRANSITIONS[appointment.status];
     if (!allowed || !allowed.includes(newStatus)) {
       throw new AppError(
@@ -204,6 +215,8 @@ export const queueService = {
         422
       );
     }
+
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
 
     const now = new Date();
     appointment.status = newStatus;
@@ -232,7 +245,7 @@ export const queueService = {
       });
       try {
         await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-      } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+      } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
       await publishUpdate(session._id, {
         type: 'updated',
         currentServing: appointment.queueNumber,
@@ -252,7 +265,7 @@ export const queueService = {
             const prev    = Number(await redis.hget(redisKey(session._id), 'globalDelayMin') || 0);
             const updated = Math.round((prev + rounded) * 10) / 10;
             await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
-          } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
           await publishUpdate(session._id, { type: 'delay_updated', overrunMin: rounded });
         }
 
@@ -268,7 +281,7 @@ export const queueService = {
           session.avgConsultationMin = newAvg; // keep in-memory ref consistent
           try {
             await redis.hset(redisKey(session._id), 'avgConsultationMin', String(newAvg));
-          } catch (err) { console.warn('[adaptive] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[adaptive] Redis write failed:', describeRedisError(err)); }
 
           // Persist a slowly-drifting long-term average on the doctor's membership
           // (α=0.1) so future sessions start with a personalised baseline.
@@ -285,53 +298,45 @@ export const queueService = {
 
       // Persist financial split as a Transaction document
       try {
-        const [scheduleDoc, sub, branchDoc, patientDoc] = await Promise.all([
+        const [scheduleDoc, sub, patientDoc] = await Promise.all([
           DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
           getActiveSubscription(appointment.organization),
-          Branch.findById(appointment.branch).select('commissionPct').lean(),
           appointment.populate('patientProfile', 'fullName').then(() => appointment.patientProfile).catch(() => null),
         ]);
 
-        const fee            = scheduleDoc?.consultationFee?.amount ?? 0;
-        const platformPct    = sub?.plan?.platformCutPercent ?? 10;
-        const commissionPct  = branchDoc?.commissionPct ?? 70;
-        const platformCut    = Math.round(fee * platformPct / 100);
-        const commissionAmt  = Math.round((fee - platformCut) * commissionPct / 100);
-        const doctorNet      = fee - platformCut - commissionAmt;
+        const fee         = scheduleDoc?.consultationFee?.amount ?? 0;
+        const platformPct = sub?.plan?.platformCutPercent ?? 15;
+        const platformCut = Math.round(fee * platformPct / 100);
+        const orgNet      = fee - platformCut;
 
         if (fee === 0) {
           console.warn('[PAYMENT] fee=0 for appointment', appointment._id, '— session.doctorBranchSchedule:', session.doctorBranchSchedule, 'scheduleDoc:', scheduleDoc);
         }
 
         await Transaction.create({
-          org:              appointment.organization,
-          branch:           appointment.branch,
-          appointment:      appointment._id,
-          doctorMembership: session.doctor,
-          session:          session._id,
-          patientName:      (typeof patientDoc === 'object' && patientDoc?.fullName) ? patientDoc.fullName : '',
-          grossAmount:      fee,
-          currency:         'EGP',
-          platformCutPct:   platformPct,
+          org:            appointment.organization,
+          branch:         appointment.branch,
+          appointment:    appointment._id,
+          session:        session._id,
+          patientName:    (typeof patientDoc === 'object' && patientDoc?.fullName) ? patientDoc.fullName : '',
+          grossAmount:    fee,
+          currency:       'EGP',
+          platformCutPct: platformPct,
           platformCut,
-          commissionPct,
-          commissionAmount: commissionAmt,
-          doctorNet,
-          status:           'settled',
+          orgNet,
+          status:         'settled',
         });
 
-        // ── Wallet distribution (each op isolated so one failure doesn't block the others) ─
-        if (fee > 0) {
-          const apptId = appointment._id;
-          const orgId  = appointment.organization;
-
-          // Credit org wallet — independent
-          if (commissionAmt > 0) {
-            try {
-              await walletService.orgCommissionCredit({ orgId, amount: commissionAmt, appointmentId: apptId });
-            } catch (e) {
-              console.error('[WALLET] org credit failed for appointment', apptId, ':', e.message);
-            }
+        // ── Wallet distribution ─
+        if (orgNet > 0) {
+          try {
+            await walletService.orgCommissionCredit({
+              orgId: appointment.organization,
+              amount: orgNet,
+              appointmentId: appointment._id,
+            });
+          } catch (e) {
+            console.error('[WALLET] org credit failed for appointment', appointment._id, ':', e.message);
           }
         }
       } catch (err) {
@@ -341,15 +346,27 @@ export const queueService = {
 
     // Broadcast queue change for statuses not already covered above.
     // 'called' publishes inline; 'completed' publishes via delay_updated.
-    // no_show / cancelled / skipped shift EWTs for remaining patients.
+    // no_show / cancelled / skipped shift EWTs for remaining patients — and if
+    // the affected appointment was the one currently being served, advance the
+    // queue to the next patient instead of leaving currentServing stuck.
     if (['no_show', 'cancelled', 'skipped'].includes(newStatus)) {
-      await publishUpdate(session._id, { type: 'updated' });
+      if (wasCurrentlyServed) {
+        const result = await queueService.callNext({ session });
+        if (result?.done) {
+          await publishUpdate(session._id, { type: 'updated' });
+        }
+      } else {
+        await publishUpdate(session._id, { type: 'updated' });
+      }
     }
 
     return appointment;
   },
 
   async forceInsert({ appointment, session, emergencyReason }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'booked') {
       throw new AppError('Only booked appointments can be force-inserted', 422);
     }
@@ -387,6 +404,19 @@ export const queueService = {
       throw new AppError('Session is already on break', 422);
     }
 
+    const COOLDOWN_MIN = 30;
+    const lastBreak = session.breaks?.[session.breaks.length - 1];
+    if (lastBreak?.endedAt) {
+      const elapsedMin = (Date.now() - new Date(lastBreak.endedAt).getTime()) / 60_000;
+      if (elapsedMin < COOLDOWN_MIN) {
+        const remainingMin = Math.ceil(COOLDOWN_MIN - elapsedMin);
+        throw new AppError(
+          `You must wait ${remainingMin} more minute${remainingMin !== 1 ? 's' : ''} before taking another break.`,
+          422,
+        );
+      }
+    }
+
     session.isOnBreak = true;
     if (!session.breaks) session.breaks = [];
     session.breaks.push({ startedAt: new Date(), reason: reason ?? null });
@@ -402,7 +432,7 @@ export const queueService = {
       await redis.hmset(redisKey(session._id), {
         globalDelayMin: String(session.globalDelayMin),
       });
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     await publishUpdate(session._id, {
       type:           'break_started',
@@ -444,43 +474,69 @@ export const queueService = {
 
   async trackByToken({ token }) {
     const appointment = await Appointment.findOne({ accessToken: token })
-      .populate('session')
-      .populate('patientProfile', 'fullName');
+      .populate('session', 'currentServing avgConsultationMin globalDelayMin status isOnBreak doctor doctorBranchSchedule startTime')
+      .populate('patientProfile', 'fullName')
+      .lean();
     if (!appointment) throw NotFound('Appointment not found');
 
     const session = appointment.session;
-    const state = await getQueueState(session._id);
 
-    const currentServing     = state?.currentServing     ?? session.currentServing;
-    const avgConsultationMin = state?.avgConsultationMin ?? session.avgConsultationMin;
-    const globalDelayMin     = state?.globalDelayMin     ?? session.globalDelayMin ?? 0;
+    // Doctor/schedule lookups are independent of queue state — start them immediately
+    // so they overlap with getQueueState + aheadAppointments instead of running after.
+    const doctorScheduleP = Promise.all([
+      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
+      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
+    ]);
+
+    // Redis-only lookup (not the shared getQueueState helper): that helper's
+    // fallback re-fetches the session from Mongo on a cache miss, which is a
+    // wasted round-trip here since `session` was already populated above —
+    // falling back to it directly avoids a second DB query on every poll tick
+    // whenever Redis is unavailable or cold.
+    let cached = null;
+    try {
+      const raw = await redis.hgetall(redisKey(session._id));
+      if (raw && raw.currentServing != null) {
+        cached = {
+          currentServing:     Number(raw.currentServing),
+          avgConsultationMin: Number(raw.avgConsultationMin),
+          globalDelayMin:     Number(raw.globalDelayMin || 0),
+        };
+      }
+    } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
+
+    const currentServing     = cached?.currentServing     ?? session.currentServing;
+    const avgConsultationMin = cached?.avgConsultationMin ?? session.avgConsultationMin;
+    const globalDelayMin     = cached?.globalDelayMin     ?? session.globalDelayMin ?? 0;
 
     // Sum type-specific durations of all active appointments ahead in queue.
     // Cancelled / no-show appointments are excluded, giving accurate ETAs
     // after any gap-creating events.
-    const aheadAppointments = await Appointment.find({
-      session:     session._id,
-      queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
-      status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
-    }).select('appointmentType').lean();
+    const [aheadAppointments, [doctorDoc, scheduleDoc]] = await Promise.all([
+      Appointment.find({
+        session:     session._id,
+        queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
+        status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
+      }).select('appointmentType').lean(),
+      doctorScheduleP,
+    ]);
 
     const estimatedWaitMin = aheadAppointments.reduce(
       (sum, a) => sum + apptDuration(a, avgConsultationMin),
       globalDelayMin,
     );
 
-    const [doctorDoc, scheduleDoc] = await Promise.all([
-      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
-      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
-    ]);
-
     return {
       queueNumber:        appointment.queueNumber,
       currentlyServing:   currentServing,
+      // position = active patients still ahead of this patient (gaps from cancelled/no-show
+      // appointments are excluded), so C correctly shows "2" even if B (queue #2) cancelled.
+      position:           aheadAppointments.length + 1,
       estimatedWaitMin,
       globalDelayMin,
       avgConsultationMin,
       status:             appointment.status,
+      sessionClosureNote: appointment.sessionClosureNote ?? null,
       reviewToken:        appointment.status === 'completed' ? (appointment.reviewToken ?? null) : null,
       patientName:        appointment.patientProfile.fullName,
       sessionDate:        session.startTime.toISOString().slice(0, 10),
@@ -501,5 +557,15 @@ export const queueService = {
 
   async publishQueueUpdated(sessionId) {
     await publishUpdate(sessionId, { type: 'updated' });
+  },
+
+  /**
+   * Publish a typed cancellation event that carries the patient's name.
+   * The doctor's dashboard SSE handler checks for type === 'cancellation' to show a toast.
+   * All other clients (patients, receptionists) treat it like a generic 'updated' event
+   * and simply re-fetch their status.
+   */
+  async publishCancellation(sessionId, patientName) {
+    await publishUpdate(sessionId, { type: 'cancellation', patientName: patientName ?? '' });
   },
 };

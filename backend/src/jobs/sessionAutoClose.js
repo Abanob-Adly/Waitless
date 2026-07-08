@@ -2,9 +2,10 @@ import cron from 'node-cron';
 import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
 import { queueService } from '../services/queueService.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 /**
- * Runs every 10 minutes.
+ * Runs every minute.
  *
  * Finds sessions whose end window has passed and auto-closes them:
  *  - status 'scheduled' (never started): → 'cancelled'  (doctor no-show)
@@ -16,16 +17,25 @@ import { queueService } from '../services/queueService.js';
  *
  * Idempotent: the status filter guarantees each session is processed once.
  */
+// Small buffer before auto-ending an active session past its endTime — just
+// enough to absorb cron-tick timing, not a window for the doctor to linger.
+// Sessions should close automatically at their scheduled end, not ~20 minutes
+// after it (the old 10-minute grace + 10-minute cron interval).
+const ACTIVE_GRACE_MS = 60_000; // 1 minute
 // Extra buffer before cancelling a session that was never started.
-// Gives the doctor a window past the scheduled end time to press Start if they're running late.
 const CANCEL_GRACE_MS = 15 * 60_000; // 15 minutes
 
 export function startSessionAutoCloseCron() {
-  cron.schedule('*/10 * * * *', async () => {
-    const now = new Date();
-    // Active sessions: close as soon as endTime passes (shift is over).
-    // Scheduled sessions: only cancel after the grace period (doctor may still start).
-    const activeDeadline    = now;
+  cron.schedule('* * * * *', async () => {
+    // wallClockNow(), not new Date() — startTime/endTime are stored as local
+    // wall-clock digits (see wallClockNow.js), so comparing against a genuine
+    // UTC instant would close sessions this server's UTC-offset worth of
+    // hours off from the time staff actually scheduled.
+    const now = wallClockNow();
+    // Active sessions: only auto-close after 10-min grace past endTime so the
+    // doctor has a window to end the session manually after the scheduled shift.
+    // Scheduled sessions: cancel after the 15-min grace (doctor may still start).
+    const activeDeadline    = new Date(now.getTime() - ACTIVE_GRACE_MS);
     const scheduledDeadline = new Date(now.getTime() - CANCEL_GRACE_MS);
 
     let sessions;
@@ -57,7 +67,7 @@ export function startSessionAutoCloseCron() {
           { $set: { status: 'no_show' } },
         );
 
-        await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended' } });
+        await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended', actualEndTime: new Date() } });
 
         // Notify live-tracking clients
         try {

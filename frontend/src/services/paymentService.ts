@@ -13,6 +13,8 @@ export type PaymentResultData = {
   currency: string;
   processedAt: string | null;
   failureReason?: string;
+  appointment?: string;
+  appointmentToken?: string;
 };
 
 export async function startAppointmentCheckout(appointmentId: string): Promise<PaymentCheckoutResult> {

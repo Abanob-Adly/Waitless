@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { api } from "../../services/api";
+import { useLanguage } from "../../context/LanguageContext";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,7 @@ type AppointmentStatus =
   | "in_progress"
   | "completed"
   | "cancelled";
+  "no_show";
 
 type QueueStatus = {
   token: string;
@@ -22,6 +24,7 @@ type QueueStatus = {
   status: AppointmentStatus;
   sessionDate: string;
   sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
+  sessionClosureNote?: string;
   isOnBreak: boolean;
   doctorAvatarUrl: string;
   doctor: {
@@ -45,28 +48,32 @@ export function LiveTicket() {
     if (!token) return;
     let alive = true;
 
-    async function poll() {
+    async function fetchStatus() {
       try {
         const res = await api.get<{ data: Record<string, unknown> }>(
           `/appointments/track/${token}`,
         );
         const d = res.data.data;
         if (!alive) return;
-        const queueNumber = Number(d.queueNumber ?? 0);
+        const queueNumber      = Number(d.queueNumber ?? 0);
         const currentlyServing = Number(d.currentlyServing ?? 0);
-        const position = Math.max(0, queueNumber - currentlyServing);
+        // Prefer the server-computed position (active patients ahead + 1) which correctly
+        // skips cancelled/no-show gaps. Fall back to the naive formula if backend is stale.
+        const position = d.position != null
+          ? Math.max(1, Number(d.position))
+          : Math.max(1, queueNumber - currentlyServing);
         setQueueStatus({
           token: token,
-          patientName:         String(d.patientName ?? ""),
+          patientName:          String(d.patientName ?? ""),
           queueNumber,
           position,
-          totalInQueue:        queueNumber,
+          totalInQueue:         queueNumber,
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
-          status:              String(d.status ?? "booked") as AppointmentStatus,
-          sessionDate:         String(d.sessionDate ?? ""),
-          sessionStatus:       (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
-          isOnBreak:           Boolean(d.isOnBreak ?? false),
-          doctorAvatarUrl:     String(d.doctorAvatarUrl ?? ""),
+          status:               String(d.status ?? "booked") as AppointmentStatus,
+          sessionDate:          String(d.sessionDate ?? ""),
+          sessionStatus:        (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
+          isOnBreak:            Boolean(d.isOnBreak ?? false),
+          doctorAvatarUrl:      String(d.doctorAvatarUrl ?? ""),
           doctor: {
             name:            String(d.doctorName ?? ""),
             specialty:       "",
@@ -75,24 +82,77 @@ export function LiveTicket() {
           },
         });
       } catch {
-        if (alive) setQueueStatus(null);
+        // Leave stale state on transient error — blanking the ticket is worse than stale data.
       } finally {
         if (alive) setLoading(false);
       }
     }
 
-    poll();
-    const id = setInterval(poll, 5_000);
+    // Initial fetch
+    void fetchStatus();
+
+    // SSE for real-time updates.
+    // Retries up to 3 times with 3/6/9 s backoff before falling back to 30 s polling.
+    const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+    const sseUrl = `${apiBase}/appointments/track/${token}/sse`;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let retries = 0;
+    let currentSSE: EventSource | null = null;
+
+    function connectSSE() {
+      const es = new EventSource(sseUrl);
+      currentSSE = es;
+      es.onmessage = () => { void fetchStatus(); };
+      es.onerror = () => {
+        es.close();
+        if (!alive) return;
+        if (retries < 3) {
+          retries++;
+          setTimeout(() => { if (alive) connectSSE(); }, retries * 3_000);
+        } else if (!fallbackInterval) {
+          fallbackInterval = setInterval(() => { void fetchStatus(); }, 30_000);
+        }
+      };
+    }
+
+    connectSSE();
+
     return () => {
       alive = false;
-      clearInterval(id);
+      currentSSE?.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, [token]);
 
   async function handleCancel() {
     if (!window.confirm("Are you sure you want to cancel? This cannot be undone.")) return;
     setCancelling(true);
-    navigate("/");
+    try {
+      await api.delete(`/appointments/track/${token}`);
+      // Re-fetch to get the authoritative cancelled status from the server
+      const res = await api.get<{ data: Record<string, unknown> }>(
+        `/appointments/track/${token}`,
+      );
+      const d = res.data.data;
+      const queueNumber      = Number(d.queueNumber ?? 0);
+      const currentlyServing = Number(d.currentlyServing ?? 0);
+      setQueueStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: String(d.status ?? "cancelled") as AppointmentStatus,
+              position: d.position != null
+                ? Math.max(1, Number(d.position))
+                : Math.max(1, queueNumber - currentlyServing),
+            }
+          : null,
+      );
+    } catch {
+      // DELETE failed (already cancelled, network error) — navigate home gracefully
+      navigate("/");
+    } finally {
+      setCancelling(false);
+    }
   }
 
   // ── Loading state ──
@@ -260,6 +320,7 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
 // ── Waiting view (status: "booked") ─────────────────────────────────────────
 
 function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isOnBreak: boolean }) {
+  const { t } = useLanguage();
   const radius = 68;
   const circumference = 2 * Math.PI * radius;
   // Arc progress: 0 = first in queue, 1 = all ahead have been served
@@ -271,6 +332,15 @@ function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isO
 
   return (
     <div>
+      {queueStatus.sessionStatus === "scheduled" && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
+          <span className="text-xl">⏳</span>
+          <div>
+            <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
+            <p className="text-xs text-navy-mid">{t("The doctor has not started the session. You will be notified when it begins.")}</p>
+          </div>
+        </div>
+      )}
       {isOnBreak && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-xl">☕</span>
@@ -437,22 +507,24 @@ function SessionEndedView() {
 // ── Cancelled view (status: "cancelled") ────────────────────────────────────
 
 function CancelledView() {
+  const { t } = useLanguage();
   return (
     <div className="py-2 text-center">
       <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-4xl">
         ✕
       </div>
       <h2 className="font-heading text-2xl font-bold text-navy">
-        Appointment cancelled
+        {t("Appointment cancelled")}
       </h2>
       <p className="mt-3 text-sm text-navy-mid">
-        Your appointment has been cancelled. You can rebook at any time.
+        {t("Your appointment has been cancelled. You can rebook at any time.")}
       </p>
+
       <Link
         to="/"
         className="mt-6 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
-        Find Another Doctor
+        {t("Find Another Doctor")}
       </Link>
     </div>
   );

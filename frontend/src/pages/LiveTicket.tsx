@@ -157,8 +157,8 @@ function TicketView({
   const [ratingDismissed, setRatingDismissed] = useState(false);
   const {
     position, currentServing, etaMinutes, globalDelayMin, avgConsultationMin,
-    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, reviewToken,
-    emergencyReason, wasForceInserted,
+    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, sessionStatus, reviewToken,
+    emergencyReason, wasForceInserted, sessionClosureNote, appointmentStatus, isReady,
   } = useQueueSubscription(
     trackingToken,
     booking.queueNumber,
@@ -175,20 +175,12 @@ function TicketView({
   ].join("-");
   const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
 
-  // True when it's session day but the scheduled start time is still in the future
-  // (or the doctor hasn't pressed Start yet). We parse the start time from the
-  // booking because the queue subscription doesn't expose session status.
-  const sessionNotStarted = isSessionDay && (() => {
-    const startStr = sessionStartTime || null;
-    if (startStr) {
-      return new Date(startStr) > now;
-    }
-    // Fallback: parse HH:MM from booking.session.startTime against session date
-    const [hh, mm] = (booking.session.startTime ?? "00:00").split(":").map(Number);
-    const scheduledStart = new Date(`${effectiveDate || todayLocal}T00:00:00`);
-    scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
-    return scheduledStart > now;
-  })();
+  // True when it's session day but the doctor hasn't started the session yet.
+  // Uses the backend's real session status rather than guessing from wall-clock
+  // time, so this stays accurate whether the session starts early, late, or on
+  // schedule. Before the first poll resolves, sessionStatus is "" — treat that
+  // as "not yet known" (false) rather than flashing a premature banner.
+  const sessionNotStarted = isSessionDay && sessionStatus === "scheduled";
 
   // True when it's session day and the scheduled end time has already passed.
   // At this point the session window is over; if the patient wasn't served they
@@ -252,13 +244,13 @@ function TicketView({
     if (!window.confirm(t("Cancel your appointment? This cannot be undone.")))
       return;
     setCancelling(true);
-    // Best-effort cancel — if it fails the booking is removed from local state anyway
     try {
-      await api.delete(`/appointments/${booking.id}`);
+      await api.delete(`/appointments/${booking.id}/cancel`);
+      onCancel();
     } catch {
-      // ignore — booking was cancelled locally
+      setCancelling(false);
+      window.alert(t("Failed to cancel your appointment. Please try again."));
     }
-    onCancel();
   }
 
   return (
@@ -278,7 +270,25 @@ function TicketView({
         </span>
       </div>
 
-      {isSessionDay && isOnBreak && (
+      {appointmentStatus === "no_show" && sessionClosureNote && (
+        <div className="mb-6 rounded-xl border border-danger/30 bg-danger/5 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 text-lg">🏥</span>
+            <div className="flex-1">
+              <p className="font-semibold text-navy">{t("Session Closed by Clinic")}</p>
+              <p className="mt-1 text-sm text-navy-mid">{t(sessionClosureNote)}</p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="mt-4 w-full rounded-md border border-danger/30 py-2 text-sm font-medium text-danger transition hover:bg-danger/5"
+          >
+            {t("Remove Ticket")}
+          </button>
+        </div>
+      )}
+
+      {isSessionDay && isReady && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">☕</span>
           <div>
@@ -290,7 +300,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isOnBreak && globalDelayMin >= 5 && (
+      {isSessionDay && isReady && !isOnBreak && globalDelayMin >= 5 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
           <span className="text-base">⏱</span>
           <p className="text-sm text-navy">
@@ -300,7 +310,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && wasForceInserted && (
+      {isSessionDay && isReady && wasForceInserted && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
           <span className="text-base">🚨</span>
           <div>
@@ -312,7 +322,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isCalled && position > 0 && position <= 3 && (
+      {isSessionDay && isReady && !isCalled && position > 0 && position <= 3 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
           <span className="text-base">🔔</span>
           <div>
@@ -362,7 +372,14 @@ function TicketView({
 
         {/* ── Queue position area ── */}
         <div className="px-6 pb-2 pt-6">
-          {!isSessionDay ? (
+          {isSessionDay && !isReady ? (
+            // Wait for the first poll response before deciding which view to
+            // show — otherwise this briefly renders a guess from default/zero
+            // state (e.g. WaitingView at position 0) that then flips to the
+            // real view a moment later, which reads as the ticket "opening
+            // early" and glitching shut.
+            <TicketLoadingView />
+          ) : !isSessionDay ? (
             <CountdownView sessionDate={effectiveDate} />
           ) : sessionNotStarted ? (
             <SessionNotStartedView
@@ -446,6 +463,16 @@ function TicketView({
         </button>
       </p>
     </main>
+  );
+}
+
+// ── Loading placeholder (shown until the first live poll resolves) ──────────
+
+function TicketLoadingView() {
+  return (
+    <div className="flex flex-col items-center justify-center py-10">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-gold" />
+    </div>
   );
 }
 

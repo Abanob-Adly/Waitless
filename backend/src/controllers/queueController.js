@@ -4,6 +4,7 @@ import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { NotFound } from '../utils/errors.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const queueSchemas = {
   updateStatus: z.object({
@@ -123,6 +124,48 @@ export const queueController = {
     if (!session) throw NotFound('Session not found');
     const result = await queueService.resumeFromBreak({ session });
     res.json({ data: result });
+  },
+
+  // SSE endpoint: streams queue updates to authenticated staff
+  async subscribe(req, res) {
+    const { sessionId } = req.params;
+    res.writeHead(200, {
+      'Content-Type':    'text/event-stream',
+      'Cache-Control':   'no-cache',
+      'Connection':      'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write(': connected\n\n');
+
+    const channel = `queue.session.${sessionId}`;
+    const sub = redis.duplicate();
+    // A duplicated client does not inherit the parent's 'error' listener — an
+    // EventEmitter with no 'error' listener throws and crashes the whole
+    // process on connection failure (e.g. Redis down). Must attach this
+    // before any command is issued on `sub`.
+    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', describeRedisError(err)));
+
+    try {
+      await sub.subscribe(channel);
+    } catch (err) {
+      console.warn('[queue] SSE subscribe failed:', describeRedisError(err));
+      res.end();
+      return;
+    }
+
+    sub.on('message', (_ch, message) => {
+      res.write(`data: ${message}\n\n`);
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sub.unsubscribe().catch(() => {});
+      sub.quit().catch(() => {});
+    });
   },
 
   async cashSummary(req, res) {

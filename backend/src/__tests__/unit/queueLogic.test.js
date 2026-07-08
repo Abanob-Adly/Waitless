@@ -5,6 +5,32 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { wallClockNow } from '../../utils/wallClockNow.js';
+
+// ── wallClockNow ──────────────────────────────────────────────────────────────
+
+describe('wallClockNow', () => {
+  it('UTC-labeled fields equal this machine\'s local wall-clock reading', () => {
+    const real = new Date();
+    const fake = wallClockNow();
+    // Compare minute-granularity to avoid a rare cross-second flake.
+    assert.equal(fake.getUTCFullYear(), real.getFullYear());
+    assert.equal(fake.getUTCMonth(), real.getMonth());
+    assert.equal(fake.getUTCDate(), real.getDate());
+    assert.equal(fake.getUTCHours(), real.getHours());
+    assert.equal(fake.getUTCMinutes(), real.getMinutes());
+  });
+
+  it('differs from a genuine UTC instant whenever the server has a non-zero UTC offset', () => {
+    const real = new Date();
+    const fake = wallClockNow();
+    const offsetMs = real.getTimezoneOffset() * 60_000;
+    if (offsetMs === 0) return; // this test machine happens to run in UTC — nothing to assert
+    assert.notEqual(fake.getTime(), real.getTime());
+    // fake = real shifted by exactly the local UTC offset (re-labeling local digits as UTC).
+    assert.ok(Math.abs((fake.getTime() - real.getTime()) + offsetMs) < 60_000);
+  });
+});
 
 // ── checkDailyCapacity (extracted for isolated testing) ───────────────────────
 

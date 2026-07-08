@@ -5,13 +5,10 @@ import { queueService } from './queueService.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
 
-const CANCELLATION_GRACE_MS    = 60 * 60 * 1000; // 1 hour
-
 const TERMINAL_STATUSES = ['completed', 'cancelled', 'no_show'];
 
 export const appointmentService = {
   async bookWalkIn({ actor, sessionId, branchId, orgId, data }) {
-    // Receptionist must be assigned to this branch
     if (actor.activeMembership?.kind === 'receptionist') {
       const assigned = (actor.activeMembership.branches || []).map(String);
       if (!assigned.includes(String(branchId))) {
@@ -26,7 +23,6 @@ export const appointmentService = {
     }).populate('doctor');
     if (!session) throw NotFound('Session not found or not accepting bookings');
 
-    // Enforce capacity if set
     if (session.maxBookings != null && session.bookingsCount >= session.maxBookings) {
       throw new AppError('Session is at full capacity', 409);
     }
@@ -65,7 +61,6 @@ export const appointmentService = {
       throw err;
     }
 
-    // Simple positional EWT shown to receptionist at booking time
     const position        = Math.max(0, queueNumber - (updated.currentServing ?? 0));
     const estimatedWaitMin = position * (updated.avgConsultationMin ?? 15)
       + (updated.globalDelayMin ?? 0);
@@ -92,7 +87,6 @@ export const appointmentService = {
       fullName: data.patientName,
     });
 
-    // Override: use $inc regardless of maxBookings
     const updated = await Session.findOneAndUpdate(
       { _id: sessionId },
       { $inc: { bookingsCount: 1 } },
@@ -142,17 +136,34 @@ export const appointmentService = {
     if (TERMINAL_STATUSES.includes(appointment.status)) {
       throw new AppError('Cannot cancel a closed appointment', 409);
     }
-    
+
+    const session = await Session.findById(appointment.session);
+    if (!session) throw NotFound('Session not found');
+
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
+
     appointment.status          = 'cancelled';
     appointment.cancelledAt     = new Date();
     appointment.cancelledReason = reason || null;
     await appointment.save();
 
-    // Publish queue update so live-tracking clients recalculate positions
+    let patientName = '';
     try {
-      await queueService.publishQueueUpdated(appointment.session);
-    } catch {
-      // Non-fatal: Redis unavailable
+      const PatientProfile = (await import('../models/PatientProfile.js')).default;
+      const profileId = appointment.patientProfile?._id ?? appointment.patientProfile;
+      const pp = await PatientProfile.findById(profileId).select('fullName').lean();
+      patientName = pp?.fullName ?? '';
+    } catch { /* ignore */ }
+
+    try {
+      await queueService.publishCancellation(appointment.session, patientName);
+    } catch { /* Non-fatal: Redis unavailable */ }
+
+    if (wasCurrentlyServed) {
+      const result = await queueService.callNext({ session });
+      if (result?.done) {
+        await queueService.publishQueueUpdated(session._id);
+      }
     }
 
     return { appointment };

@@ -229,6 +229,14 @@ export const authService = {
     await api.post("/auth/password-reset/confirm", { token, newPassword });
   },
 
+  async checkAvailability(email: string, phone: string): Promise<{ emailTaken: boolean; phoneTaken: boolean }> {
+    const params = new URLSearchParams({ email: email.trim().toLowerCase(), phone: phone.trim() });
+    const { data } = await api.get<{ emailTaken: boolean; phoneTaken: boolean }>(
+      `/auth/check-availability?${params.toString()}`,
+    );
+    return data;
+  },
+
   // Try loginPatient first, then loginWorker, return AuthUser on success.
   async login(identifier: string, password: string): Promise<AuthUser> {
     try {

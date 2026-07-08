@@ -90,6 +90,16 @@ export const walletService = {
     });
   },
 
+  async withdrawalDebit({ orgId, amount, payoutRequestId }) {
+    const wallet = await getOrCreateOrgWallet(orgId);
+    return debitWallet(wallet._id, amount, {
+      type:          'withdrawal',
+      reference:     payoutRequestId,
+      referenceKind: 'withdrawal',
+      description:   `Withdrawal of ${amount} EGP`,
+    });
+  },
+
   async getEntries({ walletId, limit = 50, page = 1 }) {
     const skip = (Number(page) - 1) * Number(limit);
     const [entries, total] = await Promise.all([

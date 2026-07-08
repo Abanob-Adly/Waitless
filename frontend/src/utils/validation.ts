@@ -1,8 +1,24 @@
 type ValidationResult = { valid: boolean; error: string };
 
+// Allows Arabic/English letters, spaces, hyphens, apostrophes, and periods.
+const NAME_PATTERN = /^[A-Za-z؀-ۿ\s'\-.]{2,100}$/;
+
+export function validateName(name: string): ValidationResult {
+  if (!name.trim()) return { valid: false, error: "Full name is required." };
+  if (name.trim().length < 2) return { valid: false, error: "Name must be at least 2 characters." };
+  if (name.trim().length > 100) return { valid: false, error: "Name cannot exceed 100 characters." };
+  if (!NAME_PATTERN.test(name.trim())) {
+    return { valid: false, error: "Name may only contain letters, spaces, hyphens, and apostrophes." };
+  }
+  return { valid: true, error: "" };
+}
+
 export function validatePhone(phone: string): ValidationResult {
-  const cleaned = phone.replace(/\s/g, "");
-  if (/^01[0125]\d{8}$/.test(cleaned)) return { valid: true, error: "" };
+  const cleaned = phone.replace(/[\s\-]/g, "");
+  // Accept raw Egyptian format (01XXXXXXXXX) or E.164 (+201XXXXXXXXX)
+  if (/^01[0125]\d{8}$/.test(cleaned) || /^\+201[0125]\d{8}$/.test(cleaned)) {
+    return { valid: true, error: "" };
+  }
   return {
     valid: false,
     error: "Please enter a valid Egyptian mobile number (e.g. 01XXXXXXXXX).",
@@ -59,13 +75,13 @@ export function validateBirthdate(date: string): ValidationResult {
     return { valid: false, error: "Please enter a valid date." };
   }
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   if (parsed >= today) {
     return { valid: false, error: "Birthdate cannot be in the future." };
   }
-  // Must be at least 1 year old
-  const oneYearAgo = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-  if (parsed > oneYearAgo) {
-    return { valid: false, error: "Patient must be at least 1 year old." };
+  const maxAgeDate = new Date(today.getFullYear() - 120, today.getMonth(), today.getDate());
+  if (parsed < maxAgeDate) {
+    return { valid: false, error: "Please enter a valid date of birth (max age is 120 years)." };
   }
   return { valid: true, error: "" };
 }

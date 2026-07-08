@@ -211,6 +211,12 @@ const queuePolicies = {
   },
 };
 
+const payoutPolicies = {
+  'payouts.manage': (actor) => {
+    return !!actor?.isPlatformAdmin;
+  },
+};
+
 const patientPolicies = {
   'patient.create': (actor) => {
     const m = actor.activeMembership;
@@ -243,5 +249,6 @@ export const policies = {
   ...sessionPolicies,
   ...appointmentPolicies,
   ...queuePolicies,
+  ...payoutPolicies,
   ...patientPolicies,
 };

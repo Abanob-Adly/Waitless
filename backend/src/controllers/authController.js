@@ -1,15 +1,18 @@
 import { z } from 'zod';
 import { authService } from '../services/auth.js';
+import Account from '../models/Account.js';
 
 // schema validation
 const Email = z.string().email().toLowerCase();
 const Password = z.string().min(8).max(128);
-const Phone = z.string().regex(/^\+?[1-9]\d{7,14}$/);
+// Accept raw Egyptian format (01XXXXXXXXX) or E.164 (+201XXXXXXXXX)
+const Phone = z.string().regex(/^(\+201[0125]\d{8}|01[0125]\d{8})$/, 'Invalid Egyptian phone number — must be 01XXXXXXXXX or +201XXXXXXXXX');
 export const schemas = {
     register: z.object({
         email: Email, password: Password,
         fullName: z.string().min(2).max(100),
         phone: Phone.optional(),
+        dateOfBirth: z.string().optional(),
     }),
     // identifier accepts either email or phone number
     login: z.object({ identifier: z.string().min(1), password: Password }),
@@ -123,6 +126,23 @@ export const authController = {
     async confirmPasswordReset(req, res) {
         await authService.confirmPasswordReset(req.body);
         res.json({ ok: true });
+    },
+
+    async checkAvailability(req, res) {
+        const { email, phone } = req.query;
+        const result = { emailTaken: false, phoneTaken: false };
+        if (email) {
+            result.emailTaken = !!(await Account.exists({ email: String(email).toLowerCase().trim() }));
+        }
+        if (phone) {
+            const normalized = String(phone).trim();
+            const e164 = normalized.startsWith('+') ? normalized
+                : normalized.startsWith('201') ? `+${normalized}`
+                : normalized.startsWith('01') ? `+2${normalized}`
+                : normalized;
+            result.phoneTaken = !!(await Account.exists({ phone: e164 }));
+        }
+        res.json(result);
     },
 };
 

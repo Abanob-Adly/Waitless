@@ -22,12 +22,11 @@ export const branchSchemas = {
   }),
 
   update: z.object({
-    name:          z.string().min(1).max(100).optional(),
-    address:       addressSchema,
-    location:      locationSchema,
-    phone:         z.string().optional(),
-    isActive:      z.boolean().optional(),
-    commissionPct: z.number().min(0).max(100).optional(),
+    name:     z.string().min(1).max(100).optional(),
+    address:  addressSchema,
+    location: locationSchema,
+    phone:    z.string().optional(),
+    isActive: z.boolean().optional(),
   }),
 };
 

@@ -13,6 +13,7 @@ import { queueService } from '../../services/queueService.js';
 import Session from '../../models/QueueSession.js';
 import Appointment from '../../models/Appointment.js';
 import DoctorBranchSchedule from '../../models/DoctorBranchSchedule.js';
+import { LATE_START_GRACE_MIN } from '../../config/fees.js';
 
 const oid = () => new mongoose.Types.ObjectId();
 
@@ -115,6 +116,108 @@ describe('sessionService.startSession — late-start detection', () => {
       () => sessionService.startSession({ session }),
       /not in scheduled state/i,
     );
+  });
+});
+
+// ── sessionAutoStart cron query ────────────────────────────────────────────────
+
+describe('sessionAutoStart cron logic', () => {
+  it('selects a scheduled session whose startTime has passed and endTime has not', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 5 * 60_000),
+      endTime:   new Date(Date.now() + 55 * 60_000),
+    });
+
+    const due = await Session.find({
+      status:    'scheduled',
+      startTime: { $lte: new Date() },
+      endTime:   { $gt: new Date() },
+    }).lean();
+
+    assert.ok(due.some((s) => s._id.equals(session._id)), 'due session should be selected');
+  });
+
+  it('excludes a scheduled session whose endTime has already passed', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 60 * 60_000),
+      endTime:   new Date(Date.now() - 5 * 60_000),
+    });
+
+    const due = await Session.find({
+      status:    'scheduled',
+      startTime: { $lte: new Date() },
+      endTime:   { $gt: new Date() },
+    }).lean();
+
+    assert.ok(!due.some((s) => s._id.equals(session._id)), 'lapsed session should be left to sessionAutoClose instead');
+  });
+
+  it('actually activates a due session when run through startSession', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 1 * 60_000),
+      endTime:   new Date(Date.now() + 59 * 60_000),
+    });
+
+    const started = await sessionService.startSession({ session });
+
+    assert.equal(started.status, 'active');
+  });
+
+  it('~1 minute of auto-start cron jitter does not meet the lateStartPenalty threshold', async () => {
+    const session = await makeSession({ status: 'active', lateStartMin: 1 });
+
+    const flagged = await Session.find({
+      status:       'active',
+      lateStartMin: { $gt: LATE_START_GRACE_MIN },
+    }).lean();
+
+    assert.ok(!flagged.some((s) => s._id.equals(session._id)), '1 minute of lateness should not trigger a penalty');
+  });
+
+  it('a genuinely late start (past the grace period) does meet the lateStartPenalty threshold', async () => {
+    const session = await makeSession({ status: 'active', lateStartMin: LATE_START_GRACE_MIN + 5 });
+
+    const flagged = await Session.find({
+      status:       'active',
+      lateStartMin: { $gt: LATE_START_GRACE_MIN },
+    }).lean();
+
+    assert.ok(flagged.some((s) => s._id.equals(session._id)), 'genuinely late session should still be flagged');
+  });
+});
+
+// ── sessionAutoClose cron query ─────────────────────────────────────────────────
+
+describe('sessionAutoClose cron logic', () => {
+  // Mirrors sessionAutoClose.js's ACTIVE_GRACE_MS — kept small (1 min) so active
+  // sessions close automatically at their scheduled end time, not ~20 minutes late.
+  const ACTIVE_GRACE_MS = 60_000;
+
+  it('selects an active session whose endTime is past the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 5 * 60_000),
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(due.some((s) => s._id.equals(session._id)), 'session past grace should be selected for auto-close');
+  });
+
+  it('does not select an active session still within the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 20_000), // 20s past end — within the 60s grace
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(!due.some((s) => s._id.equals(session._id)), 'session within grace should not be auto-closed yet');
   });
 });
 

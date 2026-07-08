@@ -10,11 +10,13 @@ type QueueSubscriptionResult = {
   isCalled: boolean;
   isCompleted: boolean;
   isConnected: boolean;
+  isReady: boolean;
   isOnBreak: boolean;
   sessionDate: string;
   sessionStartTime: string;
   sessionStatus: string;
   appointmentStatus: string;
+  sessionClosureNote: string | null;
   reviewToken: string | null;
   emergencyReason: string | null;
   wasForceInserted: boolean;
@@ -42,6 +44,14 @@ export function useQueueSubscription(
   const [emergencyReason, setEmergencyReason] = useState<string | null>(null);
   const [wasForceInserted, setWasForceInserted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  // Set once, on the first successful response, and never unset — lets callers
+  // avoid rendering a view guessed from default/zero state before real data
+  // arrives (which briefly shows the wrong screen, then flips — a visible
+  // glitch). Deliberately separate from `isConnected`, which toggles on every
+  // transient poll failure and would otherwise cause the same flicker later.
+  const [isReady, setIsReady] = useState(false);
+  const [sessionClosureNote, setSessionClosureNote] = useState<string | null>(null);
+  const [positionFromServer, setPositionFromServer] = useState<number | null>(null);
 
   useEffect(() => {
     if (!trackingToken) return;
@@ -54,9 +64,11 @@ export function useQueueSubscription(
             queueNumber: number;
             currentlyServing: number;
             estimatedWaitMin: number;
+            position?: number;
             globalDelayMin?: number;
             avgConsultationMin?: number;
             status: string;
+            sessionClosureNote?: string | null;
             sessionDate?: string;
             sessionStartTime?: string;
             sessionStatus?: string;
@@ -70,6 +82,7 @@ export function useQueueSubscription(
         if (!alive) return;
         const d = res.data.data;
         setCurrentServing(d.currentlyServing ?? 0);
+        if (d.position != null) setPositionFromServer(d.position);
         setEtaMinutes(d.estimatedWaitMin ?? 0);
         setGlobalDelayMin(d.globalDelayMin ?? 0);
         if (d.avgConsultationMin != null) setAvgConsultationMin(d.avgConsultationMin);
@@ -81,7 +94,9 @@ export function useQueueSubscription(
         setIsOnBreak(d.isOnBreak ?? false);
         setEmergencyReason(d.emergencyReason ?? null);
         setWasForceInserted(d.wasForceInserted ?? false);
+        if (d.sessionClosureNote !== undefined) setSessionClosureNote(d.sessionClosureNote ?? null);
         setIsConnected(true);
+        setIsReady(true);
       } catch {
         if (!alive) return;
         setIsConnected(false);
@@ -96,7 +111,7 @@ export function useQueueSubscription(
     };
   }, [trackingToken]);
 
-  const position = Math.max(1, queueNumber - currentServing);
+  const position = positionFromServer ?? Math.max(1, queueNumber - currentServing);
 
   // Guard against false positive: 0 >= 0 is true but means "not yet loaded"
   const isCalled =
@@ -121,11 +136,13 @@ export function useQueueSubscription(
     isCalled,
     isCompleted,
     isConnected,
+    isReady,
     isOnBreak,
     sessionDate,
     sessionStartTime,
     sessionStatus,
     appointmentStatus,
+    sessionClosureNote,
     reviewToken,
     emergencyReason,
     wasForceInserted,

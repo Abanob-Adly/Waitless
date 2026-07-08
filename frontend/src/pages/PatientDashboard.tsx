@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { toE164 } from "../utils/phone";
+import { validatePhone, validateName, validateBirthdate } from "../utils/validation";
 import { useNavigate } from "react-router-dom";
 import { Tabs } from "../components/ui/Tabs";
 import { useApp } from "../context/AppContext";
@@ -25,6 +27,7 @@ export function PatientDashboard() {
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
 
   const patientProfile =
     authUser?.role === "patient" ? authUser.profile : null;
@@ -72,6 +75,8 @@ export function PatientDashboard() {
       removeBooking(cancelTarget.id);
       setServerTickets((prev) => prev.filter((t) => t.id !== cancelTarget.id));
       setCancelTarget(null);
+      setCancelNotice(t("Your booking has been cancelled."));
+      setTimeout(() => setCancelNotice(null), 6000);
     } catch (err) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -96,6 +101,7 @@ export function PatientDashboard() {
             onCancel={(id, sessionDate, sessionStartTime) =>
               requestCancel(id, sessionDate, sessionStartTime)
             }
+            onRemoveBooking={(id) => removeBooking(id)}
           />
         ),
       },
@@ -191,6 +197,13 @@ export function PatientDashboard() {
         </div>
       </div>
 
+      {/* Cancellation notice toast */}
+      {cancelNotice && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 animate-fade-up rounded-xl border border-success/30 bg-white px-5 py-3 shadow-xl">
+          <p className="text-sm text-navy">{cancelNotice}</p>
+        </div>
+      )}
+
       {/* Cancellation confirmation modal */}
       {cancelTarget && (
         <CancelBookingModal
@@ -224,18 +237,6 @@ function CancelBookingModal({
   onClose: () => void;
 }) {
   const { t } = useLanguage();
-  const [acknowledged, setAcknowledged] = useState(false);
-
-  // Check if within 1 hour of session start
-  const withinPenaltyWindow = (() => {
-    try {
-      const startMs = new Date(`${sessionDate}T${sessionStartTime}`).getTime();
-      const diffMs = startMs - Date.now();
-      return diffMs < 60 * 60 * 1000 && diffMs > -60 * 60 * 1000;
-    } catch {
-      return false;
-    }
-  })();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -247,31 +248,9 @@ function CancelBookingModal({
         </div>
 
         <div className="p-6 space-y-4">
-          {withinPenaltyWindow && (
-            <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3">
-              <p className="text-sm font-semibold text-danger">{t("50 EGP cancellation fee applies")}</p>
-              <p className="mt-1 text-xs text-navy-mid">
-                {t("Cancellations within 1 hour of the session start incur a 50 EGP penalty deducted from your wallet. Make sure you have sufficient balance.")}
-              </p>
-              <label className="mt-3 flex cursor-pointer items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={acknowledged}
-                  onChange={(e) => setAcknowledged(e.target.checked)}
-                  className="mt-0.5 rounded border-border"
-                />
-                <span className="text-xs text-navy-mid">
-                  {t("I understand that 50 EGP will be deducted from my wallet.")}
-                </span>
-              </label>
-            </div>
-          )}
-
-          {!withinPenaltyWindow && (
-            <p className="text-sm text-navy-mid">
-              {t("Are you sure you want to cancel this appointment? This action cannot be undone.")}
-            </p>
-          )}
+          <p className="text-sm text-navy-mid">
+            {t("Are you sure you want to cancel this appointment? This action cannot be undone.")}
+          </p>
 
           {error && (
             <p className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>
@@ -287,7 +266,7 @@ function CancelBookingModal({
             </button>
             <button
               onClick={onConfirm}
-              disabled={cancelling || (withinPenaltyWindow && !acknowledged)}
+              disabled={cancelling}
               className="flex-1 rounded-md bg-danger py-2 text-sm font-medium text-white transition hover:bg-danger/90 disabled:opacity-60"
             >
               {cancelling ? t("Cancelling…") : t("Yes, Cancel")}
@@ -302,11 +281,15 @@ function CancelBookingModal({
 // ── Profile Card ──────────────────────────────────────────────────────────────
 
 function ProfileCard({ patient }: { patient: PatientProfile | null }) {
+  const { t } = useLanguage();
   const [ownProfile, setOwnProfile] = useState<PatientRecord | null>(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ fullName: "", phone: "", dateOfBirth: "", avatarUrl: "" });
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [nameError, setNameError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+  const [dobError, setDobError] = useState("");
 
   useEffect(() => {
     getOwnProfile().then((p) => {
@@ -349,21 +332,36 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    setNameError("");
+    setPhoneError("");
+    setDobError("");
+    if (form.fullName.trim()) {
+      const nm = validateName(form.fullName.trim());
+      if (!nm.valid) { setNameError(t(nm.error)); return; }
+    }
+    if (form.phone.trim()) {
+      const ph = validatePhone(form.phone.trim());
+      if (!ph.valid) { setPhoneError(ph.error); return; }
+    }
+    if (form.dateOfBirth) {
+      const bd = validateBirthdate(form.dateOfBirth);
+      if (!bd.valid) { setDobError(t(bd.error)); return; }
+    }
     setSaving(true);
     setSaveResult(null);
     const result = await updateOwnProfile({
       fullName: form.fullName.trim() || undefined,
-      phone: form.phone.trim() || undefined,
+      phone: form.phone.trim() ? toE164(form.phone.trim()) : undefined,
       dateOfBirth: form.dateOfBirth || undefined,
       avatarUrl: form.avatarUrl.trim() || null,
     });
     setSaving(false);
     if (result) {
       setOwnProfile(result);
-      setSaveResult({ ok: true, msg: "Profile updated successfully." });
+      setSaveResult({ ok: true, msg: t("Profile updated successfully.") });
       setEditing(false);
     } else {
-      setSaveResult({ ok: false, msg: "Failed to save. Check your phone number and try again." });
+      setSaveResult({ ok: false, msg: t("Failed to save. Check your phone number and try again.") });
     }
   }
 
@@ -387,12 +385,12 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
             <div className="flex-1 min-w-0">
               <p className="font-heading text-xl font-bold text-white">{displayName}</p>
               <p className="mt-0.5 text-sm text-white/60">{displayPhone}</p>
-              <p className="mt-0.5 text-xs text-white/40">Registered Patient</p>
+              <p className="mt-0.5 text-xs text-white/40">{t("Registered Patient")}</p>
             </div>
           ) : (
             <div>
-              <p className="font-heading text-xl font-bold text-white">Guest</p>
-              <p className="mt-0.5 text-sm text-white/60">Please sign in to view your profile.</p>
+              <p className="font-heading text-xl font-bold text-white">{t("Guest")}</p>
+              <p className="mt-0.5 text-sm text-white/60">{t("Please sign in to view your profile.")}</p>
             </div>
           )}
 
@@ -401,7 +399,7 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
               onClick={() => { setEditing((v) => !v); setSaveResult(null); }}
               className="shrink-0 rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-white/50 hover:text-white"
             >
-              {editing ? "Cancel" : "Edit"}
+              {editing ? t("Cancel") : t("Edit")}
             </button>
           )}
         </div>
@@ -415,36 +413,46 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
 
       {patient && editing ? (
         <form onSubmit={handleSave} className="px-6 py-4 space-y-3">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">Edit Profile</h3>
-          <label className="block">
-            <span className="text-sm font-medium text-navy">Full Name</span>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Edit Profile")}</h3>
+          <div className="block">
+            <span className="text-sm font-medium text-navy">{t("Full Name")}</span>
             <input
               type="text"
               value={form.fullName}
-              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              onChange={(e) => { setNameError(""); setForm((f) => ({ ...f, fullName: e.target.value })); }}
+              className={`mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${nameError ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
             />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-navy">Phone</span>
-            <input
-              type="tel"
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-navy">Date of Birth</span>
+            {nameError && <p className="mt-1 text-xs text-danger">{nameError}</p>}
+          </div>
+          <div className="block">
+            <span className="text-sm font-medium text-navy">{t("Phone")}</span>
+            <div className={`mt-1 flex h-10 overflow-hidden rounded-md border bg-white focus-within:ring-2 ${phoneError ? "border-danger focus-within:ring-danger/20" : "border-border focus-within:border-gold focus-within:ring-gold/20"}`}>
+              <span className="flex shrink-0 items-center border-r border-border bg-offwhite px-2 text-xs font-medium text-navy-mid">+20</span>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => { setPhoneError(""); setForm((f) => ({ ...f, phone: e.target.value })); }}
+                placeholder="1XXXXXXXXX"
+                inputMode="numeric"
+                className="h-full flex-1 bg-transparent px-3 text-sm text-navy outline-none"
+              />
+            </div>
+            {phoneError && <p className="mt-1 text-xs text-danger">{phoneError}</p>}
+          </div>
+          <div className="block">
+            <span className="text-sm font-medium text-navy">{t("Date of Birth")}</span>
             <input
               type="date"
               value={form.dateOfBirth}
-              onChange={(e) => setForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
-              className="mt-1 h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+              max={new Date().toISOString().slice(0, 10)}
+              min={`${new Date().getFullYear() - 120}-01-01`}
+              onChange={(e) => { setDobError(""); setForm((f) => ({ ...f, dateOfBirth: e.target.value })); }}
+              className={`mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${dobError ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
             />
-          </label>
+            {dobError && <p className="mt-1 text-xs text-danger">{dobError}</p>}
+          </div>
           <label className="block">
-            <span className="text-sm font-medium text-navy">Avatar URL</span>
+            <span className="text-sm font-medium text-navy">{t("Avatar URL")}</span>
             <input
               type="url"
               value={form.avatarUrl}
@@ -466,20 +474,20 @@ function ProfileCard({ patient }: { patient: PatientProfile | null }) {
               disabled={saving}
               className="flex-1 rounded-md bg-gold py-2 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
             >
-              {saving ? "Saving…" : "Save Changes"}
+              {saving ? t("Saving…") : t("Save Changes")}
             </button>
           </div>
         </form>
       ) : patient ? (
         <div className="px-6 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-navy-mid">
-            Profile Information
+            {t("Profile Information")}
           </h3>
           <dl className="divide-y divide-border">
-            <InfoRow label="Full Name" value={displayName} />
-            <InfoRow label="Phone Number" value={displayPhone} />
-            {birthdateLabel && <InfoRow label="Date of Birth" value={birthdateLabel} />}
-            {patient.email && <InfoRow label="Email" value={patient.email} />}
+            <InfoRow label={t("Full Name")} value={displayName} />
+            <InfoRow label={t("Phone Number")} value={displayPhone} />
+            {birthdateLabel && <InfoRow label={t("Date of Birth")} value={birthdateLabel} />}
+            {patient.email && <InfoRow label={t("Email")} value={patient.email} />}
           </dl>
         </div>
       ) : null}
@@ -495,13 +503,16 @@ function ActiveBookingsTab({
   onGoToTicket,
   onBook,
   onCancel,
+  onRemoveBooking,
 }: {
   bookings: ActiveBooking[];
   serverTickets: ActiveTicketItem[];
   onGoToTicket: () => void;
   onBook: () => void;
   onCancel: (id: string, sessionDate: string, sessionStartTime: string) => void;
+  onRemoveBooking: (id: string) => void;
 }) {
+  const { t } = useLanguage();
   // Server tickets not already tracked in local bookings (e.g. logged in on new device).
   // Dedup by both appointment ID and accessToken: if bookings haven't reloaded from
   // the user's localStorage key yet when the server response arrives, localIds will be
@@ -518,9 +529,9 @@ function ActiveBookingsTab({
     return (
       <EmptyState
         icon="🎫"
-        title="No active bookings"
-        desc="When you book an appointment, your live ticket will appear here."
-        cta="Find a Doctor"
+        title={t("No active bookings")}
+        desc={t("When you book an appointment, your live ticket will appear here.")}
+        cta={t("Find a Doctor")}
         onCta={onBook}
       />
     );
@@ -541,10 +552,10 @@ function ActiveBookingsTab({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
-            Live
+            {t("Live")}
           </span>
           <span className="text-sm text-navy-mid">
-            Queue positions are updating in real-time
+            {t("Queue positions are updating in real-time")}
           </span>
         </div>
       )}
@@ -559,6 +570,7 @@ function ActiveBookingsTab({
           booking={booking}
           onGoToTicket={onGoToTicket}
           onCancel={() => onCancel(booking.id, booking.session.date, booking.session.startTime)}
+          onRemove={() => onRemoveBooking(booking.id)}
         />
       ))}
 
@@ -567,12 +579,12 @@ function ActiveBookingsTab({
         <>
           {bookings.length > 0 && (
             <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
-              Also found on your account
+              {t("Also found on your account")}
             </p>
           )}
           <div className="space-y-3">
             {orphanTickets.map((t) => (
-              <ServerTicketCard key={t.id} ticket={t} />
+              <ServerTicketCard key={t.id} ticket={t} onCancel={onCancel} />
             ))}
           </div>
         </>
@@ -583,14 +595,30 @@ function ActiveBookingsTab({
 
 // ── Server-sourced ticket card (cross-device) ─────────────────────────────────
 
-function ServerTicketCard({ ticket }: { ticket: ActiveTicketItem }) {
+function ServerTicketCard({
+  ticket,
+  onCancel,
+}: {
+  ticket: ActiveTicketItem;
+  onCancel: (id: string, sessionDate: string, sessionStartTime: string) => void;
+}) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const initials = ticket.doctorName
     .split(" ")
     .slice(0, 2)
     .map((w) => w[0] ?? "")
     .join("")
     .toUpperCase() || "?";
+
+  const sessionEnded = (() => {
+    try {
+      const [hh, mm] = (ticket.sessionEndTime ?? "00:00").split(":").map(Number);
+      const end = new Date(`${ticket.sessionDate}T00:00:00`);
+      end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+      return end < new Date();
+    } catch { return false; }
+  })();
 
   return (
     <div className="overflow-hidden rounded-xl border border-border">
@@ -616,13 +644,21 @@ function ServerTicketCard({ ticket }: { ticket: ActiveTicketItem }) {
           #{ticket.queueNumber}
         </div>
       </div>
-      <div className="border-t border-border p-4">
+      <div className={`grid border-t border-border p-4 gap-2 ${sessionEnded ? "grid-cols-1" : "grid-cols-2"}`}>
         <button
           onClick={() => navigate(`/ticket/${ticket.accessToken}`)}
           className="flex h-10 w-full items-center justify-center gap-1 rounded-md bg-gold text-sm font-medium text-navy transition hover:bg-gold-light"
         >
-          View Live Ticket →
+          {t("View Live Ticket →")}
         </button>
+        {!sessionEnded && (
+          <button
+            onClick={() => onCancel(ticket.id, ticket.sessionDate, ticket.sessionStartTime)}
+            className="flex h-10 items-center justify-center rounded-md border border-danger/30 text-xs text-danger transition hover:bg-danger hover:text-white"
+          >
+            {t("Cancel")}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -634,23 +670,32 @@ function BookingCard({
   booking,
   onGoToTicket,
   onCancel,
+  onRemove,
 }: {
   booking: ActiveBooking;
   onGoToTicket: () => void;
   onCancel: () => void;
+  onRemove: () => void;
 }) {
   const { updateBookingNotes: updateNotes } = useApp();
-  const { locale } = useLanguage();
+  const { t, locale } = useLanguage();
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState(booking.patientNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
 
   // Live queue position per booking — use tracking token if available
-  const { position, currentServing, etaMinutes } = useQueueSubscription(
+  const { position, currentServing, etaMinutes, appointmentStatus, sessionStatus } = useQueueSubscription(
     booking.accessToken ?? booking.id,
     booking.queueNumber,
     booking.session.avgConsultationMin,
   );
+
+  // Remove the card immediately when the server reports it as cancelled externally
+  const onRemoveRef = useRef(onRemove);
+  useEffect(() => { onRemoveRef.current = onRemove; }, [onRemove]);
+  useEffect(() => {
+    if (appointmentStatus === "cancelled") onRemoveRef.current();
+  }, [appointmentStatus]);
 
   // Clinic address from doctor's clinic list
   const clinicDetails = booking.doctor.clinics.find(
@@ -664,19 +709,26 @@ function BookingCard({
     setShowNotesModal(false);
   }
 
-  const sessionWindowClosed = (() => {
-    try {
-      const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
-      const end = new Date(`${booking.session.date}T00:00:00`);
-      end.setHours(hh ?? 0, mm ?? 0, 0, 0);
-      return end < new Date();
-    } catch { return false; }
-  })();
+  // Prefer the backend's authoritative session status (already polled live by
+  // useQueueSubscription, same as the live ticket page) over guessing from
+  // wall-clock time — the wall-clock check only stands in before the first
+  // poll resolves (sessionStatus === ""), so this card doesn't go stale
+  // relative to what the live ticket page shows for the same appointment.
+  const sessionWindowClosed = sessionStatus
+    ? sessionStatus === "ended" || sessionStatus === "cancelled"
+    : (() => {
+        try {
+          const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
+          const end = new Date(`${booking.session.date}T00:00:00`);
+          end.setHours(hh ?? 0, mm ?? 0, 0, 0);
+          return end < new Date();
+        } catch { return false; }
+      })();
 
   const paymentBadge = {
-    success: { label: "Paid ✓", cls: "bg-success/10 text-success" },
-    failed: { label: "Failed ✕", cls: "bg-danger/10 text-danger" },
-    pending: { label: "Pay at Clinic", cls: "bg-border/50 text-navy-mid" },
+    success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
+    failed: { label: t("Failed ✕"), cls: "bg-danger/10 text-danger" },
+    pending: { label: t("Pay at Clinic"), cls: "bg-border/50 text-navy-mid" },
   }[booking.paymentStatus];
 
   return (
@@ -710,7 +762,7 @@ function BookingCard({
               ? "bg-danger/10 text-danger"
               : "bg-success/10 text-success"
           }`}>
-            {sessionWindowClosed ? "🔒 Session Closed" : "✓ Confirmed"}
+            {sessionWindowClosed ? `🔒 ${t("Session Closed")}` : `✓ ${t("Confirmed")}`}
           </span>
         </div>
 
@@ -718,14 +770,14 @@ function BookingCard({
         {sessionWindowClosed ? (
           <div className="border-t border-danger/20 bg-danger/5 px-5 py-3 text-center">
             <p className="text-xs text-danger">
-              Session window has ended — no further queue updates.
+              {t("Session window has ended — no further queue updates.")}
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-3 divide-x divide-border border-t border-border">
-            <StatCell label="Position" value={`#${position}`} accent />
-            <StatCell label="Serving" value={`#${currentServing}`} />
-            <StatCell label="Est. Wait" value={`~${etaMinutes}m`} />
+            <StatCell label={t("Position")} value={`#${position}`} accent />
+            <StatCell label={t("Serving")} value={`#${currentServing}`} />
+            <StatCell label={t("Est. Wait")} value={`~${etaMinutes}m`} />
           </div>
         )}
 
@@ -752,7 +804,7 @@ function BookingCard({
         {booking.patientNotes && (
           <div className="border-t border-border bg-offwhite/50 px-5 py-2.5">
             <p className="text-xs text-navy-mid">
-              <span className="font-medium">Note to doctor:</span>{" "}
+              <span className="font-medium">{t("Note to doctor:")} </span>
               {booking.patientNotes.slice(0, 60)}
               {booking.patientNotes.length > 60 ? "…" : ""}
             </p>
@@ -765,7 +817,7 @@ function BookingCard({
             onClick={onGoToTicket}
             className="flex h-10 items-center justify-center rounded-md bg-gold text-xs font-medium text-navy transition hover:bg-gold-light"
           >
-            {sessionWindowClosed ? "View Ticket →" : "Live Ticket →"}
+            {sessionWindowClosed ? t("View Ticket →") : t("Live Ticket →")}
           </button>
           {!sessionWindowClosed && (
             <>
@@ -776,13 +828,13 @@ function BookingCard({
                 }}
                 className="flex h-10 items-center justify-center rounded-md border border-border text-xs text-navy-mid transition hover:border-navy hover:text-navy"
               >
-                Edit Notes
+                {t("Edit Notes")}
               </button>
               <button
                 onClick={onCancel}
                 className="flex h-10 items-center justify-center rounded-md border border-danger/30 text-xs text-danger transition hover:bg-danger hover:text-white"
               >
-                Cancel
+                {t("Cancel")}
               </button>
             </>
           )}
@@ -799,7 +851,7 @@ function BookingCard({
           <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="bg-navy px-6 py-4">
               <p className="font-heading text-base font-bold text-white">
-                Note to Doctor
+                {t("Note to Doctor")}
               </p>
               <p className="mt-0.5 text-xs text-white/50">
                 {booking.doctor.name} · {booking.session.date}
@@ -814,14 +866,14 @@ function BookingCard({
 
             <div className="p-6">
               <label className="block text-sm font-medium text-navy">
-                Your notes (optional)
+                {t("Your notes (optional)")}
               </label>
               <textarea
                 value={notesText}
                 onChange={(e) =>
                   setNotesText(e.target.value.slice(0, 200))
                 }
-                placeholder="e.g. Please review my previous X-ray results from last month…"
+                placeholder={t("e.g. Please review my previous X-ray results from last month…")}
                 rows={4}
                 className="mt-2 w-full resize-none rounded-md border border-border bg-white p-3 text-sm text-navy outline-none transition focus:border-gold focus:ring-1 focus:ring-gold"
               />
@@ -841,7 +893,7 @@ function BookingCard({
                   disabled={savingNotes}
                   className="flex-1 rounded-md bg-gold py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
                 >
-                  {savingNotes ? "Saving…" : "Save Notes"}
+                  {savingNotes ? t("Saving…") : t("Save Notes")}
                 </button>
               </div>
             </div>
@@ -855,12 +907,13 @@ function BookingCard({
 // ── Past History tab ──────────────────────────────────────────────────────────
 
 function HistoryTab({ history }: { history: OwnAppointmentItem[] }) {
+  const { t } = useLanguage();
   if (history.length === 0) {
     return (
       <EmptyState
         icon="📋"
-        title="No past bookings"
-        desc="Your completed and cancelled appointments will appear here."
+        title={t("No past bookings")}
+        desc={t("Your completed and cancelled appointments will appear here.")}
       />
     );
   }
@@ -877,6 +930,7 @@ function HistoryTab({ history }: { history: OwnAppointmentItem[] }) {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function HistoryRow({ record }: { record: OwnAppointmentItem }) {
+  const { t } = useLanguage();
   const isCompleted = record.status === "completed";
   const isCancelled = record.status === "cancelled" || record.status === "no_show";
   const initials = record.doctorName
@@ -901,12 +955,17 @@ function HistoryRow({ record }: { record: OwnAppointmentItem }) {
         {record.clinicName && (
           <p className="text-xs text-navy-mid">{record.clinicName}</p>
         )}
+        {record.sessionClosureNote && (
+          <p className="mt-1 rounded bg-danger/5 px-2 py-1 text-xs text-danger">
+            {t(record.sessionClosureNote)}
+          </p>
+        )}
         {isCompleted && record.accessToken && (
           <a
             href={`/review?token=${record.accessToken}`}
             className="mt-1 block text-xs font-medium text-gold hover:text-gold-light"
           >
-            Leave a Review →
+            {t("Leave a Review →")}
           </a>
         )}
       </div>
@@ -920,7 +979,7 @@ function HistoryRow({ record }: { record: OwnAppointmentItem }) {
                 : "bg-gold-tint text-gold"
           }`}
         >
-          {isCompleted ? "✓ Completed" : isCancelled ? "✕ Cancelled" : record.status}
+          {isCompleted ? `✓ ${t("Completed")}` : isCancelled ? `✕ ${t("Cancelled")}` : record.status}
         </span>
       </div>
     </div>

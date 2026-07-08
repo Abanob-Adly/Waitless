@@ -19,6 +19,7 @@ export type BackendSession = {
   avgConsultationMin: number;
   maxBookings: number | null;
   isOnBreak: boolean;
+  lastBreakEndedAt: string | null;
   globalDelayMin: number;
   lateStartMin: number;
 };
@@ -90,6 +91,11 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     avgConsultationMin: Number(s.avgConsultationMin ?? 15),
     maxBookings: s.maxBookings != null ? Number(s.maxBookings) : null,
     isOnBreak: Boolean(s.isOnBreak ?? false),
+    lastBreakEndedAt: (() => {
+      const breaks = Array.isArray(s.breaks) ? (s.breaks as Array<{ endedAt?: string }>) : [];
+      const last = [...breaks].reverse().find((b) => b.endedAt);
+      return last?.endedAt ?? null;
+    })(),
     globalDelayMin: Number(s.globalDelayMin ?? 0),
     lateStartMin: Number(s.lateStartMin ?? 0),
   };
@@ -161,6 +167,25 @@ export async function endSession(
 }
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Opens an SSE stream for real-time queue updates for staff.
+ * Calls `onUpdate` whenever the backend publishes a queue change.
+ * Returns a cleanup function to close the EventSource.
+ */
+export function subscribeQueue(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  onUpdate: () => void,
+): () => void {
+  const token = localStorage.getItem("waitless_access_token");
+  const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+  const url = `${apiBase}${base(orgId, branchId)}/${sessionId}/queue/sse`;
+  const sse = new EventSource(url + (token ? `?token=${encodeURIComponent(token)}` : ""));
+  sse.onmessage = onUpdate;
+  return () => sse.close();
+}
 
 export async function getQueue(
   orgId: string,

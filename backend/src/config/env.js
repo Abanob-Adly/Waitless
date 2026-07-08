@@ -7,6 +7,7 @@ const required = (k) => {
 };
 
 const apiUrl = process.env.API_URL || 'http://localhost:3000';
+const appUrl = process.env.APP_URL || 'http://localhost:5173';
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -14,7 +15,7 @@ export const env = {
 
   app: {
     api: apiUrl,
-    url:  process.env.APP_URL || 'http://localhost:5173',
+    url: appUrl,
   },
 
   db: {
@@ -70,6 +71,6 @@ export const env = {
       ? Number(process.env.PAYMOB_INTEGRATION_ID)
       : null,
     notificationUrl: process.env.PAYMOB_NOTIFICATION_URL || `${apiUrl}/webhooks/paymob`,
-    redirectionUrl: process.env.PAYMOB_REDIRECTION_URL || `${apiUrl}/billing/result`,
+    redirectionUrl: process.env.PAYMOB_REDIRECTION_URL || `${appUrl}/billing/result`,
   },
 };

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { authService, saveTokens } from "../../services/authService";
 import { createOrg, selfJoinAsDoctor as addDoctorRole } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import { toE164 } from "../../utils/phone";
-import { validatePhone, validatePassword } from "../../utils/validation";
+import { validatePhone, validatePassword, validateName, validateBirthdate } from "../../utils/validation";
 import { SPECIALTIES } from "../../data/mockData";
 import type { OrgType } from "../../types/index";
 
@@ -30,9 +30,20 @@ type Step =
 export function SignupPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { registerPatient, loginWithCredentials, isAuthLoading, authError, clearAuthError } =
+  const { authUser, registerPatient, loginWithCredentials, isAuthLoading, authError, clearAuthError } =
     useAuth();
   const { t } = useLanguage();
+
+  // Already logged in — go to the right dashboard
+  if (authUser) {
+    const next = searchParams.get("next");
+    const safe = next && next.startsWith("/") && next !== "/signup" ? next : null;
+    if (authUser.role === "patient")      return <Navigate to={safe ?? "/dashboard"} replace />;
+    if (authUser.role === "doctor")       return <Navigate to="/doctor-dashboard" replace />;
+    if (authUser.role === "admin")        return <Navigate to="/admin" replace />;
+    if (authUser.role === "receptionist") return <Navigate to="/reception" replace />;
+    if (authUser.role === "staff")        return <Navigate to="/pending" replace />;
+  }
 
   const [step, setStep] = useState<Step>("role");
   const [doctorPath, setDoctorPath] = useState<DoctorPath>(null);
@@ -105,17 +116,21 @@ export function SignupPage() {
 
   function validateBasics(isDoctor: boolean): boolean {
     const errs: Record<string, string> = {};
-    if (!name.trim()) errs.name = "Full name is required.";
-    if (!email.trim()) errs.email = "Email is required.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address.";
+    const nm = validateName(name.trim());
+    if (!nm.valid) errs.name = t(nm.error);
+    if (!email.trim()) errs.email = t("Email is required.");
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = t("Enter a valid email address.");
     const ph = validatePhone(phone.trim());
-    if (!ph.valid) errs.phone = ph.error;
+    if (!ph.valid) errs.phone = t(ph.error);
     const pw = validatePassword(password);
-    if (!pw.valid) errs.password = pw.error;
+    if (!pw.valid) errs.password = t(pw.error);
     if (!isDoctor) {
-      if (!birthdate) errs.birthdate = "Date of birth is required.";
+      const bd = validateBirthdate(birthdate);
+      if (!bd.valid) errs.birthdate = t(bd.error);
     } else {
-      if (!specialty.trim()) errs.specialty = "Specialty is required.";
+      const validSpecialties = SPECIALTIES.filter((s) => s !== "All Specialties");
+      if (!specialty.trim()) errs.specialty = t("Specialty is required.");
+      else if (!validSpecialties.includes(specialty)) errs.specialty = t("Please select a valid specialty from the list.");
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -149,18 +164,34 @@ export function SignupPage() {
     const ok = await registerPatient({
       name: name.trim(),
       email: email.trim(),
-      phone: phone.trim(),
+      phone: toE164(phone.trim()),
       birthdate,
       password,
     });
-    if (ok) navigate(nextPath);
+    if (ok) navigate(nextPath !== "/" ? nextPath : "/dashboard", { replace: true });
   }
 
-  function handleDoctorBasicsNext(e: { preventDefault(): void }) {
+  async function handleDoctorBasicsNext(e: { preventDefault(): void }) {
     e.preventDefault();
     clearErrors();
     if (!validateBasics(true)) return;
-    setStep("clinic-type");
+    setIsSubmitting(true);
+    try {
+      const { emailTaken, phoneTaken } = await authService.checkAvailability(
+        email.trim(),
+        toE164(phone.trim()),
+      );
+      const errs: Record<string, string> = {};
+      if (emailTaken) errs.email = t("This email is already registered.");
+      if (phoneTaken) errs.phone = t("This phone number is already registered.");
+      if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+      setStep("clinic-type");
+    } catch {
+      // Network failure — proceed optimistically; server will reject on submit if taken
+      setStep("clinic-type");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleClinicTypeSelect(path: "own" | "staff") {
@@ -374,8 +405,8 @@ export function SignupPage() {
             <form onSubmit={handlePatientSubmit} className="space-y-4">
               <Field label={t("Full Name *")}      placeholder="Ahmed Mohamed"                value={name}      onChange={setName}      error={errors.name} />
               <Field label={t("Email Address *")}  placeholder="you@example.com"             value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"                 value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
-              <Field label={t("Date of Birth *")}  placeholder=""                            value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" />
+              <Field label={t("Phone Number *")}   placeholder="1XXXXXXXXX"                  value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" prefix="+20" />
+              <Field label={t("Date of Birth *")}  placeholder=""                            value={birthdate} onChange={setBirthdate} error={errors.birthdate} type="date" max={new Date().toISOString().slice(0, 10)} min={`${new Date().getFullYear() - 120}-01-01`} />
               <Field label={t("Password *")}       placeholder={t("Min. 8 chars + 1 number")} value={password} onChange={setPassword}  error={errors.password} type="password" />
               <div className="flex gap-3">
                 <BackBtn onClick={() => { clearErrors(); setStep("role"); }} t={t} />
@@ -391,21 +422,19 @@ export function SignupPage() {
             <form onSubmit={handleDoctorBasicsNext} className="space-y-4">
               <Field label={t("Full Name *")}      placeholder="Dr. Khaled Hassan"           value={name}      onChange={setName}      error={errors.name} />
               <Field label={t("Email Address *")}  placeholder="dr@clinic.eg"                value={email}     onChange={setEmail}     error={errors.email} type="email" />
-              <Field label={t("Phone Number *")}   placeholder="01XXXXXXXXX"                 value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" />
+              <Field label={t("Phone Number *")}   placeholder="1XXXXXXXXX"                  value={phone}     onChange={setPhone}     error={errors.phone} inputMode="numeric" prefix="+20" />
               <div>
                 <label className="block text-sm font-medium text-navy">{t("Specialty *")}</label>
-                <input
-                  list="specialty-options"
+                <select
                   value={specialty}
                   onChange={(e) => setSpecialty(e.target.value)}
-                  placeholder={t("Select or type your specialty…")}
                   className={`mt-1.5 h-12 w-full rounded-md border bg-white px-3 text-sm text-navy outline-none focus:ring-2 ${errors.specialty ? "border-danger focus:border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"}`}
-                />
-                <datalist id="specialty-options">
+                >
+                  <option value="">{t("Select your specialty…")}</option>
                   {SPECIALTIES.filter((s) => s !== "All Specialties").map((s) => (
-                    <option key={s} value={s} />
+                    <option key={s} value={s}>{t(s)}</option>
                   ))}
-                </datalist>
+                </select>
                 {errors.specialty && <p className="mt-1 text-xs text-danger">{errors.specialty}</p>}
               </div>
               <Field label={t("Medical License Number")} placeholder="EG-XXXXXX"            value={licenseNumber} onChange={setLicenseNumber} />
@@ -661,7 +690,7 @@ function BackBtn({ onClick, t }: { onClick: () => void; t: (s: string) => string
 }
 
 function Field({
-  label, placeholder, value, onChange, error, type = "text", inputMode,
+  label, placeholder, value, onChange, error, type = "text", inputMode, prefix, min, max,
 }: {
   label: string;
   placeholder: string;
@@ -670,22 +699,34 @@ function Field({
   error?: string;
   type?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  prefix?: string;
+  min?: string;
+  max?: string;
 }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="text-sm font-medium text-navy">{label}</span>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        inputMode={inputMode}
-        className={`mt-1.5 h-12 w-full rounded-md border bg-white px-4 text-sm text-navy outline-none transition focus:ring-2 ${
-          error ? "border-danger focus:ring-danger/20" : "border-border focus:border-gold focus:ring-gold/20"
-        }`}
-      />
+      <div className={`mt-1.5 flex h-12 overflow-hidden rounded-md border bg-white transition focus-within:ring-2 ${
+        error ? "border-danger focus-within:ring-danger/20" : "border-border focus-within:border-gold focus-within:ring-gold/20"
+      }`}>
+        {prefix && (
+          <span className="flex shrink-0 items-center border-r border-border bg-offwhite px-3 text-sm font-medium text-navy-mid">
+            {prefix}
+          </span>
+        )}
+        <input
+          type={type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode={inputMode}
+          min={min}
+          max={max}
+          className="h-full flex-1 bg-transparent px-4 text-sm text-navy outline-none"
+        />
+      </div>
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
-    </label>
+    </div>
   );
 }
 

@@ -86,15 +86,23 @@ export const paymentController = {
         return res.status(404).json({ status: 'error', message: 'Payment not found' });
       }
 
+      let appointmentToken;
+      if (payment.purpose === 'appointment' && payment.appointment) {
+        const appointment = await mongoose.model('Appointment').findById(payment.appointment).select('accessToken').lean();
+        appointmentToken = appointment?.accessToken ?? null;
+      }
+
       res.json({
         data: {
-          id:            String(payment._id),
-          status:        payment.status,
-          purpose:       payment.purpose,
-          amountCents:   payment.amountCents,
-          currency:      payment.currency,
-          processedAt:   payment.processedAt,
-          failureReason: payment.status === 'failed' ? payment.failureReason : undefined,
+          id:               String(payment._id),
+          status:           payment.status,
+          purpose:          payment.purpose,
+          amountCents:      payment.amountCents,
+          currency:         payment.currency,
+          processedAt:      payment.processedAt,
+          failureReason:    payment.status === 'failed' ? payment.failureReason : undefined,
+          appointment:      payment.purpose === 'appointment' ? String(payment.appointment) : undefined,
+          appointmentToken: appointmentToken ?? undefined,
         },
       });
     } catch (err) { next(err); }

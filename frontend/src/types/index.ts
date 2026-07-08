@@ -225,7 +225,6 @@ export type Branch = {
   address: string;
   city: string;
   phone: string;
-  commissionPct?: number;
 };
 
 export type Membership = {
