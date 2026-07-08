@@ -119,17 +119,37 @@ export const appointmentController = {
     const DoctorBranchSchedule = (await import('../models/DoctorBranchSchedule.js')).default;
     const Session              = (await import('../models/QueueSession.js')).default;
 
-    const session = await Session.findById(appointment.session).select('doctorBranchSchedule').lean();
+    const session = await Session.findById(appointment.session).select('doctorBranchSchedule status').lean();
     const scheduleDoc = session
       ? await DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean()
       : null;
     const fee = req.body.paidAmount ?? (scheduleDoc?.consultationFee?.amount ?? 0);
+
+    // "Pay at clinic" bookings are held out of the active queue as
+    // 'pending_confirmation' until a receptionist/doctor confirms the
+    // payment here — at which point it joins the real queue as 'booked'.
+    // Confirming payment on an already-booked/completed appointment (e.g.
+    // the existing cash-at-checkout flow) only updates payment fields.
+    let joinedQueue = false;
+    if (appointment.status === 'pending_confirmation') {
+      if (!session || !['scheduled', 'active'].includes(session.status)) {
+        return res.status(409).json({ error: 'Session is no longer accepting patients' });
+      }
+      appointment.status = 'booked';
+      joinedQueue = true;
+    }
 
     appointment.paymentStatus = 'success';
     appointment.paidAt        = new Date();
     appointment.receivedBy    = req.actor.activeMembership._id;
     appointment.paidAmount    = fee;
     await appointment.save();
+
+    if (joinedQueue) {
+      try {
+        await queueService.publishQueueUpdated(appointment.session);
+      } catch { /* non-fatal — clients pick it up on next poll */ }
+    }
 
     res.json({ data: appointment });
   },

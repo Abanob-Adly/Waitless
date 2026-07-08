@@ -39,6 +39,9 @@ export type QueueStatus = {
   estimatedWaitMin: number;
   status: string;
   appointments: BackendAppointment[];
+  // "Pay at clinic" bookings awaiting staff confirmation — not in the active
+  // queue yet (see appointmentController.confirmPayment).
+  pendingConfirmation: BackendAppointment[];
 };
 
 export type BackendAppointment = {
@@ -227,6 +230,9 @@ export async function getQueue(
     estimatedWaitMin: 0,
     status: String(d.status ?? ""),
     appointments: (Array.isArray(d.appointments) ? (d.appointments as Record<string, unknown>[]) : []).map(
+      (a) => adaptAppointment(a),
+    ),
+    pendingConfirmation: (Array.isArray(d.pendingConfirmation) ? (d.pendingConfirmation as Record<string, unknown>[]) : []).map(
       (a) => adaptAppointment(a),
     ),
   };

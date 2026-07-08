@@ -97,7 +97,7 @@ export const marketplaceService = {
     return reviews;
   },
 
-  async bookMarketplace({ actor, sessionId }) {
+  async bookMarketplace({ actor, sessionId, paymentMethod }) {
     const session = await Session.findOne({
       _id:    sessionId,
       status: { $in: ['scheduled', 'active'] },
@@ -123,6 +123,12 @@ export const marketplaceService = {
     const queueNumber = updated.bookingsCount;
     const accessToken = generateToken(16);
 
+    // "Pay at clinic" bookings don't join the active queue immediately —
+    // a receptionist or doctor must confirm the payment first (see
+    // appointmentController.confirmPayment), which flips this to 'booked'.
+    // Every other method keeps the existing immediate-booking behavior.
+    const isPayAtClinic = paymentMethod === 'clinic';
+
     let appointment;
     try {
       appointment = await Appointment.create({
@@ -132,8 +138,9 @@ export const marketplaceService = {
         branch:           session.branch,
         doctorMembership: session.doctor,
         queueNumber,
-        status:           'booked',
+        status:           isPayAtClinic ? 'pending_confirmation' : 'booked',
         source:           'marketplace',
+        paymentMethod:    paymentMethod ?? null,
         accessToken,
       });
     } catch (err) {

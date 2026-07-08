@@ -54,14 +54,22 @@ export function startSessionAutoCloseCron() {
     for (const session of sessions) {
       try {
         if (session.status === 'scheduled') {
-          // Never started — mark cancelled
+          // Never started — mark cancelled, including any "pay at clinic"
+          // bookings still awaiting staff confirmation (they never got the
+          // chance, and there's no session left to join).
           await Session.findByIdAndUpdate(session._id, { $set: { status: 'cancelled' } });
+          await Appointment.updateMany(
+            { session: session._id, status: 'pending_confirmation' },
+            { $set: { status: 'cancelled', cancelledReason: 'Session was cancelled' } },
+          );
           console.log(`[sessionAutoClose] Cancelled scheduled session ${session._id}`);
           continue;
         }
 
-        // status === 'active' — close open appointments first
-        const openStatuses = ['booked', 'called', 'held', 'skipped', 'in_progress'];
+        // status === 'active' — close open appointments first. Includes
+        // 'pending_confirmation': if staff never confirmed the payment before
+        // the session ended, there's no queue left for it to join.
+        const openStatuses = ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'];
         const result = await Appointment.updateMany(
           { session: session._id, status: { $in: openStatuses } },
           { $set: { status: 'no_show' } },

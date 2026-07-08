@@ -165,6 +165,11 @@ function TicketView({
     booking.session.avgConsultationMin,
   );
 
+  // "Pay at clinic" bookings sit outside the active queue until staff confirms
+  // payment — position/currentServing are meaningless for it, so every
+  // queue-position banner and view below must defer to this first.
+  const isPendingConfirmation = appointmentStatus === "pending_confirmation";
+
   // Use booking's stored date as fallback until backend confirms sessionDate
   const effectiveDate = sessionDate || booking.session.date || "";
   const now = new Date();
@@ -295,7 +300,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && isReady && isOnBreak && (
+      {isSessionDay && isReady && !isPendingConfirmation && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">☕</span>
           <div>
@@ -307,7 +312,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && isReady && !isOnBreak && globalDelayMin >= 5 && (
+      {isSessionDay && isReady && !isPendingConfirmation && !isOnBreak && globalDelayMin >= 5 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
           <span className="text-base">⏱</span>
           <p className="text-sm text-navy">
@@ -317,7 +322,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && isReady && wasForceInserted && (
+      {isSessionDay && isReady && !isPendingConfirmation && wasForceInserted && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
           <span className="text-base">🚨</span>
           <div>
@@ -329,7 +334,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && isReady && !isCalled && position > 0 && position <= 3 && (
+      {isSessionDay && isReady && !isPendingConfirmation && !isCalled && position > 0 && position <= 3 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
           <span className="text-base">🔔</span>
           <div>
@@ -386,6 +391,8 @@ function TicketView({
             // real view a moment later, which reads as the ticket "opening
             // early" and glitching shut.
             <TicketLoadingView />
+          ) : isPendingConfirmation ? (
+            <PendingConfirmationView fee={booking.doctor.fee} clinicName={booking.session.clinicName} />
           ) : !isSessionDay ? (
             <CountdownView sessionDate={effectiveDate} />
           ) : sessionNotStarted ? (
@@ -444,7 +451,7 @@ function TicketView({
           </div>
         )}
 
-        {isSessionDay && !isCalled && (
+        {(isPendingConfirmation || (isSessionDay && !isCalled)) && (
           <div className="px-6 pb-6 pt-2">
             <button
               onClick={handleCancel}
@@ -479,6 +486,31 @@ function TicketLoadingView() {
   return (
     <div className="flex flex-col items-center justify-center py-10">
       <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-gold" />
+    </div>
+  );
+}
+
+// ── Pending confirmation view ("pay at clinic" not yet confirmed by staff) ──
+
+function PendingConfirmationView({ fee, clinicName }: { fee: number; clinicName: string }) {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
+        🏥
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        {t("Reserved — pay at reception")}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Your spot is held, but you're not in the live queue yet.")}{" "}
+        {t("Pay the")} <span className="font-semibold text-gold">{fee} EGP</span>{" "}
+        {t("consultation fee at")} <span className="font-semibold text-navy">{clinicName}</span>{" "}
+        {t("reception and staff will confirm it to add you to the queue.")}
+      </p>
+      <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
+        {t("Your queue position and wait time will appear here once confirmed.")}
+      </div>
     </div>
   );
 }

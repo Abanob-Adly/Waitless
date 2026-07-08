@@ -21,6 +21,9 @@ type PaymentResultState = {
   appointmentId: string;
   queueNumber: number;
   accessToken?: string;
+  /** Raw backend appointment status — "pending_confirmation" for clinic
+   *  bookings awaiting staff confirmation before they join the queue. */
+  appointmentStatus?: string;
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -42,13 +45,15 @@ export function PaymentResult() {
       <SuccessView
         state={state}
         onViewTicket={() => {
+          const isPendingConfirmation = state.appointmentStatus === "pending_confirmation";
           const booking: ActiveBooking = {
             id: state.appointmentId,
             doctor: state.doctor,
             session: state.session,
             queueNumber: state.queueNumber,
             paymentMethod: state.method,
-            paymentStatus: "success",
+            // Clinic bookings aren't paid yet — staff confirms at the desk.
+            paymentStatus: isPendingConfirmation ? "pending" : "success",
             transactionId: state.transactionId,
             last4: state.last4,
             accessToken: state.accessToken,
@@ -73,30 +78,37 @@ function SuccessView({
   onViewTicket: () => void;
 }) {
   const { locale } = useLanguage();
+  const isPendingConfirmation = state.appointmentStatus === "pending_confirmation";
   return (
     <main className="mx-auto max-w-lg px-4 py-16 text-center">
       {/* Check icon */}
-      <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-success/10">
-        <svg
-          className="h-12 w-12 text-success"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2.5}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M5 13l4 4L19 7"
-          />
-        </svg>
+      <div className={`mx-auto flex h-24 w-24 items-center justify-center rounded-full ${isPendingConfirmation ? "bg-gold-tint" : "bg-success/10"}`}>
+        {isPendingConfirmation ? (
+          <span className="text-4xl">🏥</span>
+        ) : (
+          <svg
+            className="h-12 w-12 text-success"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
+          </svg>
+        )}
       </div>
 
       <h1 className="mt-6 font-heading text-3xl font-bold text-navy">
-        Payment Successful!
+        {isPendingConfirmation ? "Spot Reserved!" : "Payment Successful!"}
       </h1>
       <p className="mt-2 text-sm text-navy-mid">
-        Your appointment is confirmed. You are in the queue.
+        {isPendingConfirmation
+          ? "Arrive at the clinic and pay at reception — you'll join the live queue once staff confirms your payment."
+          : "Your appointment is confirmed. You are in the queue."}
       </p>
 
       {/* Receipt card */}
@@ -121,7 +133,9 @@ function SuccessView({
 
           {/* Total */}
           <div className="mt-4 flex items-center justify-between border-t-2 border-navy pt-4">
-            <span className="font-heading font-bold text-navy">Total Paid</span>
+            <span className="font-heading font-bold text-navy">
+              {isPendingConfirmation ? "Due at Clinic" : "Total Paid"}
+            </span>
             <span className="font-heading text-2xl font-bold text-gold">
               {state.amount} EGP
             </span>

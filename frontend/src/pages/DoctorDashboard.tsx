@@ -372,7 +372,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
     memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
 
-  const { activeSession, activeBranchId, queue, isLoading, reload: load, reloadQueueNow } =
+  const { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload: load, reloadQueueNow } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId, { onCancellation: handleCancellation });
 
   // ── Load sessions list ─────────────────────────────────────────────────────
@@ -433,6 +433,12 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   async function handleCallNext() {
     if (!activeBranchId || !activeSession) return;
     try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await reloadQueueNow(); } catch { /* ignore */ }
+  }
+  async function handleConfirmPayment(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.confirmCashPayment(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
+    setActionInProgress(null);
   }
   async function handleHold(apptId: string) {
     if (!activeBranchId || !activeSession) return;
@@ -559,6 +565,40 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
             <p className="text-4xl">📋</p>
             <p className="mt-3 font-heading text-lg font-bold text-navy">{t("No active session today")}</p>
             <p className="mt-1 text-sm text-navy-mid">{t("Sessions open automatically at their scheduled start time.")}</p>
+          </div>
+        )}
+
+        {/* Pending clinic payments — shown regardless of session status, since
+            staff may confirm ahead of the session opening. Confirming moves
+            the appointment into the real queue (see confirmPayment). */}
+        {!isLoading && activeSession && pendingConfirmation.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-gold/30 bg-gold-tint/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
+              🏥 {t("Pending Clinic Payments")} · {pendingConfirmation.length}
+            </p>
+            {pendingConfirmation.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-tint text-xs font-bold text-navy">
+                    {p.queueNumber}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-navy">{p.patientProfile.fullName || "Patient"}</p>
+                    {p.patientProfile.phone && (
+                      <p className="text-xs text-navy-mid">{p.patientProfile.phone}</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleConfirmPayment(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded-md border border-success/40 bg-success/5 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+                  title={t("Confirm payment and add to the live queue")}
+                >
+                  {actionInProgress === p.id ? "…" : `✓ ${t("Confirm & Add to Queue")}`}
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

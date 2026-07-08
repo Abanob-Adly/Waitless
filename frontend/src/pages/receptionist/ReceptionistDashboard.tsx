@@ -638,6 +638,7 @@ function CheckInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
 function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; branchId: string; sessionId: string }) {
   const [queue, setQueue] = useState<BackendAppointment[]>([]);
+  const [pendingConfirmation, setPendingConfirmation] = useState<BackendAppointment[]>([]);
   const [currentlyServing, setCurrentlyServing] = useState(0);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [delayMin, setDelayMin] = useState("0");
@@ -649,6 +650,7 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     try {
       const q = await sessionService.getQueue(orgId, branchId, sessionId);
       setQueue(q.appointments);
+      setPendingConfirmation(q.pendingConfirmation);
       setCurrentlyServing(q.currentlyServing);
     } catch {
       // Leave stale queue on transient errors to avoid flicker
@@ -735,12 +737,45 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     cancelled:   "bg-danger/10 text-danger",
   };
 
-  if (queue.length === 0) {
-    return <p className="text-sm text-navy-mid">Queue is empty.</p>;
-  }
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      {pendingConfirmation.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-gold/30 bg-gold-tint/40 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
+            🏥 Pending Clinic Payments · {pendingConfirmation.length}
+          </p>
+          {pendingConfirmation.map((p) => (
+            <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-tint text-xs font-bold text-navy">
+                  {p.queueNumber}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-navy">
+                    {p.patientProfile.fullName || "Patient"}
+                  </p>
+                  {p.patientProfile.phone && (
+                    <p className="text-xs text-navy-mid">{p.patientProfile.phone}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleConfirmPayment(p.id)}
+                disabled={actionInProgress === p.id}
+                className="rounded border border-success/40 bg-success/5 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+                title="Confirm payment and add to the live queue"
+              >
+                {actionInProgress === p.id ? "…" : "✓ Confirm & Add to Queue"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {queue.length === 0 ? (
+        <p className="text-sm text-navy-mid">Queue is empty.</p>
+      ) : (
+      <div className="space-y-2">
       <div className="flex items-center gap-2">
         <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">
           Live Queue · {queue.length} entries
@@ -886,6 +921,8 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
           <p className="mt-2 text-xs text-navy-mid">Click Refresh to see today's cash totals.</p>
         )}
       </div>
+      </div>
+      )}
     </div>
   );
 }
