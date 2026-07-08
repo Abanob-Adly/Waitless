@@ -67,6 +67,14 @@ router.post(
   sessionController.end
 );
 
+router.post(
+  '/:sessionId/extend',
+  authenticate,
+  authorize('session.operate', loadSession),
+  validate(sessionSchemas.extend),
+  sessionController.extend
+);
+
 router.patch(
   '/:sessionId/delay',
   authenticate,

@@ -7,6 +7,7 @@ import PatientProfile from '../models/PatientProfile.js';
 import Appointment from '../models/Appointment.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, NotFound } from '../utils/errors.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 
 export const marketplaceService = {
@@ -66,7 +67,10 @@ export const marketplaceService = {
       const d = new Date(date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
     } else {
-      query.startTime = { $gte: new Date() };
+      // Bookable as long as the session hasn't ended yet — NOT gated on
+      // startTime, so an already-started 'active' session with open slots
+      // stays bookable instead of disappearing the moment it begins.
+      query.endTime = { $gte: wallClockNow() };
     }
 
     const sessions = await Session.find(query)

@@ -182,7 +182,9 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState<{ sessionId: string; waitingCount: number } | null>(null);
+  const [extendMinutes, setExtendMinutes] = useState(15);
+  const [extending, setExtending] = useState(false);
 
   const now = new Date();
   const today = [
@@ -214,6 +216,21 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     }
   }
 
+  // Don't end a session out from under waiting patients without asking first.
+  async function requestClose(sessionId: string) {
+    let waitingCount = 0;
+    try {
+      const q = await sessionService.getQueue(orgId, branchId, sessionId);
+      waitingCount = q.appointments.length;
+    } catch { /* ignore — treat as empty */ }
+    if (waitingCount === 0) {
+      void handleClose(sessionId);
+      return;
+    }
+    setExtendMinutes(15);
+    setConfirmClose({ sessionId, waitingCount });
+  }
+
   async function handleClose(sessionId: string) {
     try {
       await sessionService.endSession(orgId, branchId, sessionId);
@@ -221,6 +238,17 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
       // ignore
     }
     setConfirmClose(null);
+    await load();
+  }
+
+  async function handleExtend() {
+    if (!confirmClose) return;
+    setExtending(true);
+    try {
+      await sessionService.extendSession(orgId, branchId, confirmClose.sessionId, extendMinutes);
+      setConfirmClose(null);
+    } catch { /* ignore */ }
+    setExtending(false);
     await load();
   }
 
@@ -279,7 +307,7 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
                           {expandedId === s.id ? "Hide Queue" : "View Queue"}
                         </button>
                         <button
-                          onClick={() => setConfirmClose(s.id)}
+                          onClick={() => void requestClose(s.id)}
                           className="rounded-md border border-danger/30 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/5"
                         >
                           End Session
@@ -304,22 +332,42 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 animate-fade-in bg-navy/60 backdrop-blur-sm" onClick={() => setConfirmClose(null)} />
           <div className="relative mx-4 w-full max-w-sm animate-scale-in overflow-hidden rounded-2xl bg-white shadow-2xl p-6">
-            <p className="font-heading text-xl font-bold text-navy">End Session?</p>
+            <p className="font-heading text-xl font-bold text-navy">Patients Still Waiting</p>
             <p className="mt-2 text-sm text-navy-mid">
-              Remaining waiting patients will be removed from the queue.
+              {confirmClose.waitingCount} patient{confirmClose.waitingCount !== 1 ? "s are" : " is"} still in the
+              queue. Ending now will mark them as no-show. Add more time instead?
             </p>
+            <div className="mt-4">
+              <span className="text-sm font-medium text-navy">Add minutes</span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[10, 15, 30, 45].map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setExtendMinutes(min)}
+                    className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                      extendMinutes === min ? "border-gold bg-gold text-navy" : "border-border text-navy-mid hover:border-gold"
+                    }`}
+                  >
+                    {min} min
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-5 flex gap-3">
               <button
-                onClick={() => setConfirmClose(null)}
-                className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
+                onClick={() => handleClose(confirmClose.sessionId)}
+                disabled={extending}
+                className="flex h-10 flex-1 items-center justify-center rounded-md border border-danger/40 text-sm font-medium text-danger transition hover:bg-danger/5 disabled:opacity-50"
               >
-                Cancel
+                End Anyway
               </button>
               <button
-                onClick={() => handleClose(confirmClose)}
-                className="flex h-10 flex-1 items-center justify-center rounded-md bg-danger text-sm font-medium text-white transition hover:bg-danger/80"
+                onClick={() => void handleExtend()}
+                disabled={extending}
+                className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
               >
-                End Session
+                {extending ? "Adding…" : `Add ${extendMinutes} min`}
               </button>
             </div>
           </div>

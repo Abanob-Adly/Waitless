@@ -194,6 +194,21 @@ export async function endSession(
   return adaptSession(res.data.data as Record<string, unknown>);
 }
 
+// Pushes the session's end time back instead of ending it — used when
+// patients are still waiting but the scheduled window is up.
+export async function extendSession(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  extraMinutes: number,
+): Promise<BackendSession> {
+  const res = await api.post<{ data: Record<string, unknown> }>(
+    `${base(orgId, branchId)}/${sessionId}/extend`,
+    { extraMinutes },
+  );
+  return adaptSession(res.data.data as Record<string, unknown>);
+}
+
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
 /**
