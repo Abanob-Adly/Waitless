@@ -77,11 +77,17 @@ export const queueService = {
     const state = await getQueueState(sessionId);
     if (!state) throw NotFound('Session not found');
 
-    const [appointments, session] = await Promise.all([
+    const [appointments, pendingConfirmation, session] = await Promise.all([
       Appointment.find({
         session: sessionId,
         status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
       })
+        .populate('patientProfile', 'fullName phone')
+        .sort({ queueNumber: 1 })
+        .lean(),
+      // "Pay at clinic" bookings awaiting staff confirmation — not part of the
+      // active queue yet, surfaced separately so staff can confirm or reject.
+      Appointment.find({ session: sessionId, status: 'pending_confirmation' })
         .populate('patientProfile', 'fullName phone')
         .sort({ queueNumber: 1 })
         .lean(),
@@ -97,6 +103,7 @@ export const queueService = {
       status:             state.status,
       totalWaiting:       appointments.length,
       appointments,
+      pendingConfirmation,
       capacityInfo,
     };
   },

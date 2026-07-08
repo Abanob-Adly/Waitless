@@ -6,6 +6,8 @@ type UseDoctorActiveSessionResult = {
   activeSession: BackendSession | null;
   activeBranchId: string;
   queue: BackendAppointment[];
+  // "Pay at clinic" bookings awaiting confirmation — not in `queue` yet.
+  pendingConfirmation: BackendAppointment[];
   isLoading: boolean;
   reload: () => Promise<void>;
   reloadQueueNow: () => Promise<void>;
@@ -30,6 +32,7 @@ export function useDoctorActiveSession(
   const [activeSession, setActiveSession] = useState<BackendSession | null>(null);
   const [activeBranchId, setActiveBranchId] = useState<string>("");
   const [queue, setQueue] = useState<BackendAppointment[]>([]);
+  const [pendingConfirmation, setPendingConfirmation] = useState<BackendAppointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   // Tracks whether we've received the first successful response. Background
   // polls after that update data silently without re-showing the spinner.
@@ -47,7 +50,7 @@ export function useDoctorActiveSession(
 
   function reloadQueue(orgIdArg: string, branchId: string, sessionId: string) {
     sessionService.getQueue(orgIdArg, branchId, sessionId)
-      .then((q) => setQueue(q.appointments))
+      .then((q) => { setQueue(q.appointments); setPendingConfirmation(q.pendingConfirmation); })
       .catch(() => { /* leave stale */ });
   }
 
@@ -137,6 +140,7 @@ export function useDoctorActiveSession(
           try {
             const q = await sessionService.getQueue(orgId, foundBranch.id, found.id);
             setQueue(q.appointments);
+            setPendingConfirmation(q.pendingConfirmation);
           } catch {
             // Leave stale queue data on transient error
           }
@@ -146,12 +150,14 @@ export function useDoctorActiveSession(
       setActiveSession(null);
       setActiveBranchId("");
       setQueue([]);
+      setPendingConfirmation([]);
     } catch {
       // Leave stale data on transient network/server errors to avoid flicker.
       if (!hasLoadedRef.current) {
         setActiveSession(null);
         setActiveBranchId("");
         setQueue([]);
+        setPendingConfirmation([]);
       }
     } finally {
       hasLoadedRef.current = true;
@@ -172,10 +178,11 @@ export function useDoctorActiveSession(
     try {
       const q = await sessionService.getQueue(orgId, activeBranchId, activeSession.id);
       setQueue(q.appointments);
+      setPendingConfirmation(q.pendingConfirmation);
     } catch {
       // Leave stale queue data on transient error — the 10s poll will retry.
     }
   }
 
-  return { activeSession, activeBranchId, queue, isLoading, reload, reloadQueueNow };
+  return { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload, reloadQueueNow };
 }

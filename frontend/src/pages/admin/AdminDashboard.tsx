@@ -1345,8 +1345,8 @@ function BillingTab() {
       } else if (errCode === "PAYMOB_NOT_CONFIGURED" || errCode === "PAYMOB_ERROR") {
         showToast(false,
           locale === "ar"
-            ? "الدفع بالبطاقة غير متاح حالياً. يرجى إضافة رصيد إلى محفظتك أولاً."
-            : "Card payment is unavailable. Please add funds to your wallet first."
+                ? "الدفع عبر Paymob غير متاح حالياً. يرجى إضافة رصيد إلى محفظتك أولاً."
+              : "Paymob payment is unavailable. Please add funds to your wallet first."
         );
       } else if (e?.response?.data?.error === "INSUFFICIENT_WALLET") {
         try {
@@ -1415,7 +1415,7 @@ function BillingTab() {
       [isAr ? "الخطة" : "Plan",                 inv.planName],
       [isAr ? "طريقة الدفع" : "Payment Method",
         inv.paymentMethod === "wallet" ? (isAr ? "محفظة" : "Wallet")
-        : inv.paymentMethod === "card"  ? (isAr ? "Paymob" : "Paymob")
+        : inv.paymentMethod === "paymob"  ? (isAr ? "Paymob" : "Paymob")
         : (isAr ? "يدوي" : "Manual")],
       [isAr ? "بداية الفترة" : "Period Start",  new Date(inv.periodStart).toLocaleDateString("en-EG")],
       [isAr ? "نهاية الفترة" : "Period End",    new Date(inv.periodEnd).toLocaleDateString("en-EG")],
@@ -1592,7 +1592,7 @@ function BillingTab() {
                     <td className="px-4 py-3 text-navy-mid">
                       {inv.paymentMethod === "wallet"
                         ? t("Pay from Wallet")
-                        : inv.paymentMethod === "card"
+                        : inv.paymentMethod === "paymob"
                           ? t("Paymob Checkout")
                           : t("Manual")}
                     </td>
@@ -1660,8 +1660,8 @@ function BillingTab() {
             </p>
             <p className="mt-1 text-xs text-navy-mid">
               {locale === "ar"
-                ? "سيتم الخصم من محفظتك إن كان الرصيد كافياً، وإلا سيُطلب منك الدفع ببطاقة."
-                : "Payment will be deducted from your wallet if balance is sufficient, otherwise you'll be asked to pay by card."}
+                ? "سيتم الخصم من محفظتك إن كان الرصيد كافياً، وإلا سيتم تحويلك إلى Paymob."
+                : "Payment will be deducted from your wallet if balance is sufficient, otherwise you'll be redirected to Paymob."}
             </p>
             <div className="mt-5 flex gap-3">
               <button

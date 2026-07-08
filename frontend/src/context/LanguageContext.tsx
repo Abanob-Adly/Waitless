@@ -265,7 +265,7 @@ const AR: Record<string, string> = {
   "Join hundreds of clinics already saving time with Waitless.":
     "انضم إلى مئات العيادات التي توفر وقتها مع Waitless.",
   "Create Your Clinic Account →": "إنشاء حساب عيادتك →",
-  "Free to start · No credit card required": "مجاني للبدء · لا بطاقة ائتمان مطلوبة",
+  "Free to start · No payment required": "مجاني للبدء · لا حاجة للدفع",
 
   // ── Doctor Dashboard — header & nav ─────────────────────────────────────────
   "Welcome, Dr.": "مرحباً، د.",

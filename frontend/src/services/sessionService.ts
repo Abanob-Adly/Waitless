@@ -30,6 +30,9 @@ export type QueueStatus = {
   estimatedWaitMin: number;
   status: string;
   appointments: BackendAppointment[];
+  // "Pay at clinic" bookings awaiting staff confirmation — not in the active
+  // queue yet (see appointmentController.confirmPayment).
+  pendingConfirmation: BackendAppointment[];
 };
 
 export type BackendAppointment = {
@@ -166,6 +169,31 @@ export async function endSession(
   return adaptSession(res.data.data as Record<string, unknown>);
 }
 
+// Pushes the session's end time back instead of ending it — used when
+// patients are still waiting but the scheduled window is up.
+export async function extendSession(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  extraMinutes: number,
+): Promise<BackendSession> {
+  const res = await api.post<{ data: Record<string, unknown> }>(
+    `${base(orgId, branchId)}/${sessionId}/extend`,
+    { extraMinutes },
+  );
+  return adaptSession(res.data.data as Record<string, unknown>);
+}
+
+// Doctor submits a late-start excuse for a session they own.
+export async function submitExcuse(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  reason: string,
+): Promise<void> {
+  await api.post(`${base(orgId, branchId)}/${sessionId}/excuse`, { reason });
+}
+
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -202,6 +230,9 @@ export async function getQueue(
     estimatedWaitMin: 0,
     status: String(d.status ?? ""),
     appointments: (Array.isArray(d.appointments) ? (d.appointments as Record<string, unknown>[]) : []).map(
+      (a) => adaptAppointment(a),
+    ),
+    pendingConfirmation: (Array.isArray(d.pendingConfirmation) ? (d.pendingConfirmation as Record<string, unknown>[]) : []).map(
       (a) => adaptAppointment(a),
     ),
   };

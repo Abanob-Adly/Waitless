@@ -134,6 +134,20 @@ export const sessionService = {
     return session;
   },
 
+  // Pushes the session's end time back instead of ending it — used when the
+  // doctor still has patients waiting but the scheduled window is up. Also
+  // keeps the session bookable for that much longer (marketplaceService
+  // .getAvailableSessions and sessionAutoClose both key off endTime).
+  async extendSession({ session, extraMinutes }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 409);
+    }
+    session.endTime = new Date(session.endTime.getTime() + extraMinutes * 60_000);
+    await session.save();
+    await queueService.publishQueueUpdated(session._id);
+    return session;
+  },
+
   async endSession({ session }) {
     if (session.status !== 'active') {
       throw new AppError('Session is not active', 409);

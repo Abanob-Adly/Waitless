@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
+import { useApp } from "../context/AppContext";
 import { fmt12 } from "../utils/time";
 import { bookMarketplace } from "../services/appointmentService";
 import { startAppointmentCheckout } from "../services/paymentService";
 import type { Doctor, Session } from "../context/AppContext";
+import type { ActiveBooking } from "../types/index";
 
 type CheckoutState = {
   doctor: Doctor;
@@ -13,10 +15,26 @@ type CheckoutState = {
   patientPhone: string;
 };
 
+const METHOD_OPTIONS: { value: "paymob" | "clinic"; icon: string; title: string; desc: string }[] = [
+  {
+    value: "paymob",
+    icon: "💳",
+    title: "Pay Online with Paymob",
+    desc: "You will be redirected to Paymob's secure checkout page to complete payment. Your appointment is confirmed immediately.",
+  },
+  {
+    value: "clinic",
+    icon: "🏥",
+    title: "Pay at Clinic",
+    desc: "Reserve your spot now and pay the consultation fee at the clinic reception. Staff will confirm and add you to the queue.",
+  },
+];
+
 export function PaymentPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { locale } = useLanguage();
+  const { addBooking } = useApp();
 
   const state = location.state as CheckoutState | null;
 
@@ -42,6 +60,7 @@ export function PaymentPage() {
 
   const { doctor, session, patientName, patientPhone } = state;
 
+  const [paymentMethod, setPaymentMethod] = useState<"paymob" | "clinic">("paymob");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +82,57 @@ export function PaymentPage() {
       setProcessing(false);
     }
   }
+
+  async function handlePayAtClinic() {
+    setProcessing(true);
+    setError(null);
+
+    try {
+      const appt = await bookMarketplace(session.id, { paymentMethod: "clinic" });
+
+      const booking: ActiveBooking = {
+        id: appt.id,
+        doctor,
+        session,
+        queueNumber: appt.queueNumber,
+        paymentMethod: "clinic",
+        paymentStatus: "pending",
+        accessToken: appt.accessToken ?? undefined,
+      };
+      addBooking(booking);
+
+      navigate("/payment-result", {
+        state: {
+          appointmentId: appt.id,
+          queueNumber: appt.queueNumber,
+          accessToken: appt.accessToken,
+          appointmentStatus: appt.status,
+          doctor,
+          session,
+          amount: doctor.fee,
+          method: "clinic",
+          patientName,
+          patientPhone,
+        },
+      });
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        "Failed to reserve your spot. Please try again.";
+      setError(msg);
+      setProcessing(false);
+    }
+  }
+
+  async function handleSubmit() {
+    if (paymentMethod === "paymob") {
+      await handlePayWithPaymob();
+    } else {
+      await handlePayAtClinic();
+    }
+  }
+
+  const methodConfig = METHOD_OPTIONS.find((m) => m.value === paymentMethod)!;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -86,17 +156,36 @@ export function PaymentPage() {
             <span className="font-medium text-navy">{session.date}</span>.
           </p>
 
-          <div className="mt-8 rounded-xl border border-border bg-offwhite p-6">
+          {/* Payment method toggle */}
+          <div className="mt-6 flex gap-3">
+            {METHOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPaymentMethod(opt.value)}
+                className={`flex flex-1 items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition ${
+                  paymentMethod === opt.value
+                    ? "border-gold bg-gold-tint/30"
+                    : "border-border bg-white hover:border-gold/50"
+                }`}
+              >
+                <span className="text-2xl">{opt.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-navy">{opt.title}</p>
+                  <p className="mt-0.5 text-xs text-navy-mid">{opt.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Method description card */}
+          <div className="mt-6 rounded-xl border border-border bg-offwhite p-6">
             <div className="flex items-center gap-4">
               <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gold-tint">
-                <span className="text-2xl">💳</span>
+                <span className="text-2xl">{methodConfig.icon}</span>
               </div>
               <div>
-                <p className="font-heading text-lg font-bold text-navy">Pay with Paymob</p>
-                <p className="mt-1 text-sm text-navy-mid">
-                  You will be redirected to Paymob&apos;s secure checkout page to complete payment.
-                  Your appointment is confirmed immediately after successful payment.
-                </p>
+                <p className="font-heading text-lg font-bold text-navy">{methodConfig.title}</p>
+                <p className="mt-1 text-sm text-navy-mid">{methodConfig.desc}</p>
               </div>
             </div>
           </div>
@@ -108,23 +197,27 @@ export function PaymentPage() {
           )}
 
           <button
-            onClick={() => void handlePayWithPaymob()}
+            onClick={() => void handleSubmit()}
             disabled={processing}
             className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-md bg-gold text-base font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
           >
             {processing ? (
               <>
                 <Spinner />
-                Redirecting to Paymob…
+                {paymentMethod === "paymob" ? "Redirecting to Paymob…" : "Reserving your spot…"}
               </>
-            ) : (
+            ) : paymentMethod === "paymob" ? (
               `Pay ${doctor.fee} EGP with Paymob →`
+            ) : (
+              `Reserve & Pay at Clinic →`
             )}
           </button>
 
-          <p className="mt-3 text-center text-xs text-navy-mid">
-            🔒 256-bit SSL · PCI DSS compliant · Powered by Paymob
-          </p>
+          {paymentMethod === "paymob" && (
+            <p className="mt-3 text-center text-xs text-navy-mid">
+              🔒 256-bit SSL · PCI DSS compliant · Powered by Paymob
+            </p>
+          )}
         </div>
 
         {/* ── Right: order summary ── */}

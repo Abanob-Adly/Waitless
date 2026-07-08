@@ -2,6 +2,10 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const APPOINTMENT_STATUSES = [
+  // pending_confirmation: reserved via "pay at clinic" but not yet in the
+  // active queue — staff must confirm the payment (appointmentController
+  // .confirmPayment) before it becomes 'booked' and the patient is queued.
+  'pending_confirmation',
   'booked', 'called', 'held', 'skipped', 'in_progress',
   'completed', 'cancelled', 'no_show',
 ];
@@ -55,7 +59,7 @@ const appointmentSchema = new Schema({
   },
 
   // ── Payment ──
-  paymentMethod: { type: String, enum: ['card', 'vodafone_cash', 'clinic', 'wallet', 'cash', 'paymob'], default: null },
+  paymentMethod: { type: String, enum: ['clinic', 'paymob'], default: null },
   paymentStatus: { type: String, enum: ['pending', 'success', 'failed'], default: 'pending' },
   paidAt:        { type: Date, default: null },
   receivedBy:    { type: Schema.Types.ObjectId, ref: 'Membership', default: null },
@@ -83,7 +87,7 @@ appointmentSchema.index(
   { session: 1, patientProfile: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } }
+    partialFilterExpression: { status: { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] } }
   }
 );
 

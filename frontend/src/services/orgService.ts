@@ -222,7 +222,7 @@ export type Invoice = {
   planName: string;
   amount: number;
   currency: string;
-  paymentMethod: "wallet" | "card" | "manual";
+  paymentMethod: "wallet" | "paymob" | "manual";
   paymobTransactionId: string | null;
   status: "paid" | "failed" | "refunded";
   periodStart: string;

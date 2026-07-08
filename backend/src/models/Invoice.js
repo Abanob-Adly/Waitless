@@ -25,7 +25,7 @@ const invoiceSchema = new Schema({
   planName:            { type: String, required: true },
   amount:              { type: Number, required: true, min: 0 },
   currency:            { type: String, default: 'EGP' },
-  paymentMethod:       { type: String, enum: ['wallet', 'card', 'manual'], default: 'manual' },
+  paymentMethod:       { type: String, enum: ['wallet', 'paymob', 'manual'], default: 'manual' },
   paymobTransactionId: { type: String, default: null },
   status:              { type: String, enum: ['paid', 'failed', 'refunded'], default: 'paid' },
   periodStart:         { type: Date, required: true },

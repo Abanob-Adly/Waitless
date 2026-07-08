@@ -190,7 +190,7 @@ const appointmentPolicies = {
     if (!actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(appointment.organization)) return false;
     const m = actor.activeMembership;
-    return m.kind === 'receptionist' || m.kind === 'admin';
+    return m.kind === 'receptionist' || m.kind === 'admin' || m.kind === 'doctor';
   },
 };
 

@@ -38,8 +38,18 @@ export function describeRedisError(err) {
   return err?.message || err?.name || String(err);
 }
 
+// Once a connection attempt fails, ioredis keeps retrying in the background
+// forever per retryStrategy (every 200ms here) regardless of whether new
+// commands are issued — logging every attempt would flood the console for as
+// long as Redis stays down. Throttle to at most one line per 30s so a
+// still-down Redis stays visible without spamming.
+let lastLoggedAt = 0;
 redis.on('error', (err) => {
-  if (!isTest) console.error('[redis]', describeRedisError(err));
+  if (isTest) return;
+  const now = Date.now();
+  if (now - lastLoggedAt < 30_000) return;
+  lastLoggedAt = now;
+  console.error('[redis]', describeRedisError(err));
 });
 
 export default redis;

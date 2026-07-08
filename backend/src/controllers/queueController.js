@@ -142,8 +142,15 @@ export const queueController = {
     // A duplicated client does not inherit the parent's 'error' listener — an
     // EventEmitter with no 'error' listener throws and crashes the whole
     // process on connection failure (e.g. Redis down). Must attach this
-    // before any command is issued on `sub`.
-    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', describeRedisError(err)));
+    // before any command is issued on `sub`. ioredis retries in the background
+    // every 200ms while Redis is down, re-emitting 'error' each time — log only
+    // the first one per connection instead of flooding the console forever.
+    let loggedError = false;
+    sub.on('error', (err) => {
+      if (loggedError) return;
+      loggedError = true;
+      console.warn('[queue] SSE subscriber error:', describeRedisError(err));
+    });
 
     try {
       await sub.subscribe(channel);
@@ -176,14 +183,12 @@ export const queueController = {
 
     const fee = session.doctorBranchSchedule?.consultationFee?.amount ?? 0;
 
-    // Include walk-in cash AND clinic appointments confirmed as paid
+    // Include clinic appointments confirmed as paid
     const appointments = await Appointment.find({
       session: req.params.sessionId,
       status:  'completed',
-      $or: [
-        { paymentMethod: 'cash' },
-        { paymentMethod: 'clinic', paymentStatus: 'success' },
-      ],
+      paymentMethod: 'clinic',
+      paymentStatus: 'success',
     }).populate('patientProfile', 'fullName').lean();
 
     const totalCash = appointments.reduce((sum, a) => sum + (a.paidAmount ?? fee), 0);

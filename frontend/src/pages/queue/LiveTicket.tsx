@@ -7,12 +7,13 @@ import { useLanguage } from "../../context/LanguageContext";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type AppointmentStatus =
+  | "pending_confirmation"
   | "booked"
   | "called"
   | "in_progress"
   | "completed"
-  | "cancelled";
-  "no_show";
+  | "cancelled"
+  | "no_show";
 
 type QueueStatus = {
   token: string;
@@ -187,7 +188,7 @@ export function LiveTicket() {
     );
   }
 
-  const canCancel = queueStatus.status === "booked";
+  const canCancel = queueStatus.status === "booked" || queueStatus.status === "pending_confirmation";
   const today = new Date().toISOString().slice(0, 10);
   const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= today;
 
@@ -241,7 +242,11 @@ export function LiveTicket() {
 
           {/* Status content */}
           <div className="px-5 pb-8 pt-6">
-            {!isSessionDay ? (
+            {queueStatus.status === "pending_confirmation" ? (
+              <PendingConfirmationView
+                fee={queueStatus.doctor.consultationFee}
+              />
+            ) : !isSessionDay ? (
               <CountdownView sessionDate={queueStatus.sessionDate} />
             ) : queueStatus.sessionStatus === "ended" &&
               queueStatus.status !== "completed" &&
@@ -278,6 +283,26 @@ export function LiveTicket() {
           Keep this page open to track your position in real-time.
         </p>
       </main>
+    </div>
+  );
+}
+
+// ── Pending confirmation view ("pay at clinic" not yet confirmed by staff) ──
+
+function PendingConfirmationView({ fee }: { fee: number }) {
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+        🏥
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        Reserved — pay at reception
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        Your spot is held, but you&apos;re not in the live queue yet. Pay the{" "}
+        <span className="font-semibold text-gold">{fee} EGP</span> consultation
+        fee at reception and staff will confirm it to add you to the queue.
+      </p>
     </div>
   );
 }

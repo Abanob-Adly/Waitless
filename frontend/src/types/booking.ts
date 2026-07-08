@@ -1,4 +1,4 @@
-export type PaymentMethod = "card" | "vodafone_cash" | "pay_at_clinic";
+export type PaymentMethod = "paymob" | "clinic";
 
 export type BookingSummary = {
   id: string;

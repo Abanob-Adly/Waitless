@@ -757,12 +757,12 @@ export async function cancelAppointment(appointmentId: string): Promise<void> {
 export async function processPayment(
   payload: PaymentPayload,
 ): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-  await delay(payload.method === "card" ? 1800 : 1000);
-  if (payload.method === "card" && Math.random() > 0.7) {
+  await delay(payload.method === "paymob" ? 1800 : 1000);
+  if (payload.method === "paymob" && Math.random() > 0.7) {
     return {
       success: false,
       error:
-        "Payment declined. Please check your card details or try a different payment method.",
+        "Payment declined. Please try again or choose a different payment method.",
     };
   }
   const txn = `TXN-${payload.appointmentId.slice(-6).toUpperCase()}-${Math.floor(

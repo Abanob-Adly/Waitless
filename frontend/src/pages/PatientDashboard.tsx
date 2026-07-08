@@ -7,7 +7,7 @@ import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, cancelOwnAppointment } from "../services/patientService";
+import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, getMineStatusMap, cancelOwnAppointment } from "../services/patientService";
 import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
@@ -47,11 +47,17 @@ export function PatientDashboard() {
       try {
         const tickets = await getOwnActiveTickets();
         setServerTickets(tickets);
-        // Evict localStorage bookings that are no longer active on the server
-        // (session ended, doctor marked no-show, admin cancelled, etc.)
-        const activeIds = new Set(tickets.map((t) => t.id));
+        // Evict localStorage bookings only when the server confirms they're
+        // genuinely gone (cancelled, no-show, or the appointment no longer
+        // exists) — NOT simply "not active", since a just-completed
+        // consultation is also "not active" but must stay visible long
+        // enough for the post-visit review popup on the ticket page.
+        const statusMap = await getMineStatusMap();
         bookingsRef.current.forEach((b) => {
-          if (!activeIds.has(b.id)) removeBookingRef.current(b.id);
+          const status = statusMap.get(b.id);
+          if (status === undefined || status === "cancelled" || status === "no_show") {
+            removeBookingRef.current(b.id);
+          }
         });
       } catch { /* non-fatal */ }
     }

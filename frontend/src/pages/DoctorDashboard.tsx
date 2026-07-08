@@ -336,6 +336,9 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [endingSession, setEndingSession] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [endSessionModal, setEndSessionModal] = useState<{ sessionId: string; branchId: string; waitingCount: number } | null>(null);
+  const [extendMinutes, setExtendMinutes] = useState(15);
+  const [extending, setExtending] = useState(false);
   const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
   const [excuseReason, setExcuseReason] = useState("");
   const [submittingExcuse, setSubmittingExcuse] = useState(false);
@@ -367,7 +370,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
     memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
 
-  const { activeSession, activeBranchId, queue, isLoading, reload: load, reloadQueueNow } =
+  const { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload: load, reloadQueueNow } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId, { onCancellation: handleCancellation });
 
   // ── Load sessions list ─────────────────────────────────────────────────────
@@ -429,6 +432,12 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     if (!activeBranchId || !activeSession) return;
     try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await reloadQueueNow(); } catch { /* ignore */ }
   }
+  async function handleConfirmPayment(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.confirmCashPayment(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
   async function handleHold(apptId: string) {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
@@ -439,6 +448,13 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+  // Urgent case — move a booked patient to the front of the remaining queue.
+  async function handleForceInsert(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.forceInsertNext(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
   }
   async function handleWalkIn(e: React.FormEvent) {
@@ -485,13 +501,47 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   }
 
   // ── Session actions ────────────────────────────────────────────────────────
+  // Don't end a session out from under waiting patients without asking first.
+  // If nobody's waiting, end immediately; otherwise let the doctor choose
+  // between ending anyway or pushing the end time back instead.
+  async function requestEndSession(sessionId: string, branchId: string) {
+    let count: number;
+    if (sessionId === activeSession?.id) {
+      count = queue.filter((p) => p.status === "booked" || p.status === "called" || p.status === "held" || p.status === "in_progress").length;
+    } else {
+      try {
+        const q = await sessionService.getQueue(orgId, branchId, sessionId);
+        count = q.appointments.length;
+      } catch {
+        count = 0;
+      }
+    }
+    if (count === 0) {
+      void doEndSession(sessionId, branchId);
+      return;
+    }
+    setExtendMinutes(15);
+    setEndSessionModal({ sessionId, branchId, waitingCount: count });
+  }
+
   async function doEndSession(sessionId: string, branchId: string) {
     setEndingSession(sessionId); setSessionActionError(null);
     try {
       await sessionService.endSession(orgId, branchId, sessionId);
+      setEndSessionModal(null);
       setSessionsRefreshKey((k) => k + 1); await load();
     } catch { setSessionActionError("Failed to end session. Please try again."); }
     setEndingSession(null);
+  }
+  async function handleExtendSession() {
+    if (!endSessionModal) return;
+    setExtending(true);
+    try {
+      await sessionService.extendSession(orgId, endSessionModal.branchId, endSessionModal.sessionId, extendMinutes);
+      setEndSessionModal(null);
+      setSessionsRefreshKey((k) => k + 1); await load();
+    } catch { setSessionActionError("Failed to extend session. Please try again."); }
+    setExtending(false);
   }
   async function handleSubmitExcuse() {
     if (!excuseModal || !excuseReason.trim()) { setExcuseError("Please enter a reason."); return; }
@@ -557,6 +607,40 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
           </div>
         )}
 
+        {/* Pending clinic payments — shown regardless of session status, since
+            staff may confirm ahead of the session opening. Confirming moves
+            the appointment into the real queue (see confirmPayment). */}
+        {!isLoading && activeSession && pendingConfirmation.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-gold/30 bg-gold-tint/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
+              🏥 {t("Pending Clinic Payments")} · {pendingConfirmation.length}
+            </p>
+            {pendingConfirmation.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-tint text-xs font-bold text-navy">
+                    {p.queueNumber}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-navy">{p.patientProfile.fullName || "Patient"}</p>
+                    {p.patientProfile.phone && (
+                      <p className="text-xs text-navy-mid">{p.patientProfile.phone}</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleConfirmPayment(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded-md border border-success/40 bg-success/5 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+                  title={t("Confirm payment and add to the live queue")}
+                >
+                  {actionInProgress === p.id ? "…" : `✓ ${t("Confirm & Add to Queue")}`}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Session found but not started yet — block queue access (can't call/hold/
             skip/etc. a session that hasn't opened), but still surface how many
             patients are already booked so the doctor knows what's waiting. */}
@@ -607,7 +691,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                   )}
                   {/* End session */}
                   <button
-                    onClick={() => void doEndSession(activeSession.id, activeBranchId)}
+                    onClick={() => void requestEndSession(activeSession.id, activeBranchId)}
                     disabled={endingSession === activeSession.id}
                     className="rounded-md border border-danger/40 bg-danger/5 px-3 py-1.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
                   >
@@ -698,6 +782,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                   const canInsert  = appt.status === "held";
                   const canSkip    = appt.status === "booked";
                   const canNoShow  = appt.status === "booked" || appt.status === "held";
+                  const canForceInsert = appt.status === "booked";
                   return (
                     <div key={appt.id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -736,6 +821,16 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                             className="rounded-md bg-navy px-2.5 py-1 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
                           >
                             {t("Re-insert")}
+                          </button>
+                        )}
+                        {canForceInsert && (
+                          <button
+                            onClick={() => handleForceInsert(appt.id)}
+                            disabled={actionInProgress === appt.id}
+                            className="rounded-md border border-danger/40 bg-danger/5 px-2.5 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-60"
+                            title={t("Move this patient to the front of the queue")}
+                          >
+                            🚨 {t("Urgent")}
                           </button>
                         )}
                         {canSkip && (
@@ -845,7 +940,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {s.status === "active" && s.id !== activeSession?.id && (
                           <button
-                            onClick={() => void doEndSession(s.id, s.branchId)}
+                            onClick={() => void requestEndSession(s.id, s.branchId)}
                             disabled={endingSession === s.id}
                             className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
                           >
@@ -948,6 +1043,60 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                   className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
                 >
                   {submittingExcuse ? t("Submitting…") : t("Submit")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── End-session confirmation (patients still waiting) ─────────────── */}
+      {endSessionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setEndSessionModal(null)} />
+          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-danger px-6 py-4">
+              <p className="font-heading text-base font-bold text-white">{t("Patients Still Waiting")}</p>
+              <p className="mt-0.5 text-xs text-white/70">
+                {endSessionModal.waitingCount} {endSessionModal.waitingCount === 1 ? t("patient is") : t("patients are")} {t("still in the queue")}
+              </p>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-navy">
+                {t("Ending now will mark remaining patients as no-show. Would you like to add more time instead?")}
+              </p>
+              <div>
+                <span className="text-sm font-medium text-navy">{t("Add minutes")}</span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[10, 15, 30, 45].map((min) => (
+                    <button
+                      key={min}
+                      type="button"
+                      onClick={() => setExtendMinutes(min)}
+                      className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                        extendMinutes === min ? "border-gold bg-gold text-navy" : "border-border text-navy-mid hover:border-gold"
+                      }`}
+                    >
+                      {min} {t("min")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {sessionActionError && <p className="text-xs text-danger">{t(sessionActionError)}</p>}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => void doEndSession(endSessionModal.sessionId, endSessionModal.branchId)}
+                  disabled={endingSession === endSessionModal.sessionId || extending}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md border border-danger/40 text-sm font-medium text-danger transition hover:bg-danger/5 disabled:opacity-50"
+                >
+                  {endingSession === endSessionModal.sessionId ? t("Ending…") : t("End Anyway")}
+                </button>
+                <button
+                  onClick={() => void handleExtendSession()}
+                  disabled={extending || endingSession === endSessionModal.sessionId}
+                  className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+                >
+                  {extending ? t("Adding…") : `${t("Add")} ${extendMinutes} ${t("min")}`}
                 </button>
               </div>
             </div>

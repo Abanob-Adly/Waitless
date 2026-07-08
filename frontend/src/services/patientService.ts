@@ -120,7 +120,7 @@ export type ActiveTicketItem = {
   sessionEndTime: string;
 };
 
-const ACTIVE_STATUSES = new Set(["booked", "called", "held", "skipped", "in_progress"]);
+const ACTIVE_STATUSES = new Set(["pending_confirmation", "booked", "called", "held", "skipped", "in_progress"]);
 
 export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
   try {
@@ -152,6 +152,27 @@ export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
       });
   } catch {
     return [];
+  }
+}
+
+// Raw id → status map for ALL of the patient's appointments (unfiltered) —
+// used to decide whether a locally-cached booking should be evicted. Unlike
+// getOwnActiveTickets (which only lists "active" statuses), this lets callers
+// distinguish "genuinely gone" (cancelled/no_show/missing) from "just
+// completed" — evicting on completion would wipe the booking from local
+// state before the patient ever sees the post-visit review popup.
+export async function getMineStatusMap(): Promise<Map<string, string>> {
+  try {
+    const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");
+    const list = Array.isArray(res.data.data) ? res.data.data : [];
+    return new Map(
+      list.map((a) => {
+        const raw = a as Record<string, unknown>;
+        return [String(raw._id ?? raw.id), String(raw.status ?? "")];
+      }),
+    );
+  } catch {
+    return new Map();
   }
 }
 

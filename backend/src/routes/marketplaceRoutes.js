@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { authenticate, optionalAuthenticate } from '../middleware/authenticate.js';
 import { authorize } from '../policies/can.js';
-import { marketplaceController } from '../controllers/marketplaceController.js';
+import { validate } from '../middleware/validate.js';
+import { marketplaceController, marketplaceSchemas } from '../controllers/marketplaceController.js';
 import Organization from '../models/Organization.js';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.post(
   '/sessions/:sessionId/book',
   authenticate,
   authorize('appointment.book_marketplace'),
+  validate(marketplaceSchemas.book),
   marketplaceController.book
 );
 

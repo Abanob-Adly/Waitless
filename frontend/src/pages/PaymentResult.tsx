@@ -1,15 +1,82 @@
 import { useEffect, useState, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { getPaymentResult } from "../services/paymentService";
 import type { PaymentResultData } from "../services/paymentService";
 import { useLanguage } from "../context/LanguageContext";
+import type { Doctor, Session } from "../context/AppContext";
+
+type ClinicResultState = {
+  appointmentId: string;
+  queueNumber: number;
+  accessToken?: string;
+  appointmentStatus?: string;
+  doctor: Doctor;
+  session: Session;
+  amount: number;
+  method: "clinic";
+  patientName: string;
+  patientPhone: string;
+};
 
 const POLL_TIMEOUT_MS = 30_000;
 
 export function PaymentResult() {
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const clinicState = location.state as ClinicResultState | null;
   const navigate = useNavigate();
   const { locale } = useLanguage();
+
+  // ── Clinic flow (pay at clinic — no Paymob redirect) ──────────────────────
+  if (clinicState?.appointmentId && clinicState.method === "clinic") {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16 text-center">
+        <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint">
+          <span className="text-4xl">🏥</span>
+        </div>
+
+        <h1 className="mt-6 font-heading text-3xl font-bold text-navy">
+          Spot Reserved!
+        </h1>
+        <p className="mt-2 text-sm text-navy-mid">
+          Arrive at the clinic and pay at reception — you'll join the live queue once staff confirms your payment.
+        </p>
+
+        <div className="mt-8 overflow-hidden rounded-xl border border-border bg-white text-left shadow-sm">
+          <div className="bg-navy px-5 py-4">
+            <p className="font-heading text-base font-bold text-white">
+              Booking Receipt
+            </p>
+          </div>
+          <div className="p-5 text-sm">
+            <dl className="space-y-3">
+              <ReceiptRow label="Doctor" value={clinicState.doctor.name} />
+              <ReceiptRow label="Date" value={clinicState.session.date} />
+              <ReceiptRow label="Clinic" value={clinicState.session.clinicName} />
+              <ReceiptRow label="Patient" value={clinicState.patientName} />
+            </dl>
+            <div className="mt-4 flex items-center justify-between border-t-2 border-navy pt-4">
+              <span className="font-heading font-bold text-navy">Due at Clinic</span>
+              <span className="font-heading text-2xl font-bold text-gold">
+                {clinicState.amount} EGP
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <button
+            onClick={() => navigate("/ticket")}
+            className="h-13 w-full rounded-md bg-gold py-3 text-base font-medium text-navy transition hover:bg-gold-light"
+          >
+            View My Ticket →
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Paymob flow (polling-based) ──────────────────────────────────────────
+  const [searchParams] = useSearchParams();
   const paymobSuccess = searchParams.get("success");
   const [status, setStatus] = useState<"loading" | "success" | "failed" | "timeout">("loading");
   const [payment, setPayment] = useState<PaymentResultData | null>(null);
