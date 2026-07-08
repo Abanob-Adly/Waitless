@@ -1565,7 +1565,7 @@ async function handleSave(e: React.FormEvent) {
         </button>
       </form>
 
-      {/* Read-only Weekly Schedule + Earnings Breakdown */}
+      {/* Read-only Weekly Schedule */}
       {mySchedules.length > 0 && (
         <div className="space-y-3 border-t border-border pt-5">
           <div>
@@ -1574,10 +1574,6 @@ async function handleSave(e: React.FormEvent) {
           </div>
           {mySchedules.map((sched) => {
             const branch = branches.find((b) => b.id === sched.branchId);
-            const fee = sched.fee ?? 0;
-            const platformCut = Math.round(fee * 0.10);
-            const orgCut = Math.round((fee - platformCut) * 0.7);
-            const doctorNet = fee - platformCut - orgCut;
             return (
               <div key={sched.id} className="rounded-xl border border-border bg-offwhite p-4">
                 <div className="flex items-center justify-between">
@@ -1595,27 +1591,6 @@ async function handleSave(e: React.FormEvent) {
                   ))}
                 </div>
                 <p className="mt-1.5 text-xs text-navy-mid">{sched.avgConsultationMin} {t("min avg. consultation")}</p>
-                {fee > 0 && (
-                  <div className="mt-3 rounded-lg border border-border bg-white px-3 py-2">
-                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-navy-mid">
-                      {t("Earnings per Consultation")}
-                    </p>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className="text-xs text-navy-mid">{t("Platform (10%)")}</p>
-                        <p className="font-medium text-navy">−{platformCut} {t("EGP")}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-navy-mid">{t("Clinic (21%)")}</p>
-                        <p className="font-medium text-navy">−{orgCut} {t("EGP")}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gold">Your Net</p>
-                        <p className="font-bold text-gold">{doctorNet} EGP</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
