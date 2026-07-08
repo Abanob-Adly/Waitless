@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { api } from "../../services/api";
 import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ type QueueStatus = {
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
   sessionDate: string;
+  sessionStartTime: string;
+  avgConsultationMin: number;
   sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
   sessionClosureNote?: string;
   isOnBreak: boolean;
@@ -73,6 +76,8 @@ export function LiveTicket() {
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
           status:               String(d.status ?? "booked") as AppointmentStatus,
           sessionDate:          String(d.sessionDate ?? ""),
+          sessionStartTime:     String(d.sessionStartTime ?? ""),
+          avgConsultationMin:   Number(d.avgConsultationMin ?? 15),
           sessionStatus:        (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
           isOnBreak:            Boolean(d.isOnBreak ?? false),
           doctorAvatarUrl:      String(d.doctorAvatarUrl ?? ""),
@@ -369,15 +374,31 @@ function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isO
 
   return (
     <div>
-      {queueStatus.sessionStatus === "scheduled" && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
-          <span className="text-xl">⏳</span>
-          <div>
-            <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
-            <p className="text-xs text-navy-mid">{t("The doctor has not started the session. You will be notified when it begins.")}</p>
+      {queueStatus.sessionStatus === "scheduled" && (() => {
+        const [hh, mm] = (queueStatus.sessionStartTime
+          ? new Date(queueStatus.sessionStartTime).toISOString().slice(11, 16)
+          : "00:00").split(":").map(Number);
+        const scheduledStart = new Date(`${queueStatus.sessionDate || new Date().toISOString().slice(0, 10)}T00:00:00`);
+        scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+        const patientsAhead = Math.max(0, queueStatus.queueNumber - 1);
+        const arrivalDate = new Date(
+          scheduledStart.getTime() + patientsAhead * queueStatus.avgConsultationMin * 60_000 - 10 * 60_000,
+        );
+        const recommendedArrival = fmt12(
+          `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+        );
+        return (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
+            <span className="text-xl">⏳</span>
+            <div>
+              <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
+              <p className="text-xs text-navy-mid">
+                {t("You're #")}{queueStatus.queueNumber} {t("in line")} — {t("come around")} <span className="font-semibold text-navy">{recommendedArrival}</span>
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {isOnBreak && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-xl">☕</span>

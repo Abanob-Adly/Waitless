@@ -1054,15 +1054,24 @@ function SchedulesTab() {
         </div>
       )}
 
-      {/* Legend */}
+      {/* Doctor list — direct Edit access, no need to open a specific day first */}
       {schedules.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           {schedules.map((s, i) => {
             const c = DOCTOR_COLORS[i % DOCTOR_COLORS.length];
             return (
-              <div key={s.id} className="flex items-center gap-1.5">
+              <div
+                key={s.id}
+                className={`flex items-center gap-2 rounded-full border py-1 pl-3 pr-1 ${c.border} ${c.bg}`}
+              >
                 <span className={`h-2.5 w-2.5 rounded-full ${c.dot}`} />
                 <span className="text-xs text-navy-mid">{s.doctorName}</span>
+                <button
+                  onClick={() => setEditingSchedule(s)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition hover:opacity-80 ${c.border} ${c.text}`}
+                >
+                  {t("Edit")}
+                </button>
               </div>
             );
           })}

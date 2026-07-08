@@ -124,11 +124,23 @@ export const queueService = {
       await appt.save();
     }
 
-    // Oldest skipped first, then next booked by queue order
+    // A force-inserted ("urgent") patient must win regardless of what else is
+    // waiting — otherwise a patient marked skipped earlier in the session
+    // keeps outranking them below, so pressing "Urgent" would silently do
+    // nothing while the urgent patient keeps waiting.
     let next = await Appointment.findOne({
-      session: session._id,
-      status:  'skipped',
-    }).sort({ skippedAt: 1 });
+      session:          session._id,
+      status:           'booked',
+      wasForceInserted: true,
+    }).sort({ queueNumber: 1 });
+
+    // Oldest skipped next, then next booked by queue order
+    if (!next) {
+      next = await Appointment.findOne({
+        session: session._id,
+        status:  'skipped',
+      }).sort({ skippedAt: 1 });
+    }
 
     if (!next) {
       next = await Appointment.findOne({

@@ -399,6 +399,8 @@ function TicketView({
             <SessionNotStartedView
               startTime={booking.session.startTime}
               sessionDate={effectiveDate}
+              queueNumber={booking.queueNumber}
+              avgConsultationMin={avgConsultationMin || booking.session.avgConsultationMin}
             />
           ) : sessionWindowClosed && !isCalled ? (
             <SessionWindowClosedView endTime={booking.session.endTime} />
@@ -539,7 +541,17 @@ function SessionWindowClosedView({ endTime }: { endTime: string }) {
   );
 }
 
-function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
+function SessionNotStartedView({
+  startTime,
+  sessionDate,
+  queueNumber,
+  avgConsultationMin,
+}: {
+  startTime: string;
+  sessionDate: string;
+  queueNumber: number;
+  avgConsultationMin: number;
+}) {
   const { t, locale } = useLanguage();
   const [, rerender] = useState(0);
 
@@ -557,6 +569,19 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
   const mins  = diffMin % 60;
   const countdownStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 
+  // Personalized arrival time: the session starting doesn't mean this patient
+  // needs to be there right away — estimate when their turn will actually come
+  // (based on how many patients are ahead of them) and tell them to arrive
+  // 10 minutes before THAT, not 10 minutes before the session opens.
+  const patientsAhead = Math.max(0, queueNumber - 1);
+  const estimatedTurnMs = scheduledStart.getTime() + patientsAhead * avgConsultationMin * 60_000;
+  const arrivalMs = estimatedTurnMs - 10 * 60_000;
+  const arrivalDate = new Date(arrivalMs);
+  const recommendedArrival = fmt12(
+    `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+    locale,
+  );
+
   return (
     <div className="py-4 text-center">
       <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
@@ -573,7 +598,15 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
         {t("Your queue position and wait time will appear here once the session begins.")}
       </p>
       <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
-        {t("Arrive 10 minutes before your scheduled session.")}
+        <p className="font-semibold">
+          {t("You're #")}{queueNumber} {t("in line")} — {t("come around")}{" "}
+          <span className="font-bold">{recommendedArrival}</span>
+        </p>
+        <p className="mt-1 text-xs text-navy-mid">
+          {patientsAhead === 0
+            ? t("Arrive 10 minutes before your scheduled session.")
+            : `${t("Based on")} ${patientsAhead} ${patientsAhead > 1 ? t("patients ahead of you") : t("patient ahead of you")}.`}
+        </p>
       </div>
     </div>
   );
