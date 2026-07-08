@@ -78,11 +78,17 @@ export const queueService = {
     const state = await getQueueState(sessionId);
     if (!state) throw NotFound('Session not found');
 
-    const [appointments, session] = await Promise.all([
+    const [appointments, pendingConfirmation, session] = await Promise.all([
       Appointment.find({
         session: sessionId,
         status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
       })
+        .populate('patientProfile', 'fullName phone')
+        .sort({ queueNumber: 1 })
+        .lean(),
+      // "Pay at clinic" bookings awaiting staff confirmation — not part of the
+      // active queue yet, surfaced separately so staff can confirm or reject.
+      Appointment.find({ session: sessionId, status: 'pending_confirmation' })
         .populate('patientProfile', 'fullName phone')
         .sort({ queueNumber: 1 })
         .lean(),
@@ -98,6 +104,7 @@ export const queueService = {
       status:             state.status,
       totalWaiting:       appointments.length,
       appointments,
+      pendingConfirmation,
       capacityInfo,
     };
   },
@@ -117,11 +124,23 @@ export const queueService = {
       await appt.save();
     }
 
-    // Oldest skipped first, then next booked by queue order
+    // A force-inserted ("urgent") patient must win regardless of what else is
+    // waiting — otherwise a patient marked skipped earlier in the session
+    // keeps outranking them below, so pressing "Urgent" would silently do
+    // nothing while the urgent patient keeps waiting.
     let next = await Appointment.findOne({
-      session: session._id,
-      status:  'skipped',
-    }).sort({ skippedAt: 1 });
+      session:          session._id,
+      status:           'booked',
+      wasForceInserted: true,
+    }).sort({ queueNumber: 1 });
+
+    // Oldest skipped next, then next booked by queue order
+    if (!next) {
+      next = await Appointment.findOne({
+        session: session._id,
+        status:  'skipped',
+      }).sort({ skippedAt: 1 });
+    }
 
     if (!next) {
       next = await Appointment.findOne({

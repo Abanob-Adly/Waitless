@@ -8,6 +8,7 @@ import { AppError, NotFound } from '../utils/errors.js';
 import { queueService } from './queueService.js';
 import { walletService } from './walletService.js';
 import { SESSION_CLOSURE_FEE_EGP } from '../config/fees.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 export const sessionService = {
   async generateSessions({ scheduleId, orgId, fromDate, toDate }) {
@@ -54,8 +55,11 @@ export const sessionService = {
         endTime.setUTCHours(eh, em, 0, 0);
 
         // Skip slots whose end time has already passed — creating them would
-        // cause the auto-close cron to immediately cancel them.
-        if (endTime <= new Date()) {
+        // cause the auto-close cron to immediately cancel them. wallClockNow(),
+        // not new Date() — startTime/endTime are local wall-clock digits (see
+        // wallClockNow.js), so comparing against a genuine UTC instant would
+        // be off by this server's UTC offset.
+        if (endTime <= wallClockNow()) {
           skipped++;
           continue;
         }
@@ -130,6 +134,20 @@ export const sessionService = {
     await session.save();
     await queueService.populateRedis({ session });
     // Notify waiting patients that the session has started
+    await queueService.publishQueueUpdated(session._id);
+    return session;
+  },
+
+  // Pushes the session's end time back instead of ending it — used when the
+  // doctor still has patients waiting but the scheduled window is up. Also
+  // keeps the session bookable for that much longer (marketplaceService
+  // .getAvailableSessions and sessionAutoClose both key off endTime).
+  async extendSession({ session, extraMinutes }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 409);
+    }
+    session.endTime = new Date(session.endTime.getTime() + extraMinutes * 60_000);
+    await session.save();
     await queueService.publishQueueUpdated(session._id);
     return session;
   },

@@ -7,6 +7,7 @@ import { createOrg, selfJoinAsDoctor as addDoctorRole } from "../../services/org
 import * as jr from "../../services/joinRequestService";
 import { toE164 } from "../../utils/phone";
 import { validatePhone, validatePassword, validateName, validateBirthdate } from "../../utils/validation";
+import { getPatientRedirect } from "../../utils/authRedirect";
 import { SPECIALTIES } from "../../data/mockData";
 import type { OrgType } from "../../types/index";
 
@@ -37,8 +38,9 @@ export function SignupPage() {
   // Already logged in — go to the right dashboard
   if (authUser) {
     const next = searchParams.get("next");
-    const safe = next && next.startsWith("/") && next !== "/signup" ? next : null;
-    if (authUser.role === "patient")      return <Navigate to={safe ?? "/dashboard"} replace />;
+    if (authUser.role === "patient") {
+      return <Navigate to={getPatientRedirect(next, "/dashboard", "/signup")} replace />;
+    }
     if (authUser.role === "doctor")       return <Navigate to="/doctor-dashboard" replace />;
     if (authUser.role === "admin")        return <Navigate to="/admin" replace />;
     if (authUser.role === "receptionist") return <Navigate to="/reception" replace />;
@@ -78,10 +80,9 @@ export function SignupPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const nextPath = (() => {
-    const raw = searchParams.get("next");
-    return raw && raw.startsWith("/") ? raw : "/";
-  })();
+  // Only used to send a newly-registered patient back where they came from —
+  // must not point at a staff-only route (see getPatientRedirect).
+  const nextPath = getPatientRedirect(searchParams.get("next"), "/", "/signup");
 
   // Debounced clinic search
   useEffect(() => {

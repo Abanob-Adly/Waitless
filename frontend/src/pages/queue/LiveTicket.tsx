@@ -3,16 +3,18 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { api } from "../../services/api";
 import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type AppointmentStatus =
+  | "pending_confirmation"
   | "booked"
   | "called"
   | "in_progress"
   | "completed"
-  | "cancelled";
-  "no_show";
+  | "cancelled"
+  | "no_show";
 
 type QueueStatus = {
   token: string;
@@ -23,6 +25,8 @@ type QueueStatus = {
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
   sessionDate: string;
+  sessionStartTime: string;
+  avgConsultationMin: number;
   sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
   sessionClosureNote?: string;
   isOnBreak: boolean;
@@ -72,6 +76,8 @@ export function LiveTicket() {
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
           status:               String(d.status ?? "booked") as AppointmentStatus,
           sessionDate:          String(d.sessionDate ?? ""),
+          sessionStartTime:     String(d.sessionStartTime ?? ""),
+          avgConsultationMin:   Number(d.avgConsultationMin ?? 15),
           sessionStatus:        (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
           isOnBreak:            Boolean(d.isOnBreak ?? false),
           doctorAvatarUrl:      String(d.doctorAvatarUrl ?? ""),
@@ -194,7 +200,7 @@ export function LiveTicket() {
     );
   }
 
-  const canCancel = queueStatus.status === "booked";
+  const canCancel = queueStatus.status === "booked" || queueStatus.status === "pending_confirmation";
   const today = new Date().toISOString().slice(0, 10);
   const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= today;
 
@@ -248,7 +254,11 @@ export function LiveTicket() {
 
           {/* Status content */}
           <div className="px-5 pb-8 pt-6">
-            {!isSessionDay ? (
+            {queueStatus.status === "pending_confirmation" ? (
+              <PendingConfirmationView
+                fee={queueStatus.doctor.consultationFee}
+              />
+            ) : !isSessionDay ? (
               <CountdownView sessionDate={queueStatus.sessionDate} />
             ) : queueStatus.sessionStatus === "ended" &&
               queueStatus.status !== "completed" &&
@@ -290,6 +300,26 @@ export function LiveTicket() {
           Keep this page open to track your position in real-time.
         </p>
       </main>
+    </div>
+  );
+}
+
+// ── Pending confirmation view ("pay at clinic" not yet confirmed by staff) ──
+
+function PendingConfirmationView({ fee }: { fee: number }) {
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+        🏥
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        Reserved — pay at reception
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        Your spot is held, but you&apos;re not in the live queue yet. Pay the{" "}
+        <span className="font-semibold text-gold">{fee} EGP</span> consultation
+        fee at reception and staff will confirm it to add you to the queue.
+      </p>
     </div>
   );
 }
@@ -344,15 +374,31 @@ function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isO
 
   return (
     <div>
-      {queueStatus.sessionStatus === "scheduled" && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
-          <span className="text-xl">⏳</span>
-          <div>
-            <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
-            <p className="text-xs text-navy-mid">{t("The doctor has not started the session. You will be notified when it begins.")}</p>
+      {queueStatus.sessionStatus === "scheduled" && (() => {
+        const [hh, mm] = (queueStatus.sessionStartTime
+          ? new Date(queueStatus.sessionStartTime).toISOString().slice(11, 16)
+          : "00:00").split(":").map(Number);
+        const scheduledStart = new Date(`${queueStatus.sessionDate || new Date().toISOString().slice(0, 10)}T00:00:00`);
+        scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+        const patientsAhead = Math.max(0, queueStatus.queueNumber - 1);
+        const arrivalDate = new Date(
+          scheduledStart.getTime() + patientsAhead * queueStatus.avgConsultationMin * 60_000 - 10 * 60_000,
+        );
+        const recommendedArrival = fmt12(
+          `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+        );
+        return (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
+            <span className="text-xl">⏳</span>
+            <div>
+              <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
+              <p className="text-xs text-navy-mid">
+                {t("You're #")}{queueStatus.queueNumber} {t("in line")} — {t("come around")} <span className="font-semibold text-navy">{recommendedArrival}</span>
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {isOnBreak && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-xl">☕</span>

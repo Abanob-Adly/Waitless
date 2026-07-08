@@ -121,7 +121,7 @@ export async function trackByToken(token: string): Promise<TrackResult> {
 
 export async function bookMarketplace(
   sessionId: string,
-  data?: { notes?: string },
+  data?: { notes?: string; paymentMethod?: "card" | "vodafone_cash" | "clinic" | "wallet" },
 ): Promise<BookedAppointment> {
   const res = await api.post<{
     data: { appointment: Record<string, unknown>; accessToken: string };

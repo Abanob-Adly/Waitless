@@ -142,8 +142,15 @@ export const queueController = {
     // A duplicated client does not inherit the parent's 'error' listener — an
     // EventEmitter with no 'error' listener throws and crashes the whole
     // process on connection failure (e.g. Redis down). Must attach this
-    // before any command is issued on `sub`.
-    sub.on('error', (err) => console.warn('[queue] SSE subscriber error:', describeRedisError(err)));
+    // before any command is issued on `sub`. ioredis retries in the background
+    // every 200ms while Redis is down, re-emitting 'error' each time — log only
+    // the first one per connection instead of flooding the console forever.
+    let loggedError = false;
+    sub.on('error', (err) => {
+      if (loggedError) return;
+      loggedError = true;
+      console.warn('[queue] SSE subscriber error:', describeRedisError(err));
+    });
 
     try {
       await sub.subscribe(channel);

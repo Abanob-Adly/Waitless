@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { getPatientRedirect } from "../../utils/authRedirect";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -12,8 +13,9 @@ export function LoginPage() {
   // Already logged in — redirect to the right dashboard
   if (authUser) {
     const next = searchParams.get("next");
-    const safe = next && next.startsWith("/") && next !== "/login" ? next : null;
-    if (authUser.role === "patient") return <Navigate to={safe ?? "/dashboard"} replace />;
+    if (authUser.role === "patient") {
+      return <Navigate to={getPatientRedirect(next, "/dashboard", "/login")} replace />;
+    }
     if (authUser.role === "doctor") return <Navigate to="/doctor-dashboard" replace />;
     if (authUser.role === "admin") return <Navigate to="/admin" replace />;
     if (authUser.role === "receptionist") return <Navigate to="/reception" replace />;
@@ -47,7 +49,7 @@ export function LoginPage() {
         if (stored) {
           const user = JSON.parse(stored) as { role: string };
           if (user.role === "patient") {
-            navigate(next && next.startsWith('/') && next !== '/login' ? next : '/dashboard');
+            navigate(getPatientRedirect(next, "/dashboard", "/login"));
             return;
           }
           if (user.role === "doctor") {

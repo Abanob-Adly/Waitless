@@ -7,6 +7,7 @@ import PatientProfile from '../models/PatientProfile.js';
 import Appointment from '../models/Appointment.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, NotFound } from '../utils/errors.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 
 export const marketplaceService = {
@@ -66,7 +67,10 @@ export const marketplaceService = {
       const d = new Date(date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
     } else {
-      query.startTime = { $gte: new Date() };
+      // Bookable as long as the session hasn't ended yet — NOT gated on
+      // startTime, so an already-started 'active' session with open slots
+      // stays bookable instead of disappearing the moment it begins.
+      query.endTime = { $gte: wallClockNow() };
     }
 
     const sessions = await Session.find(query)
@@ -97,7 +101,7 @@ export const marketplaceService = {
     return reviews;
   },
 
-  async bookMarketplace({ actor, sessionId }) {
+  async bookMarketplace({ actor, sessionId, paymentMethod }) {
     const session = await Session.findOne({
       _id:    sessionId,
       status: { $in: ['scheduled', 'active'] },
@@ -123,6 +127,12 @@ export const marketplaceService = {
     const queueNumber = updated.bookingsCount;
     const accessToken = generateToken(16);
 
+    // "Pay at clinic" bookings don't join the active queue immediately —
+    // a receptionist or doctor must confirm the payment first (see
+    // appointmentController.confirmPayment), which flips this to 'booked'.
+    // Every other method keeps the existing immediate-booking behavior.
+    const isPayAtClinic = paymentMethod === 'clinic';
+
     let appointment;
     try {
       appointment = await Appointment.create({
@@ -132,8 +142,9 @@ export const marketplaceService = {
         branch:           session.branch,
         doctorMembership: session.doctor,
         queueNumber,
-        status:           'booked',
+        status:           isPayAtClinic ? 'pending_confirmation' : 'booked',
         source:           'marketplace',
+        paymentMethod:    paymentMethod ?? null,
         accessToken,
       });
     } catch (err) {

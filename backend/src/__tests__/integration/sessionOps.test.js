@@ -119,6 +119,28 @@ describe('sessionService.startSession — late-start detection', () => {
   });
 });
 
+// ── extendSession ────────────────────────────────────────────────────────────
+
+describe('sessionService.extendSession', () => {
+  it('pushes endTime back by the given number of minutes', async () => {
+    const originalEnd = new Date(Date.now() + 30 * 60_000);
+    const session = await makeSession({ status: 'active', endTime: originalEnd });
+
+    const extended = await sessionService.extendSession({ session, extraMinutes: 20 });
+
+    assert.equal(extended.endTime.getTime(), originalEnd.getTime() + 20 * 60_000);
+  });
+
+  it('rejects extending a session that is not active', async () => {
+    const session = await makeSession({ status: 'scheduled' });
+
+    await assert.rejects(
+      () => sessionService.extendSession({ session, extraMinutes: 15 }),
+      /not active/i,
+    );
+  });
+});
+
 // ── sessionAutoStart cron query ────────────────────────────────────────────────
 
 describe('sessionAutoStart cron logic', () => {

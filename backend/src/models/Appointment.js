@@ -2,6 +2,10 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const APPOINTMENT_STATUSES = [
+  // pending_confirmation: reserved via "pay at clinic" but not yet in the
+  // active queue — staff must confirm the payment (appointmentController
+  // .confirmPayment) before it becomes 'booked' and the patient is queued.
+  'pending_confirmation',
   'booked', 'called', 'held', 'skipped', 'in_progress',
   'completed', 'cancelled', 'no_show',
 ];
@@ -83,7 +87,7 @@ appointmentSchema.index(
   { session: 1, patientProfile: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } }
+    partialFilterExpression: { status: { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] } }
   }
 );
 
