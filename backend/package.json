@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --env-file=.env.test --test src/__tests__/unit/queueLogic.test.js src/__tests__/integration/forceInsert.test.js src/__tests__/integration/sessionOps.test.js src/__tests__/integration/queueAdvance.test.js src/__tests__/integration/payAtClinic.test.js src/__tests__/integration/marketplaceAvailability.test.js",
-    "test:unit": "node --env-file=.env.test --test src/__tests__/unit/queueLogic.test.js",
+    "test": "node --env-file=.env.test --test src/__tests__/unit/queueLogic.test.js src/__tests__/unit/scheduleValidation.test.js src/__tests__/integration/forceInsert.test.js src/__tests__/integration/sessionOps.test.js src/__tests__/integration/queueAdvance.test.js src/__tests__/integration/payAtClinic.test.js src/__tests__/integration/marketplaceAvailability.test.js",
+    "test:unit": "node --env-file=.env.test --test src/__tests__/unit/queueLogic.test.js src/__tests__/unit/scheduleValidation.test.js",
     "test:integration": "node --env-file=.env.test --test src/__tests__/integration/forceInsert.test.js src/__tests__/integration/sessionOps.test.js src/__tests__/integration/queueAdvance.test.js src/__tests__/integration/payAtClinic.test.js src/__tests__/integration/marketplaceAvailability.test.js",
     "dev": "nodemon src/app.js",
     "start": "node src/app.js"
