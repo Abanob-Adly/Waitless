@@ -2,18 +2,13 @@ import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
 import { patientService } from './patientService.js';
 import { queueService } from './queueService.js';
-import { walletService } from './walletService.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, Forbidden, NotFound } from '../utils/errors.js';
-
-const CANCELLATION_PENALTY_EGP = 50;
-const CANCELLATION_GRACE_MS    = 60 * 60 * 1000; // 1 hour
 
 const TERMINAL_STATUSES = ['completed', 'cancelled', 'no_show'];
 
 export const appointmentService = {
   async bookWalkIn({ actor, sessionId, branchId, orgId, data }) {
-    // Receptionist must be assigned to this branch
     if (actor.activeMembership?.kind === 'receptionist') {
       const assigned = (actor.activeMembership.branches || []).map(String);
       if (!assigned.includes(String(branchId))) {
@@ -28,7 +23,6 @@ export const appointmentService = {
     }).populate('doctor');
     if (!session) throw NotFound('Session not found or not accepting bookings');
 
-    // Enforce capacity if set
     if (session.maxBookings != null && session.bookingsCount >= session.maxBookings) {
       throw new AppError('Session is at full capacity', 409);
     }
@@ -67,7 +61,6 @@ export const appointmentService = {
       throw err;
     }
 
-    // Simple positional EWT shown to receptionist at booking time
     const position        = Math.max(0, queueNumber - (updated.currentServing ?? 0));
     const estimatedWaitMin = position * (updated.avgConsultationMin ?? 15)
       + (updated.globalDelayMin ?? 0);
@@ -94,7 +87,6 @@ export const appointmentService = {
       fullName: data.patientName,
     });
 
-    // Override: use $inc regardless of maxBookings
     const updated = await Session.findOneAndUpdate(
       { _id: sessionId },
       { $inc: { bookingsCount: 1 } },
@@ -130,7 +122,7 @@ export const appointmentService = {
 
   async listAppointments({ sessionId, filters }) {
     const query = { session: sessionId };
-    if (filters.status) query.status = filters.status;
+    if (filters.status) query.status = String(filters.status);
     return Appointment.find(query)
       .populate('patientProfile', 'fullName phone')
       .sort({ queueNumber: 1 });
@@ -145,47 +137,45 @@ export const appointmentService = {
       throw new AppError('Cannot cancel a closed appointment', 409);
     }
 
-    // Cancellation penalty: 50 EGP if patient cancels within 1 hour of session start.
-    // Only applies to patient self-cancellations (patientAccountId supplied).
-    // Staff cancellations (patientAccountId = null) are penalty-free.
-    let penaltyApplied = false;
-    if (patientAccountId) {
-      const session = await Session.findById(appointment.session).select('startTime').lean();
-      if (session) {
-        const msTillStart = new Date(session.startTime).getTime() - Date.now();
-        if (msTillStart < CANCELLATION_GRACE_MS && msTillStart > -CANCELLATION_GRACE_MS) {
-          // Within the 1-hour window — apply penalty regardless of balance (allows negative)
-          await walletService.cancellationPenalty({
-            accountId:     patientAccountId,
-            amount:        CANCELLATION_PENALTY_EGP,
-            appointmentId: appointment._id,
-          });
-          penaltyApplied = true;
-        }
-      }
-    }
+    const session = await Session.findById(appointment.session);
+    if (!session) throw NotFound('Session not found');
+
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
 
     appointment.status          = 'cancelled';
     appointment.cancelledAt     = new Date();
     appointment.cancelledReason = reason || null;
     await appointment.save();
 
-    // Publish queue update so live-tracking clients recalculate positions
+    let patientName = '';
     try {
-      await queueService.publishQueueUpdated(appointment.session);
-    } catch {
-      // Non-fatal: Redis unavailable
+      const PatientProfile = (await import('../models/PatientProfile.js')).default;
+      const profileId = appointment.patientProfile?._id ?? appointment.patientProfile;
+      const pp = await PatientProfile.findById(profileId).select('fullName').lean();
+      patientName = pp?.fullName ?? '';
+    } catch { /* ignore */ }
+
+    try {
+      await queueService.publishCancellation(appointment.session, patientName);
+    } catch { /* Non-fatal: Redis unavailable */ }
+
+    if (wasCurrentlyServed) {
+      const result = await queueService.callNext({ session });
+      if (result?.done) {
+        await queueService.publishQueueUpdated(session._id);
+      }
     }
 
-    return { appointment, penaltyApplied };
+    return { appointment };
   },
 
   async getOwnAppointments({ actor }) {
     const PatientProfile = (await import('../models/PatientProfile.js')).default;
+    const Review = (await import('../models/Review.js')).default;
     const profile = await PatientProfile.findOne({ accountId: actor.account._id });
     if (!profile) return [];
 
-    return Appointment.find({ patientProfile: profile._id })
+    const appointments = await Appointment.find({ patientProfile: profile._id })
       .populate({
         path: 'doctorMembership',
         select: 'specialties account',
@@ -197,6 +187,20 @@ export const appointmentService = {
       })
       .populate('branch', 'name')
       .sort({ createdAt: -1 })
-      .limit(50);
+      .limit(50)
+      .lean();
+
+    // Completed appointments keep their reviewToken forever, so the client
+    // needs to know which ones are already reviewed — otherwise a patient
+    // who already left a review keeps getting re-prompted for it.
+    const reviewableIds = appointments
+      .filter((a) => a.status === 'completed' && a.reviewToken)
+      .map((a) => a._id);
+    const reviewedIds = new Set(
+      (await Review.find({ appointment: { $in: reviewableIds } }).select('appointment').lean())
+        .map((r) => String(r.appointment)),
+    );
+
+    return appointments.map((a) => ({ ...a, hasReview: reviewedIds.has(String(a._id)) }));
   },
 };

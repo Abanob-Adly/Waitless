@@ -1,29 +1,33 @@
 import Notification from '../models/Notification.js';
 import { whatsappProvider } from './providers/whatsapp.js';
+import { resolveTemplate } from "./templates/whatsapp.js";
 
 const THROTTLE_MINUTES = 5;
 
 export const notificationService = {
-  async queueNotification({ template, appointment, session, patientProfile, toPhone, variables = {} }) {
-    // Throttle: skip if same template was sent to this appointment recently
+async queueNotification({ event, appointment, session, patientProfile, toPhone, data = {} }) {
+  
+  // Throttle: skip if same template was sent to this appointment recently
     if (appointment?._id) {
       const cutoff = new Date(Date.now() - THROTTLE_MINUTES * 60 * 1000);
       const recent = await Notification.findOne({
         appointment: appointment._id,
-        template,
+        event,
         createdAt: { $gt: cutoff },
         status: { $in: ['queued', 'sent', 'delivered'] },
       });
       if (recent) return null;
     }
-
+    
     const phone = toPhone || patientProfile?.phone || appointment?.patientProfile?.phone;
     if (!phone) return null;
+    
+    const resolved = resolveTemplate(event, data);
 
     const notification = await Notification.create({
       channel:        'whatsapp',
       toPhone:        phone,
-      template,
+      template: resolved.templateName,
       variables,
       appointment:    appointment?._id || null,
       session:        session?._id     || null,
@@ -34,7 +38,7 @@ export const notificationService = {
     try {
       const { messageId } = await whatsappProvider.send({
         to:           phone,
-        templateName: template,
+        templateName: resolved.templateName,
         variables,
       });
 

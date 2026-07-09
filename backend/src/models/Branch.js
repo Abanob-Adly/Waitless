@@ -22,9 +22,8 @@ const branchSchema = new Schema({
     coordinates: { type: [Number], default: undefined },
   },
 
-  phone:         { type: String },
-  commissionPct: { type: Number, default: 70, min: 0, max: 100 }, // org/admin share of post-platform revenue (%)
-  isActive:      { type: Boolean, default: true },
+  phone:    { type: String },
+  isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
 branchSchema.index({ location: '2dsphere' }, { sparse: true });

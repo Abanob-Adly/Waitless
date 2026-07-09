@@ -1,5 +1,13 @@
+import { z } from 'zod';
 import Branch from '../models/Branch.js';
 import { marketplaceService } from '../services/marketplaceService.js';
+
+export const marketplaceSchemas = {
+  book: z.object({
+    paymentMethod: z.enum(['clinic', 'paymob']).optional(),
+    notes:         z.string().max(500).optional(),
+  }),
+};
 
 export const marketplaceController = {
   async searchOrgs(req, res) {
@@ -39,8 +47,10 @@ export const marketplaceController = {
 
   async book(req, res) {
     const { appointment, accessToken } = await marketplaceService.bookMarketplace({
-      actor:     req.actor,
-      sessionId: req.params.sessionId,
+      actor:         req.actor,
+      sessionId:     req.params.sessionId,
+      paymentMethod: req.body.paymentMethod,
+      notes:         req.body.notes,
     });
     res.status(201).json({ data: { appointment, accessToken } });
   },

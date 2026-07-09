@@ -144,6 +144,7 @@ export function DoctorProfile() {
   }
 
   function openBookingFlow() {
+    if (!doctor) return;
     if (!selectedSession) return;
     if (selectedSession.status === "closed") return;
 
@@ -725,8 +726,11 @@ function SessionCard({
   onSelect: () => void;
 }) {
   const { t, locale } = useLanguage();
-  const isUnavailable = session.status !== "scheduled";
-  const unavailableLabel = session.status === "active" ? t("In Progress") : t("Closed");
+  // An "active" (already-started) session stays bookable as long as it has
+  // open slots — only a closed session or a full one blocks new bookings.
+  const isFull = session.availableSlots <= 0;
+  const isUnavailable = session.status === "closed" || isFull;
+  const unavailableLabel = session.status === "closed" ? t("Closed") : t("Full");
   return (
     <button
       onClick={isUnavailable ? undefined : onSelect}
@@ -741,7 +745,14 @@ function SessionCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-navy">{session.date}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium text-navy">{session.date}</p>
+            {session.status === "active" && !isUnavailable && (
+              <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-medium text-gold">
+                {t("In Progress")}
+              </span>
+            )}
+          </div>
           <p className="mt-0.5 text-xs text-navy-mid">
             {fmt12(session.startTime, locale)} – {fmt12(session.endTime, locale)}
           </p>

@@ -22,6 +22,9 @@ const sessionSchema = new Schema(
 
     avgConsultationMin: { type: Number, min: 1, required: true },
 
+    consultationFee: { type: Number, min: 0, default: 0 },
+    currency:        { type: String, default: 'EGP' },
+
     status: {
       type: String,
       enum: ['scheduled', 'active', 'ended', 'cancelled'],
@@ -62,13 +65,6 @@ const sessionSchema = new Schema(
       reviewedBy:  { type: Types.ObjectId, ref: 'Membership', default: null },
       _id:         false,
     },
-
-    // ── Penalty applied by the auto-checker ──────────────────────────────────
-    penaltyApplied: {
-      amount:    { type: Number },
-      appliedAt: { type: Date },
-      _id:       false,
-    },
   },
   { timestamps: true }
 );
@@ -78,6 +74,13 @@ sessionSchema.index(
   { doctorBranchSchedule: 1, startTime: 1 },
   { unique: true }
 );
+
+// listSessions() filters by branch + a startTime range (calendar views, the
+// "today" lookup, etc.) — the single-field indexes on branch/startTime alone
+// force Mongo to intersect two indexes instead of doing one range scan. The
+// sessionGenerator cron never prunes old sessions, so this compound index
+// keeps that query fast as sessions accumulate over months.
+sessionSchema.index({ branch: 1, startTime: 1 });
 
 /**
  * Atomically reserves the next queue number for a new booking.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrg } from "../../context/OrgContext";
@@ -10,6 +10,7 @@ import type { Branch, Membership, DoctorBranchSchedule } from "../../types/index
 import * as sessionService from "../../services/sessionService";
 import type { BackendSession } from "../../services/sessionService";
 import * as orgService from "../../services/orgService";
+import * as paymentService from "../../services/paymentService";
 import type { WalletSummary, WalletTransaction, Invoice } from "../../services/orgService";
 import * as jr from "../../services/joinRequestService";
 import type { AdminJoinRequest } from "../../services/joinRequestService";
@@ -55,7 +56,7 @@ export function AdminDashboard() {
     overview: t("Overview"), branches: t("Branches"), staff: t("Staff"),
     joinrequests: t("Join Requests"),
     schedules: t("Schedules"), sessions: t("Sessions"), wallet: t("My Wallet"),
-    billing: t("Billing"), whatsapp: "WhatsApp", settings: t("Settings"),
+    billing: t("Subscriptions"), whatsapp: "WhatsApp", settings: t("Settings"),
   };
 
   function renderSection() {
@@ -194,7 +195,7 @@ function DashboardHome({
     { id: "schedules", icon: <IconCalendar />, title: t("Schedules"),     desc: t("Set weekly doctor schedules, auto-generate sessions"), theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
     { id: "sessions",  icon: <IconClock />,    title: t("Sessions"),      desc: t("View and cap daily patient sessions per branch"),      theme: "success" },
     { id: "settings",  icon: <IconSettings />, title: t("Settings"),      desc: t("Edit organization name and branch commission rates"),  theme: "navy" },
-    { id: "billing",   icon: <IconBilling />,  title: t("Billing"),       desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
+    { id: "billing",   icon: <IconBilling />,  title: t("Subscriptions"), desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
     { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",         desc: t("Automate appointment reminders via WhatsApp"),         theme: "success" },
   ];
 
@@ -205,7 +206,16 @@ function DashboardHome({
   };
 
   return (
-    <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="space-y-6">
+      {(branchCount === 0 || scheduleCount === 0) && (
+        <GettingStartedChecklist
+          branchDone={branchCount > 0}
+          scheduleDone={scheduleCount > 0}
+          onGoToBranches={() => onSelect("branches")}
+          onGoToSchedules={() => onSelect("schedules")}
+        />
+      )}
+      <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card, i) => {
         const cls = themeMap[card.theme];
         return (
@@ -259,6 +269,81 @@ function DashboardHome({
           </span>
         </button>
       )}
+      </div>
+    </div>
+  );
+}
+
+// ── Getting-started checklist ─────────────────────────────────────────────────
+// Shown on first login (and until both steps are done) to walk a new org
+// through the two things it actually needs before it can run a queue: at
+// least one branch, and at least one doctor schedule. Disappears on its own
+// once both exist — no dismiss button or localStorage tracking needed.
+
+function GettingStartedChecklist({
+  branchDone, scheduleDone, onGoToBranches, onGoToSchedules,
+}: {
+  branchDone: boolean;
+  scheduleDone: boolean;
+  onGoToBranches: () => void;
+  onGoToSchedules: () => void;
+}) {
+  const { t } = useLanguage();
+  const steps = [
+    {
+      done: branchDone,
+      title: t("Add your first branch"),
+      desc: t("A branch is a physical clinic location — you need at least one before doctors can be scheduled."),
+      cta: t("Add Branch →"),
+      onClick: onGoToBranches,
+    },
+    {
+      done: scheduleDone,
+      title: t("Set up a doctor's schedule"),
+      desc: t("Define weekly hours for a doctor so sessions (and the live queue) can be generated automatically."),
+      cta: t("Set Schedule →"),
+      onClick: onGoToSchedules,
+      disabled: !branchDone,
+    },
+  ];
+
+  return (
+    <div className="animate-fade-up rounded-xl border border-gold/30 bg-gold-tint/40 p-5">
+      <p className="font-heading text-base font-bold text-navy">{t("Get your clinic ready")}</p>
+      <p className="mt-0.5 text-xs text-navy-mid">{t("Two quick steps before patients can book with you.")}</p>
+      <div className="mt-4 space-y-2.5">
+        {steps.map((step, i) => (
+          <div
+            key={i}
+            className={`flex items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 transition ${
+              step.done ? "border-success/30" : "border-border"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                step.done ? "bg-success text-white" : "bg-offwhite text-navy-mid"
+              }`}>
+                {step.done ? "✓" : i + 1}
+              </span>
+              <div>
+                <p className={`text-sm font-medium ${step.done ? "text-navy-mid line-through" : "text-navy"}`}>
+                  {step.title}
+                </p>
+                {!step.done && <p className="mt-0.5 text-xs text-navy-mid">{step.desc}</p>}
+              </div>
+            </div>
+            {!step.done && (
+              <button
+                onClick={step.onClick}
+                disabled={step.disabled}
+                className="shrink-0 rounded-md bg-gold px-3 py-1.5 text-xs font-semibold text-navy transition hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {step.cta}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -382,14 +467,19 @@ function IconJoinRequest() {
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab() {
-  const { org, branches, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
+  const { org, branches, schedules, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [toggling, setToggling] = useState(false);
   const [visResult, setVisResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   if (isLoading) return <Skeleton />;
 
   const plan = plans.find((p) => p.id === subscription?.planId);
+  const hasBranch   = branches.length > 0;
+  const hasSchedule = schedules.length > 0;
+  const isTrial     = subscription?.status === "trial";
+  const showOnboarding = !hasBranch || !hasSchedule || isTrial;
   const doctorCount = memberships.filter((m) => m.userRole === "doctor" && m.status === "active").length;
   const staffCount = new Set(memberships.filter((m) => m.status === "active").map((m) => m.userId || m.id)).size;
 
@@ -428,23 +518,37 @@ function OverviewTab() {
         ))}
       </div>
 
-      {branches.length === 0 && (
-        <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">{t("Add your first branch to get started")}</p>
+      {showOnboarding && (
+        <div className="rounded-xl border border-gold bg-gold-tint p-5">
+          <p className="font-heading text-sm font-bold text-navy">{t("Getting Started")}</p>
           <p className="mt-1 text-xs text-navy-mid">
-            {t("Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.")}
+            {t("Complete these steps to start accepting patients on Waitless.")}
           </p>
-        </div>
-      )}
-
-      {subscription?.status === "trial" && branches.length > 0 && (
-        <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">
-            {t("Free Trial")}
-          </p>
-          <p className="mt-1 text-xs text-navy-mid">
-            {t("Upgrade to a paid plan to unlock marketplace listing and more features.")}
-          </p>
+          <div className="mt-4 space-y-2.5">
+            <OnboardingStep
+              done={hasBranch}
+              title={t("Create your first branch")}
+              desc={t("Add your clinic's location — doctors and schedules are attached to a branch.")}
+              cta={t("Add Branch →")}
+              onClick={() => navigate("/admin?tab=branches")}
+            />
+            <OnboardingStep
+              done={hasSchedule}
+              lockedReason={!hasBranch ? t("Add a branch first") : undefined}
+              title={t("Set up a doctor's schedule")}
+              desc={t("Define working hours and consultation fees so patients can book sessions.")}
+              cta={t("Add Schedule →")}
+              onClick={() => navigate("/admin?tab=schedules")}
+            />
+            <OnboardingStep
+              done={!isTrial}
+              optional
+              title={t("Upgrade your subscription")}
+              desc={t("Unlock marketplace listing, more branches, and higher patient limits — anytime you're ready.")}
+              cta={t("View Plans →")}
+              onClick={() => navigate("/admin?tab=billing")}
+            />
+          </div>
         </div>
       )}
 
@@ -480,6 +584,50 @@ function OverviewTab() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function OnboardingStep({
+  done, optional, lockedReason, title, desc, cta, onClick,
+}: {
+  done: boolean;
+  optional?: boolean;
+  lockedReason?: string;
+  title: string;
+  desc: string;
+  cta: string;
+  onClick: () => void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border bg-white p-3 ${done ? "border-success/30" : "border-border"}`}>
+      <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+        done ? "bg-success text-white" : "bg-offwhite text-navy-mid"
+      }`}>
+        {done ? "✓" : ""}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className={`text-sm font-semibold ${done ? "text-navy-mid line-through" : "text-navy"}`}>
+          {title}
+          {optional && !done && (
+            <span className="ml-1.5 rounded-full bg-offwhite px-1.5 py-0.5 text-[10px] font-medium normal-case text-navy-mid no-underline">
+              {t("Optional")}
+            </span>
+          )}
+        </p>
+        {!done && <p className="mt-0.5 text-xs text-navy-mid">{desc}</p>}
+      </div>
+      {!done && (
+        <button
+          onClick={onClick}
+          disabled={!!lockedReason}
+          title={lockedReason}
+          className="shrink-0 rounded-md border border-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-tint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {cta}
+        </button>
+      )}
     </div>
   );
 }
@@ -550,13 +698,13 @@ function BranchesTab() {
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {branches.map((b) => (
-            <div key={b.id} className="flex items-center justify-between px-5 py-4">
-              <div>
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+              <div className="min-w-0">
                 <p className="font-medium text-navy">{b.name}</p>
                 <p className="text-sm text-navy-mid">{b.address}{b.city ? `, ${b.city}` : ""}</p>
                 {b.phone && <p className="text-xs text-navy-mid">{b.phone}</p>}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 <button
                   onClick={() => setEditingBranch(b)}
                   className="text-xs font-medium text-gold hover:text-gold-light transition"
@@ -604,7 +752,7 @@ function BranchesTab() {
 
 function StaffTab() {
   const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin, subscription, plans } = useOrg();
-  const { t, locale } = useLanguage();
+  const { t } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -620,7 +768,15 @@ function StaffTab() {
       : `Remove ${nameOrEmail || "this staff member"}? This cannot be undone.`;
     if (!window.confirm(msg)) return;
     setRemoving(memberId);
-    await removeMember(memberId);
+    setEditError(null);
+    const ok = await removeMember(memberId);
+    if (!ok) {
+      setEditError(
+        isPending
+          ? "Failed to cancel invite. Please try again."
+          : "Failed to remove staff member. Please try again.",
+      );
+    }
     setRemoving(null);
   }
 
@@ -1054,15 +1210,24 @@ function SchedulesTab() {
         </div>
       )}
 
-      {/* Legend */}
+      {/* Doctor list — direct Edit access, no need to open a specific day first */}
       {schedules.length > 0 && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           {schedules.map((s, i) => {
             const c = DOCTOR_COLORS[i % DOCTOR_COLORS.length];
             return (
-              <div key={s.id} className="flex items-center gap-1.5">
+              <div
+                key={s.id}
+                className={`flex items-center gap-2 rounded-full border py-1 pl-3 pr-1 ${c.border} ${c.bg}`}
+              >
                 <span className={`h-2.5 w-2.5 rounded-full ${c.dot}`} />
                 <span className="text-xs text-navy-mid">{s.doctorName}</span>
+                <button
+                  onClick={() => setEditingSchedule(s)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition hover:opacity-80 ${c.border} ${c.text}`}
+                >
+                  {t("Edit")}
+                </button>
               </div>
             );
           })}
@@ -1073,7 +1238,11 @@ function SchedulesTab() {
       {schedules.length === 0 ? (
         <EmptyState icon="📅" title={t("No schedules yet")} body={t("Add a doctor's weekly schedule to auto-generate sessions.")} />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-white">
+        <div className="overflow-x-auto rounded-xl border border-border bg-white">
+          {/* min-w keeps all 7 day-columns at a legible width — this scrolls
+              horizontally on mobile instead of squeezing each day into ~50px,
+              which made the slot chips inside unreadable. */}
+          <div className="min-w-[560px]">
           <div className="grid grid-cols-7 border-b border-border">
             {DAYS.map((day, d) => {
               const count = slotsByDay[d].length;
@@ -1131,6 +1300,7 @@ function SchedulesTab() {
                 })}
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}
@@ -1229,10 +1399,9 @@ function SchedulesTab() {
 
 type BranchConflict = { currentBranches: number; allowedBranches: number; planName: string };
 type PaymentModal = { planId: string; planName: string; planPrice: number; walletBalance: number };
-type IframeModal  = { iframeUrl: string; planName: string; planPrice: number };
 
 function BillingTab() {
-  const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
+  const { org, subscription, plans, branches, isLoading, refresh } = useOrg();
   const { t, locale } = useLanguage();
   const [searchParams] = useSearchParams();
 
@@ -1240,8 +1409,8 @@ function BillingTab() {
   const [toast, setToast]           = useState<{ ok: boolean; msg: string } | null>(null);
   const [conflict, setConflict]     = useState<(BranchConflict & { planId: string }) | null>(null);
   const [removingBranch, setRemovingBranch] = useState<string | null>(null);
-  const [paymentModal, setPaymentModal]     = useState<PaymentModal | null>(null);
-  const [iframeModal, setIframeModal]       = useState<IframeModal | null>(null);
+  const [paymentModal, setPaymentModal] = useState<PaymentModal | null>(null);
+  const [iframeModal, setIframeModal] = useState<{ iframeUrl: string; planName: string; planPrice: number } | null>(null);
 
   // Invoices (billing history)
   const [invoices, setInvoices]       = useState<Invoice[]>([]);
@@ -1336,8 +1505,6 @@ function BillingTab() {
             ? `تم ترقية خطتك إلى ${planName}. تم خصم ${planPrice} ${currency} من محفظتك.`
             : `Your plan has been upgraded to ${planName}. ${planPrice} ${currency} has been deducted from your wallet.`
         );
-      } else if (result.method === "card") {
-        setIframeModal({ iframeUrl: result.iframeUrl, planName: result.planName, planPrice: result.planPrice });
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string; message?: string; details?: { currentBranches: number; allowedBranches: number; planName: string } } } };
@@ -1347,9 +1514,16 @@ function BillingTab() {
       } else if (errCode === "PAYMOB_NOT_CONFIGURED" || errCode === "PAYMOB_ERROR") {
         showToast(false,
           locale === "ar"
-            ? "الدفع بالبطاقة غير متاح حالياً. يرجى إضافة رصيد إلى محفظتك أولاً."
-            : "Card payment is unavailable. Please add funds to your wallet first."
+                ? "الدفع عبر Paymob غير متاح حالياً. يرجى إضافة رصيد إلى محفظتك أولاً."
+              : "Paymob payment is unavailable. Please add funds to your wallet first."
         );
+      } else if (e?.response?.data?.error === "INSUFFICIENT_WALLET") {
+        try {
+          const checkout = await paymentService.startSubscriptionCheckout(org.id, { planId });
+          window.location.assign(checkout.checkoutUrl);
+        } catch {
+          showToast(false, e?.response?.data?.message ?? t("Payment failed"));
+        }
       } else {
         showToast(false, e?.response?.data?.message ?? t("Payment failed"));
       }
@@ -1410,7 +1584,7 @@ function BillingTab() {
       [isAr ? "الخطة" : "Plan",                 inv.planName],
       [isAr ? "طريقة الدفع" : "Payment Method",
         inv.paymentMethod === "wallet" ? (isAr ? "محفظة" : "Wallet")
-        : inv.paymentMethod === "card"  ? (isAr ? "بطاقة ائتمان" : "Credit Card")
+        : inv.paymentMethod === "paymob"  ? (isAr ? "Paymob" : "Paymob")
         : (isAr ? "يدوي" : "Manual")],
       [isAr ? "بداية الفترة" : "Period Start",  new Date(inv.periodStart).toLocaleDateString("en-EG")],
       [isAr ? "نهاية الفترة" : "Period End",    new Date(inv.periodEnd).toLocaleDateString("en-EG")],
@@ -1548,9 +1722,9 @@ function BillingTab() {
         </div>
       </div>
 
-      {/* ── Billing History ─────────────────────────────────────────────── */}
+      {/* ── Subscription History ────────────────────────────────────────── */}
       <div>
-        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Billing History")}</h2>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Subscription History")}</h2>
 
         {invoicesLoading ? (
           <Skeleton />
@@ -1587,8 +1761,8 @@ function BillingTab() {
                     <td className="px-4 py-3 text-navy-mid">
                       {inv.paymentMethod === "wallet"
                         ? t("Pay from Wallet")
-                        : inv.paymentMethod === "card"
-                          ? t("Add Credit Card")
+                        : inv.paymentMethod === "paymob"
+                          ? t("Paymob Checkout")
                           : t("Manual")}
                     </td>
                     <td className="px-4 py-3">
@@ -1655,8 +1829,8 @@ function BillingTab() {
             </p>
             <p className="mt-1 text-xs text-navy-mid">
               {locale === "ar"
-                ? "سيتم الخصم من محفظتك إن كان الرصيد كافياً، وإلا سيُطلب منك الدفع ببطاقة."
-                : "Payment will be deducted from your wallet if balance is sufficient, otherwise you'll be asked to pay by card."}
+                ? "سيتم الخصم من محفظتك إن كان الرصيد كافياً، وإلا سيتم تحويلك إلى Paymob."
+                : "Payment will be deducted from your wallet if balance is sufficient, otherwise you'll be redirected to Paymob."}
             </p>
             <div className="mt-5 flex gap-3">
               <button
@@ -1672,6 +1846,31 @@ function BillingTab() {
                 {t("Confirm Upgrade")}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Paymob iframe modal ──────────────────────────────────────────── */}
+      {iframeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl animate-fade-up rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-heading text-xl font-bold text-navy">
+                {t("Complete Payment")} — {iframeModal.planName}
+              </h2>
+              <button
+                onClick={() => setIframeModal(null)}
+                className="rounded-md border border-border px-3 py-1.5 text-sm text-navy-mid transition hover:border-navy hover:text-navy"
+              >
+                {t("Close")}
+              </button>
+            </div>
+            <iframe
+              src={iframeModal.iframeUrl}
+              className="h-[600px] w-full rounded-lg border border-border"
+              title="Paymob Checkout"
+              sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            />
           </div>
         </div>
       )}
@@ -1710,36 +1909,6 @@ function BillingTab() {
             >
               {t("Keep Current Plan")}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Paymob iframe modal (card payment) ───────────────────────────── */}
-      {iframeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl animate-fade-up rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div>
-                <p className="font-heading text-base font-bold text-navy">{t("Add Credit Card")}</p>
-                <p className="text-xs text-navy-mid">
-                  {iframeModal.planName} — {iframeModal.planPrice} {locale === "ar" ? "ج.م" : "EGP"}/{t("mo")}
-                </p>
-              </div>
-              <button
-                onClick={() => setIframeModal(null)}
-                className="rounded-md px-3 py-1.5 text-sm text-navy-mid hover:bg-offwhite"
-              >
-                {t("Cancel")}
-              </button>
-            </div>
-            <div className="h-[480px] w-full">
-              <iframe
-                src={iframeModal.iframeUrl}
-                className="h-full w-full rounded-b-2xl border-0"
-                title="Paymob Payment"
-                allow="payment"
-              />
-            </div>
           </div>
         </div>
       )}
@@ -1883,7 +2052,7 @@ function WalletTab() {
   return (
     <div className="space-y-8">
       {/* Organization Wallet (balance + top-up + wallet entries) */}
-      <WalletView mode="org" orgId={orgId} />
+      <WalletView orgId={orgId} />
 
       {/* Session Revenue — detailed transaction list from completed appointments */}
       <div className="space-y-5">
@@ -1969,7 +2138,8 @@ function WalletTab() {
         <EmptyState icon="💳" title={t("No transactions yet")} body={t("Completed appointments will appear here as settled transactions.")} />
       ) : (
         <>
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="min-w-[560px] divide-y divide-border overflow-hidden">
             <div className="grid grid-cols-5 bg-offwhite px-4 py-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">
               <span className="col-span-2">{t("Patient / Branch")}</span>
               <span className="text-right">{t("Gross")}</span>
@@ -1983,7 +2153,7 @@ function WalletTab() {
                   <p className="text-xs text-navy-mid">{tx.branchName} · {tx.createdAt.slice(0, 10)}</p>
                 </div>
                 <p className="text-right text-sm font-medium text-navy">{tx.grossAmount} {tx.currency}</p>
-                <p className="text-right text-sm font-semibold text-gold">+{tx.commissionAmount} {tx.currency}</p>
+                <p className="text-right text-sm font-semibold text-gold">+{tx.orgNet} {tx.currency}</p>
                 <div className="flex justify-end">
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(tx.status)}`}>
                     {tx.status}
@@ -1991,6 +2161,7 @@ function WalletTab() {
                 </div>
               </div>
             ))}
+          </div>
           </div>
 
           {/* Pagination */}
@@ -2026,17 +2197,14 @@ function WalletTab() {
 // ── Settings Tab ──────────────────────────────────────────────────────────────
 
 function SettingsTab() {
-  const { org, branches, updateOrg, refresh } = useOrg();
+  const { org, updateOrg } = useOrg();
   const { t } = useLanguage();
-  const orgId = org?.id ?? "";
 
   const [orgName, setOrgName] = useState(org?.name ?? "");
   const [savingName, setSavingName] = useState(false);
   const [nameResult, setNameResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const [commissionEdits, setCommissionEdits] = useState<Record<string, string>>({});
-  const [savingBranch, setSavingBranch] = useState<string | null>(null);
-  const [branchResult, setBranchResult] = useState<{ id: string; ok: boolean } | null>(null);
+  // Commission editing removed — org receives full post-platform revenue.
 
   async function handleSaveName(e: { preventDefault(): void }) {
     e.preventDefault();
@@ -2046,25 +2214,6 @@ function SettingsTab() {
     const result = await updateOrg({ name: orgName.trim() });
     setNameResult({ ok: result.ok, msg: result.ok ? t("Saved!") : (result.error ?? t("Failed")) });
     setSavingName(false);
-  }
-
-  async function handleSaveCommission(branch: Branch) {
-    const raw = commissionEdits[branch.id];
-    if (raw === undefined) return;
-    const val = Number(raw);
-    if (isNaN(val) || val < 0 || val > 100) return;
-    setSavingBranch(branch.id);
-    setBranchResult(null);
-    try {
-      await orgService.updateBranch(orgId, branch.id, { commissionPct: val });
-      await refresh();
-      setBranchResult({ id: branch.id, ok: true });
-      setCommissionEdits((prev) => { const n = { ...prev }; delete n[branch.id]; return n; });
-    } catch {
-      setBranchResult({ id: branch.id, ok: false });
-    } finally {
-      setSavingBranch(null);
-    }
   }
 
   return (
@@ -2089,59 +2238,6 @@ function SettingsTab() {
         </form>
         {nameResult && (
           <p className={`mt-1.5 text-xs ${nameResult.ok ? "text-success" : "text-danger"}`}>{nameResult.msg}</p>
-        )}
-      </div>
-
-      {/* Branch commission */}
-      <div>
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">{t("Branch Commission Rate")}</p>
-        <p className="mb-3 text-xs text-navy-mid">
-          {t("Percentage of post-platform revenue the organization keeps. Doctors receive the remainder.")}
-        </p>
-        {branches.length === 0 ? (
-          <EmptyState icon="🏢" title={t("No branches")} body={t("Add branches first to configure commission rates.")} />
-        ) : (
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-            {branches.map((branch) => {
-              const editing = commissionEdits[branch.id] !== undefined;
-              const val = editing ? commissionEdits[branch.id] : String(branch.commissionPct !== undefined ? branch.commissionPct : 70);
-              const isSaving = savingBranch === branch.id;
-              const result = branchResult?.id === branch.id ? branchResult : null;
-              return (
-                <div key={branch.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
-                  <div>
-                    <p className="font-medium text-navy">{branch.name}</p>
-                    <p className="text-xs text-navy-mid">{branch.city || branch.address || "—"}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={val}
-                        onChange={(e) => setCommissionEdits((prev) => ({ ...prev, [branch.id]: e.target.value }))}
-                        className="h-9 w-20 rounded-md border border-border bg-white px-2 text-center text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-                      />
-                      <span className="text-sm text-navy-mid">%</span>
-                    </div>
-                    <button
-                      disabled={isSaving || !editing}
-                      onClick={() => handleSaveCommission(branch)}
-                      className="h-9 rounded-md bg-gold px-3 text-sm font-semibold text-navy disabled:opacity-50 hover:bg-gold-light"
-                    >
-                      {isSaving ? "…" : t("Save")}
-                    </button>
-                    {result && (
-                      <span className={`text-xs ${result.ok ? "text-success" : "text-danger"}`}>
-                        {result.ok ? t("Saved!") : t("Failed")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         )}
       </div>
     </div>
@@ -2553,11 +2649,17 @@ function AddScheduleModal({
   const [saving, setSaving] = useState(false);
 
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const [selectedDays, setSelectedDays] = useState<Record<number, { start: string; end: string }>>(
-    initialValues?.weeklySlots.length
-      ? Object.fromEntries(initialValues.weeklySlots.map((s) => [s.dayOfWeek, { start: s.startTime, end: s.endTime }]))
-      : { 1: { start: "09:00", end: "13:00" } },
-  );
+  type Slot = { start: string; end: string };
+  // A day can hold more than one time range (e.g. a morning and an evening
+  // session), so each day maps to an array of slots rather than a single one.
+  const [selectedDays, setSelectedDays] = useState<Record<number, Slot[]>>(() => {
+    if (!initialValues?.weeklySlots.length) return { 1: [{ start: "09:00", end: "13:00" }] };
+    const byDay: Record<number, Slot[]> = {};
+    for (const s of initialValues.weeklySlots) {
+      (byDay[s.dayOfWeek] ??= []).push({ start: s.startTime, end: s.endTime });
+    }
+    return byDay;
+  });
 
   function toggleDay(idx: number) {
     setSelectedDays((prev) => {
@@ -2565,14 +2667,64 @@ function AddScheduleModal({
       if (next[idx]) {
         delete next[idx];
       } else {
-        next[idx] = { start: "09:00", end: "13:00" };
+        next[idx] = [{ start: "09:00", end: "13:00" }];
       }
       return next;
     });
   }
 
+  function addSlot(dow: number) {
+    setSelectedDays((prev) => ({
+      ...prev,
+      [dow]: [...(prev[dow] ?? []), { start: "14:00", end: "17:00" }],
+    }));
+  }
+
+  function removeSlot(dow: number, slotIdx: number) {
+    setSelectedDays((prev) => {
+      const remaining = (prev[dow] ?? []).filter((_, i) => i !== slotIdx);
+      if (remaining.length === 0) {
+        const next = { ...prev };
+        delete next[dow];
+        return next;
+      }
+      return { ...prev, [dow]: remaining };
+    });
+  }
+
+  function updateSlot(dow: number, slotIdx: number, field: keyof Slot, value: string) {
+    setSelectedDays((prev) => ({
+      ...prev,
+      [dow]: (prev[dow] ?? []).map((slot, i) => (i === slotIdx ? { ...slot, [field]: value } : slot)),
+    }));
+  }
+
+  // Validate before saving: each slot's own range must make sense, and slots
+  // on the same day must not overlap. Checked client-side so the admin sees
+  // the problem immediately instead of round-tripping to the server.
+  const scheduleError = useMemo(() => {
+    if (Object.keys(selectedDays).length === 0) return "Select at least one day.";
+    for (const [dow, slots] of Object.entries(selectedDays)) {
+      const dayLabel = days[Number(dow)];
+      for (const slot of slots) {
+        if (!slot.start || !slot.end) return `${dayLabel}: pick both a start and end time.`;
+        if (slot.start >= slot.end) return `${dayLabel}: end time must be after start time.`;
+      }
+      const sorted = [...slots].sort((a, b) => a.start.localeCompare(b.start));
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].start < sorted[i - 1].end) return `${dayLabel}: time ranges overlap — adjust them so they don't cross.`;
+      }
+    }
+    return null;
+    // `days` is a new array reference each render but its contents never
+    // change — omitting it keeps this memo from recomputing on unrelated
+    // re-renders (e.g. every keystroke in the fee field).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDays]);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (scheduleError) return;
     const foundDoctor = doctors.find((d) => d.id === doctorId);
     if (!isEditMode && !foundDoctor) return;
     const doctorDisplayName = foundDoctor?.memberName ?? initialValues?.doctorName ?? "";
@@ -2582,11 +2734,13 @@ function AddScheduleModal({
       branchId,
       doctorName: doctorDisplayName,
       specialty,
-      weeklySlots: Object.entries(selectedDays).map(([dow, times]) => ({
-        dayOfWeek: Number(dow),
-        startTime: times.start,
-        endTime: times.end,
-      })),
+      weeklySlots: Object.entries(selectedDays).flatMap(([dow, slots]) =>
+        slots.map((slot) => ({
+          dayOfWeek: Number(dow),
+          startTime: slot.start,
+          endTime:   slot.end,
+        })),
+      ),
       fee: Number(fee),
       avgConsultationMin: Number(avgMin),
       defaultMaxBookings: defaultMax.trim() !== "" ? Number(defaultMax) : null,
@@ -2672,24 +2826,48 @@ function AddScheduleModal({
               </button>
             ))}
           </div>
-          {Object.entries(selectedDays).map(([dow, times]) => (
-            <div key={dow} className="mt-2 flex items-center gap-2 text-xs">
-              <span className="w-8 text-navy-mid">{days[Number(dow)]}</span>
-              <input
-                type="time"
-                value={times.start}
-                onChange={(e) => setSelectedDays((p) => ({ ...p, [dow]: { ...times, start: e.target.value } }))}
-                className="rounded border border-border px-2 py-1 text-xs"
-              />
-              <span>–</span>
-              <input
-                type="time"
-                value={times.end}
-                onChange={(e) => setSelectedDays((p) => ({ ...p, [dow]: { ...times, end: e.target.value } }))}
-                className="rounded border border-border px-2 py-1 text-xs"
-              />
+          {Object.entries(selectedDays).map(([dow, slots]) => (
+            <div key={dow} className="mt-2 space-y-1.5">
+              {slots.map((slot, slotIdx) => (
+                <div key={slotIdx} className="flex items-center gap-2 text-xs">
+                  <span className="w-8 shrink-0 text-navy-mid">{slotIdx === 0 ? days[Number(dow)] : ""}</span>
+                  <input
+                    type="time"
+                    value={slot.start}
+                    onChange={(e) => updateSlot(Number(dow), slotIdx, "start", e.target.value)}
+                    className="rounded border border-border px-2 py-1 text-xs"
+                  />
+                  <span>–</span>
+                  <input
+                    type="time"
+                    value={slot.end}
+                    onChange={(e) => updateSlot(Number(dow), slotIdx, "end", e.target.value)}
+                    className="rounded border border-border px-2 py-1 text-xs"
+                  />
+                  {slots.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeSlot(Number(dow), slotIdx)}
+                      className="ml-1 text-navy-mid transition hover:text-danger"
+                      title="Remove this time range"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addSlot(Number(dow))}
+                className="ml-10 text-xs font-medium text-gold transition hover:text-gold-light"
+              >
+                + Add another time on {days[Number(dow)]}
+              </button>
             </div>
           ))}
+          {scheduleError && (
+            <p className="mt-2 text-xs text-danger">{scheduleError}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -2705,7 +2883,7 @@ function AddScheduleModal({
           inputMode="numeric"
         />
 
-        <ModalActions onClose={onClose} saving={saving} label={isEditMode ? "Save Changes" : "Create Schedule"} />
+        <ModalActions onClose={onClose} saving={saving} label={isEditMode ? "Save Changes" : "Create Schedule"} disabled={!!scheduleError} />
       </form>
     </ModalShell>
   );
@@ -2765,7 +2943,6 @@ function SessionsTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [editingMax, setEditingMax] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
-  const [reviewingExcuse, setReviewingExcuse] = useState<string | null>(null);
 
   // Default to first branch
   useEffect(() => {
@@ -2805,29 +2982,12 @@ function SessionsTab() {
     }
   }
 
-  async function handleReviewExcuse(session: BackendSession, verdict: "approved" | "denied") {
-    setReviewingExcuse(`${session.id}-${verdict}`);
-    try {
-      await sessionService.reviewExcuse(orgId, session.branchId, session.id, verdict);
-      // Refresh sessions list
-      const updated = await sessionService.getSessions(orgId, branchId, { date });
-      setSessions(updated);
-    } catch {
-      // ignore
-    } finally {
-      setReviewingExcuse(null);
-    }
-  }
-
   const statusBadge: Record<string, string> = {
     scheduled: "bg-gold-tint text-gold",
     active:    "bg-success/10 text-success",
     ended:     "bg-border text-navy-mid",
     cancelled: "bg-danger/10 text-danger",
   };
-
-  // Count sessions with pending excuses for a quick summary
-  const pendingExcuseCount = sessions.filter((s) => s.excuse?.status === "pending").length;
 
   return (
     <div className="space-y-5">
@@ -2849,16 +3009,6 @@ function SessionsTab() {
         />
       </div>
 
-      {/* Pending excuse alert */}
-      {pendingExcuseCount > 0 && (
-        <div className="flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
-          <span className="text-base">📋</span>
-          <p className="text-sm font-medium text-navy">
-            {pendingExcuseCount} {locale === "ar" ? (pendingExcuseCount > 1 ? t("pending excuses") : t("pending excuse")) : `pending excuse${pendingExcuseCount > 1 ? "s" : ""}`} {t("require your review")}
-          </p>
-        </div>
-      )}
-
       {isLoading ? (
         <Skeleton />
       ) : sessions.length === 0 ? (
@@ -2868,8 +3018,6 @@ function SessionsTab() {
           {sessions.map((session) => {
             const isEditing = editingMax[session.id] !== undefined;
             const maxVal = isEditing ? editingMax[session.id] : session.maxBookings != null ? String(session.maxBookings) : "";
-            const excuse  = session.excuse;
-            const penalty = session.penaltyApplied;
             return (
               <div key={session.id} className="px-5 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -2909,51 +3057,6 @@ function SessionsTab() {
                     </span>
                   </div>
                 </div>
-
-                {/* Penalty info */}
-                {penalty && (
-                  <p className="mt-2 text-xs text-danger">
-                    Penalty: {penalty.amount} EGP deducted at {new Date(penalty.appliedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </p>
-                )}
-
-                {/* Excuse review panel */}
-                {excuse?.submittedAt && (
-                  <div className="mt-3 rounded-lg border border-border bg-offwhite p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-semibold text-navy">{t("Doctor excuse submitted")}</p>
-                        <p className="mt-0.5 text-xs text-navy-mid">{excuse.reason}</p>
-                      </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                        excuse.status === "approved" ? "bg-success/10 text-success"
-                        : excuse.status === "denied"  ? "bg-danger/10 text-danger"
-                        : "bg-gold-tint text-gold"
-                      }`}>
-                        {excuse.status ?? "pending"}
-                      </span>
-                    </div>
-
-                    {excuse.status === "pending" && (
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => void handleReviewExcuse(session, "approved")}
-                          disabled={!!reviewingExcuse}
-                          className="rounded-md border border-success/30 bg-success/5 px-3 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-50"
-                        >
-                          {reviewingExcuse === `${session.id}-approved` ? "…" : t("Approve")}
-                        </button>
-                        <button
-                          onClick={() => void handleReviewExcuse(session, "denied")}
-                          disabled={!!reviewingExcuse}
-                          className="rounded-md border border-danger/30 bg-danger/5 px-3 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-50"
-                        >
-                          {reviewingExcuse === `${session.id}-denied` ? "…" : t("Deny")}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

@@ -10,11 +10,18 @@ import mongoose from 'mongoose';
 import { connect, disconnect, clearAll } from '../helpers/db.js';
 import { sessionService } from '../../services/sessionService.js';
 import { queueService } from '../../services/queueService.js';
+import { queueController } from '../../controllers/queueController.js';
 import Session from '../../models/QueueSession.js';
 import Appointment from '../../models/Appointment.js';
 import DoctorBranchSchedule from '../../models/DoctorBranchSchedule.js';
 
 const oid = () => new mongoose.Types.ObjectId();
+
+// Local test threshold only — the production monetary-penalty system (which
+// used to define this in config/fees.js) was intentionally removed; nothing
+// in production code enforces a late-start grace period anymore. Kept here
+// purely so these tests can still express "a little late" vs "genuinely late".
+const LATE_START_GRACE_MIN = 5;
 
 async function makeSchedule(consultationFeeAmount = 200) {
   return DoctorBranchSchedule.create({
@@ -46,7 +53,7 @@ async function makeSession(overrides = {}) {
   });
 }
 
-async function makeAppt(session, queueNumber, status = 'booked', paymentMethod = null) {
+async function makeAppt(session, queueNumber, status = 'booked', paymentMethod = null, paymentStatus = 'pending') {
   return Appointment.create({
     session:          session._id,
     patientProfile:   oid(),
@@ -57,7 +64,18 @@ async function makeAppt(session, queueNumber, status = 'booked', paymentMethod =
     status,
     source:           'walk_in',
     paymentMethod,
+    paymentStatus,
+    paidAmount:       paymentStatus === 'success' ? 200 : undefined,
   });
+}
+
+function makeRes() {
+  return {
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
 }
 
 before(connect);
@@ -118,6 +136,130 @@ describe('sessionService.startSession — late-start detection', () => {
   });
 });
 
+// ── extendSession ────────────────────────────────────────────────────────────
+
+describe('sessionService.extendSession', () => {
+  it('pushes endTime back by the given number of minutes', async () => {
+    const originalEnd = new Date(Date.now() + 30 * 60_000);
+    const session = await makeSession({ status: 'active', endTime: originalEnd });
+
+    const extended = await sessionService.extendSession({ session, extraMinutes: 20 });
+
+    assert.equal(extended.endTime.getTime(), originalEnd.getTime() + 20 * 60_000);
+  });
+
+  it('rejects extending a session that is not active', async () => {
+    const session = await makeSession({ status: 'scheduled' });
+
+    await assert.rejects(
+      () => sessionService.extendSession({ session, extraMinutes: 15 }),
+      /not active/i,
+    );
+  });
+});
+
+// ── sessionAutoStart cron query ────────────────────────────────────────────────
+
+describe('sessionAutoStart cron logic', () => {
+  it('selects a scheduled session whose startTime has passed and endTime has not', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 5 * 60_000),
+      endTime:   new Date(Date.now() + 55 * 60_000),
+    });
+
+    const due = await Session.find({
+      status:    'scheduled',
+      startTime: { $lte: new Date() },
+      endTime:   { $gt: new Date() },
+    }).lean();
+
+    assert.ok(due.some((s) => s._id.equals(session._id)), 'due session should be selected');
+  });
+
+  it('excludes a scheduled session whose endTime has already passed', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 60 * 60_000),
+      endTime:   new Date(Date.now() - 5 * 60_000),
+    });
+
+    const due = await Session.find({
+      status:    'scheduled',
+      startTime: { $lte: new Date() },
+      endTime:   { $gt: new Date() },
+    }).lean();
+
+    assert.ok(!due.some((s) => s._id.equals(session._id)), 'lapsed session should be left to sessionAutoClose instead');
+  });
+
+  it('actually activates a due session when run through startSession', async () => {
+    const session = await makeSession({
+      status:    'scheduled',
+      startTime: new Date(Date.now() - 1 * 60_000),
+      endTime:   new Date(Date.now() + 59 * 60_000),
+    });
+
+    const started = await sessionService.startSession({ session });
+
+    assert.equal(started.status, 'active');
+  });
+
+  it('~1 minute of auto-start cron jitter does not meet the lateStartPenalty threshold', async () => {
+    const session = await makeSession({ status: 'active', lateStartMin: 1 });
+
+    const flagged = await Session.find({
+      status:       'active',
+      lateStartMin: { $gt: LATE_START_GRACE_MIN },
+    }).lean();
+
+    assert.ok(!flagged.some((s) => s._id.equals(session._id)), '1 minute of lateness should not trigger a penalty');
+  });
+
+  it('a genuinely late start (past the grace period) does meet the lateStartPenalty threshold', async () => {
+    const session = await makeSession({ status: 'active', lateStartMin: LATE_START_GRACE_MIN + 5 });
+
+    const flagged = await Session.find({
+      status:       'active',
+      lateStartMin: { $gt: LATE_START_GRACE_MIN },
+    }).lean();
+
+    assert.ok(flagged.some((s) => s._id.equals(session._id)), 'genuinely late session should still be flagged');
+  });
+});
+
+// ── sessionAutoClose cron query ─────────────────────────────────────────────────
+
+describe('sessionAutoClose cron logic', () => {
+  // Mirrors sessionAutoClose.js's ACTIVE_GRACE_MS — kept small (1 min) so active
+  // sessions close automatically at their scheduled end time, not ~20 minutes late.
+  const ACTIVE_GRACE_MS = 60_000;
+
+  it('selects an active session whose endTime is past the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 5 * 60_000),
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(due.some((s) => s._id.equals(session._id)), 'session past grace should be selected for auto-close');
+  });
+
+  it('does not select an active session still within the 1-minute grace', async () => {
+    const session = await makeSession({
+      status:  'active',
+      endTime: new Date(Date.now() - 20_000), // 20s past end — within the 60s grace
+    });
+
+    const deadline = new Date(Date.now() - ACTIVE_GRACE_MS);
+    const due = await Session.find({ status: 'active', endTime: { $lt: deadline } }).lean();
+
+    assert.ok(!due.some((s) => s._id.equals(session._id)), 'session within grace should not be auto-closed yet');
+  });
+});
+
 // ── checkDailyCapacity ────────────────────────────────────────────────────────
 
 describe('queueService.checkDailyCapacity', () => {
@@ -154,36 +296,46 @@ describe('queueService.checkDailyCapacity', () => {
 
 // ── Cash summary ──────────────────────────────────────────────────────────────
 
-describe('queueController.cashSummary — data queries', () => {
-  it('counts only cash-paid completed appointments', async () => {
+describe('queueController.cashSummary', () => {
+  it('counts a confirmed clinic payment even before the visit completes', async () => {
+    // Regression: this used to require status: 'completed', but pay-at-clinic
+    // tickets are confirmed at reception well before their consultation
+    // finishes — the drawer summary sat empty/undercounted all day and only
+    // "caught up" once visits completed.
     const session = await makeSession({ status: 'active' });
-    // These should be counted
-    await makeAppt(session, 1, 'completed', 'cash');
-    await makeAppt(session, 2, 'completed', 'cash');
-    // These should NOT be counted
-    await makeAppt(session, 3, 'completed', 'clinic');  // different payment method
-    await makeAppt(session, 4, 'booked',    'cash');    // not completed yet
+    await makeAppt(session, 1, 'called', 'clinic', 'success');
 
-    const cashAppts = await Appointment.find({
-      session:       session._id,
-      status:        'completed',
-      paymentMethod: 'cash',
-    }).lean();
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
 
-    assert.equal(cashAppts.length, 2, 'only 2 cash-completed appointments should be found');
+    assert.equal(res.body.data.count, 1);
+    assert.equal(res.body.data.totalCash, 200);
   });
 
-  it('returns empty list when no cash payments exist', async () => {
+  it('counts only confirmed (paymentStatus success) clinic payments', async () => {
     const session = await makeSession({ status: 'active' });
-    await makeAppt(session, 1, 'completed', 'clinic');
-    await makeAppt(session, 2, 'completed', 'wallet');
+    await makeAppt(session, 1, 'completed', 'clinic', 'success'); // counted
+    await makeAppt(session, 2, 'booked',    'clinic', 'pending'); // not yet confirmed
+    await makeAppt(session, 3, 'completed', 'paymob', 'success'); // different payment method
 
-    const cashAppts = await Appointment.find({
-      session:       session._id,
-      status:        'completed',
-      paymentMethod: 'cash',
-    }).lean();
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
 
-    assert.equal(cashAppts.length, 0);
+    assert.equal(res.body.data.count, 1);
+  });
+
+  it('returns an empty summary when no clinic payments have been confirmed', async () => {
+    const session = await makeSession({ status: 'active' });
+    await makeAppt(session, 1, 'completed', 'paymob', 'success');
+    await makeAppt(session, 2, 'booked',    'clinic', 'pending');
+
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
+
+    assert.equal(res.body.data.count, 0);
+    assert.equal(res.body.data.totalCash, 0);
   });
 });

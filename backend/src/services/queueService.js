@@ -1,12 +1,12 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
 import Transaction from '../models/Transaction.js';
-import Branch from '../models/Branch.js';
+import Review from '../models/Review.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { walletService } from './walletService.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError, isRedisReady } from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { generateToken } from '../utils/otp.js';
@@ -31,17 +31,22 @@ const redisKey      = (id) => `queue:session:${id}`;
 const redisPubChan  = (id) => `queue.session.${id}`;
 
 async function getQueueState(sessionId) {
-  try {
-    const raw = await redis.hgetall(redisKey(sessionId));
-    if (raw && raw.currentServing != null) {
-      return {
-        currentServing:     Number(raw.currentServing),
-        avgConsultationMin: Number(raw.avgConsultationMin),
-        globalDelayMin:     Number(raw.globalDelayMin || 0),
-        status:             raw.status,
-      };
-    }
-  } catch (err) { console.warn('[queue] Redis read failed:', err.message); }
+  // Skip the Redis round-trip entirely once we know the connection is down —
+  // attempting it anyway just pays the retry-delay tax before falling back
+  // to the exact same Mongo read below.
+  if (isRedisReady()) {
+    try {
+      const raw = await redis.hgetall(redisKey(sessionId));
+      if (raw && raw.currentServing != null) {
+        return {
+          currentServing:     Number(raw.currentServing),
+          avgConsultationMin: Number(raw.avgConsultationMin),
+          globalDelayMin:     Number(raw.globalDelayMin || 0),
+          status:             raw.status,
+        };
+      }
+    } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
+  }
 
   const session = await Session.findById(sessionId).lean();
   if (!session) return null;
@@ -54,13 +59,18 @@ async function getQueueState(sessionId) {
 }
 
 async function publishUpdate(sessionId, payload) {
+  // Pub/sub has no Mongo fallback (nothing to "read" — it's a live push), so
+  // when Redis is down this is a same-tick no-op instead of a wasted retry;
+  // clients relying on SSE will pick the change up on their next poll/refetch.
+  if (!isRedisReady()) return;
   try {
     await redis.publish(redisPubChan(sessionId), JSON.stringify(payload));
-  } catch (err) { console.warn('[queue] Redis publish failed:', err.message); }
+  } catch (err) { console.warn('[queue] Redis publish failed:', describeRedisError(err)); }
 }
 
 export const queueService = {
   async populateRedis({ session }) {
+    if (!isRedisReady()) return;
     try {
       await redis.hmset(redisKey(session._id), {
         currentServing:     String(session.currentServing),
@@ -70,7 +80,7 @@ export const queueService = {
       });
       await redis.expire(redisKey(session._id), 86400);
     } catch (err) {
-      console.warn('[queue] Redis populate failed:', err.message);
+      console.warn('[queue] Redis populate failed:', describeRedisError(err));
     }
   },
 
@@ -78,11 +88,17 @@ export const queueService = {
     const state = await getQueueState(sessionId);
     if (!state) throw NotFound('Session not found');
 
-    const [appointments, session] = await Promise.all([
+    const [appointments, pendingConfirmation, session] = await Promise.all([
       Appointment.find({
         session: sessionId,
         status:  { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] },
       })
+        .populate('patientProfile', 'fullName phone')
+        .sort({ queueNumber: 1 })
+        .lean(),
+      // "Pay at clinic" bookings awaiting staff confirmation — not part of the
+      // active queue yet, surfaced separately so staff can confirm or reject.
+      Appointment.find({ session: sessionId, status: 'pending_confirmation' })
         .populate('patientProfile', 'fullName phone')
         .sort({ queueNumber: 1 })
         .lean(),
@@ -98,6 +114,7 @@ export const queueService = {
       status:             state.status,
       totalWaiting:       appointments.length,
       appointments,
+      pendingConfirmation,
       capacityInfo,
     };
   },
@@ -117,11 +134,23 @@ export const queueService = {
       await appt.save();
     }
 
-    // Oldest skipped first, then next booked by queue order
+    // A force-inserted ("urgent") patient must win regardless of what else is
+    // waiting — otherwise a patient marked skipped earlier in the session
+    // keeps outranking them below, so pressing "Urgent" would silently do
+    // nothing while the urgent patient keeps waiting.
     let next = await Appointment.findOne({
-      session: session._id,
-      status:  'skipped',
-    }).sort({ skippedAt: 1 });
+      session:          session._id,
+      status:           'booked',
+      wasForceInserted: true,
+    }).sort({ queueNumber: 1 });
+
+    // Oldest skipped next, then next booked by queue order
+    if (!next) {
+      next = await Appointment.findOne({
+        session: session._id,
+        status:  'skipped',
+      }).sort({ skippedAt: 1 });
+    }
 
     if (!next) {
       next = await Appointment.findOne({
@@ -137,27 +166,90 @@ export const queueService = {
     await next.save();
 
     await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
-    try {
+    if (isRedisReady()) try {
       await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, { type: 'updated', currentServing: next.queueNumber });
 
     return { appointment: next };
   },
 
+  // Also used as the "No-Show" action: a patient who doesn't show up when
+  // called is held aside (recoverable via Re-insert), not permanently
+  // removed from the queue — staff can bring them back if they turn up late.
   async holdPatient({ appointment, session }) {
-    if (appointment.status !== 'called') {
-      throw new AppError('Only a called appointment can be held', 422);
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
     }
+    if (!['booked', 'called'].includes(appointment.status)) {
+      throw new AppError('Only a booked or called appointment can be held', 422);
+    }
+    const wasCalled = appointment.status === 'called';
     appointment.status = 'held';
     appointment.heldAt = new Date();
     await appointment.save();
+
+    // Only the currently-called patient's hold needs a replacement — a
+    // still-booked patient wasn't occupying the "being served" slot.
+    if (!wasCalled) return { appointment, next: null };
 
     const nextResult = await queueService.callNext({ session });
     return { appointment, next: nextResult.appointment || null };
   },
 
+  // "Skip" — swap queue positions with the very next booked patient, so the
+  // skipped patient's turn moves to right after them instead of vanishing
+  // into an unordered "skipped" pool. If the skipped patient was currently
+  // being called, the swap partner is called immediately in their place.
+  async skipToNext({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
+    if (!['booked', 'called'].includes(appointment.status)) {
+      throw new AppError('Only a booked or called appointment can be skipped', 422);
+    }
+
+    const next = await Appointment.findOne({
+      session:     session._id,
+      status:      'booked',
+      queueNumber: { $gt: appointment.queueNumber },
+    }).sort({ queueNumber: 1 });
+
+    if (!next) {
+      throw new AppError('No patient after this one to switch with', 422);
+    }
+
+    const wasCalled  = appointment.status === 'called';
+    const myNumber   = appointment.queueNumber;
+    const nextNumber = next.queueNumber;
+
+    appointment.queueNumber = nextNumber;
+    next.queueNumber        = myNumber;
+
+    if (wasCalled) {
+      appointment.status = 'booked';
+      next.status         = 'called';
+      next.calledAt        = new Date();
+    }
+
+    await appointment.save();
+    await next.save();
+
+    if (wasCalled) {
+      await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
+      if (isRedisReady()) try {
+        await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
+      } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
+    }
+    await publishUpdate(session._id, { type: 'updated' });
+
+    return { appointment, swappedWith: next };
+  },
+
   async reinsertPatient({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'held') {
       throw new AppError('Only a held appointment can be re-inserted', 422);
     }
@@ -168,9 +260,9 @@ export const queueService = {
     await Session.findByIdAndUpdate(session._id, {
       $set: { currentServing: appointment.queueNumber },
     });
-    try {
+    if (isRedisReady()) try {
       await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, {
       type: 'updated',
       currentServing: appointment.queueNumber,
@@ -189,9 +281,9 @@ export const queueService = {
     const patch = {};
     if (data.avgConsultationMin != null) patch.avgConsultationMin = String(data.avgConsultationMin);
     if (data.globalDelayMin     != null) patch.globalDelayMin     = String(data.globalDelayMin);
-    try {
+    if (isRedisReady()) try {
       await redis.hmset(redisKey(session._id), patch);
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     const state = await getQueueState(session._id);
     await publishUpdate(session._id, { type: 'delay_updated', ...state });
@@ -200,6 +292,9 @@ export const queueService = {
   },
 
   async updateAppointmentStatus({ appointment, session, newStatus }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     const allowed = VALID_TRANSITIONS[appointment.status];
     if (!allowed || !allowed.includes(newStatus)) {
       throw new AppError(
@@ -207,6 +302,8 @@ export const queueService = {
         422
       );
     }
+
+    const wasCurrentlyServed = appointment.queueNumber === session.currentServing;
 
     const now = new Date();
     appointment.status = newStatus;
@@ -219,10 +316,8 @@ export const queueService = {
     if (newStatus === 'completed') {
       appointment.completedAt = now;
       appointment.reviewToken = generateToken(24); // one-time review link token
-      // Clinic payments stay 'pending' until receptionist confirms cash received.
-      if (appointment.paymentMethod !== 'clinic') {
-        appointment.paymentStatus = 'success';
-      }
+      // Do NOT auto-mark paymentStatus here. Paymob webhook sets it on online payments;
+      // receptionist explicitly confirms cash/clinic payments
     }
     if (newStatus === 'cancelled')   appointment.cancelledAt = now;
     if (newStatus === 'skipped')     appointment.skippedAt   = now;
@@ -235,9 +330,9 @@ export const queueService = {
       await Session.findByIdAndUpdate(session._id, {
         $set: { currentServing: appointment.queueNumber },
       });
-      try {
+      if (isRedisReady()) try {
         await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
-      } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+      } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
       await publishUpdate(session._id, {
         type: 'updated',
         currentServing: appointment.queueNumber,
@@ -253,11 +348,11 @@ export const queueService = {
         if (overrunMin > 0.5) { // ignore sub-30-second noise
           const rounded = Math.round(overrunMin * 10) / 10;
           await Session.findByIdAndUpdate(session._id, { $inc: { globalDelayMin: rounded } });
-          try {
+          if (isRedisReady()) try {
             const prev    = Number(await redis.hget(redisKey(session._id), 'globalDelayMin') || 0);
             const updated = Math.round((prev + rounded) * 10) / 10;
             await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
-          } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
           await publishUpdate(session._id, { type: 'delay_updated', overrunMin: rounded });
         }
 
@@ -271,9 +366,9 @@ export const queueService = {
 
           await Session.findByIdAndUpdate(session._id, { avgConsultationMin: newAvg });
           session.avgConsultationMin = newAvg; // keep in-memory ref consistent
-          try {
+          if (isRedisReady()) try {
             await redis.hset(redisKey(session._id), 'avgConsultationMin', String(newAvg));
-          } catch (err) { console.warn('[adaptive] Redis write failed:', err.message); }
+          } catch (err) { console.warn('[adaptive] Redis write failed:', describeRedisError(err)); }
 
           // Persist a slowly-drifting long-term average on the doctor's membership
           // (α=0.1) so future sessions start with a personalised baseline.
@@ -290,81 +385,45 @@ export const queueService = {
 
       // Persist financial split as a Transaction document
       try {
-        const [scheduleDoc, sub, branchDoc, patientDoc] = await Promise.all([
+        const [scheduleDoc, sub, patientDoc] = await Promise.all([
           DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
           getActiveSubscription(appointment.organization),
-          Branch.findById(appointment.branch).select('commissionPct').lean(),
           appointment.populate('patientProfile', 'fullName').then(() => appointment.patientProfile).catch(() => null),
         ]);
 
-        const fee            = scheduleDoc?.consultationFee?.amount ?? 0;
-        const platformPct    = sub?.plan?.platformCutPercent ?? 10;
-        const commissionPct  = branchDoc?.commissionPct ?? 70;
-        const platformCut    = Math.round(fee * platformPct / 100);
-        const commissionAmt  = Math.round((fee - platformCut) * commissionPct / 100);
-        const doctorNet      = fee - platformCut - commissionAmt;
+        const fee         = scheduleDoc?.consultationFee?.amount ?? 0;
+        const platformPct = sub?.plan?.platformCutPercent ?? 15;
+        const platformCut = Math.round(fee * platformPct / 100);
+        const orgNet      = fee - platformCut;
 
         if (fee === 0) {
           console.warn('[PAYMENT] fee=0 for appointment', appointment._id, '— session.doctorBranchSchedule:', session.doctorBranchSchedule, 'scheduleDoc:', scheduleDoc);
         }
 
         await Transaction.create({
-          org:              appointment.organization,
-          branch:           appointment.branch,
-          appointment:      appointment._id,
-          doctorMembership: session.doctor,
-          session:          session._id,
-          patientName:      (typeof patientDoc === 'object' && patientDoc?.fullName) ? patientDoc.fullName : '',
-          grossAmount:      fee,
-          currency:         'EGP',
-          platformCutPct:   platformPct,
+          org:            appointment.organization,
+          branch:         appointment.branch,
+          appointment:    appointment._id,
+          session:        session._id,
+          patientName:    (typeof patientDoc === 'object' && patientDoc?.fullName) ? patientDoc.fullName : '',
+          grossAmount:    fee,
+          currency:       'EGP',
+          platformCutPct: platformPct,
           platformCut,
-          commissionPct,
-          commissionAmount: commissionAmt,
-          doctorNet,
-          status:           'settled',
+          orgNet,
+          status:         'settled',
         });
 
-        // ── Wallet distribution (each op isolated so one failure doesn't block the others) ─
-        if (fee > 0) {
-          const apptId = appointment._id;
-          const orgId  = appointment.organization;
-
-          // Debit patient wallet — skip if already paid via wallet at booking time,
-          // or if paying cash (receptionist collects physically).
-          // card: charged externally via Paymob; wallet: prepaid at booking;
-          // cash/clinic: physically collected — never debit the in-app patient wallet.
-          if (!['wallet', 'cash', 'clinic', 'card'].includes(appointment.paymentMethod) && appointment.patientProfile) {
-            try {
-              const PatientProfile = (await import('../models/PatientProfile.js')).default;
-              const pp = await PatientProfile.findById(appointment.patientProfile).select('accountId').lean();
-              if (pp?.accountId) {
-                await walletService.purchaseDebit({ accountId: pp.accountId, amount: fee, appointmentId: apptId });
-              }
-            } catch (e) {
-              console.error('[WALLET] patient debit failed for appointment', apptId, ':', e.message);
-            }
-          }
-
-          // Credit doctor wallet — independent of patient debit
-          if (session.doctor && doctorNet > 0) {
-            try {
-              const mem = await Membership.findById(session.doctor).select('account').lean();
-              if (mem?.account) {
-                await walletService.doctorEarningCredit({ accountId: mem.account, amount: doctorNet, appointmentId: apptId });
-              }
-            } catch (e) {
-              console.error('[WALLET] doctor credit failed for appointment', apptId, ':', e.message);
-            }
-          }
-
-          // Credit org wallet — independent
-          if (commissionAmt > 0) {
-            try {
-              await walletService.orgCommissionCredit({ orgId, amount: commissionAmt, appointmentId: apptId });
-            } catch (e) {
-              console.error('[WALLET] org credit failed for appointment', apptId, ':', e.message);
-            }
+        // ── Wallet distribution ─
+        if (orgNet > 0) {
+          try {
+            await walletService.orgCommissionCredit({
+              orgId: appointment.organization,
+              amount: orgNet,
+              appointmentId: appointment._id,
+            });
+          } catch (e) {
+            console.error('[WALLET] org credit failed for appointment', appointment._id, ':', e.message);
           }
         }
       } catch (err) {
@@ -374,15 +433,27 @@ export const queueService = {
 
     // Broadcast queue change for statuses not already covered above.
     // 'called' publishes inline; 'completed' publishes via delay_updated.
-    // no_show / cancelled / skipped shift EWTs for remaining patients.
+    // no_show / cancelled / skipped shift EWTs for remaining patients — and if
+    // the affected appointment was the one currently being served, advance the
+    // queue to the next patient instead of leaving currentServing stuck.
     if (['no_show', 'cancelled', 'skipped'].includes(newStatus)) {
-      await publishUpdate(session._id, { type: 'updated' });
+      if (wasCurrentlyServed) {
+        const result = await queueService.callNext({ session });
+        if (result?.done) {
+          await publishUpdate(session._id, { type: 'updated' });
+        }
+      } else {
+        await publishUpdate(session._id, { type: 'updated' });
+      }
     }
 
     return appointment;
   },
 
   async forceInsert({ appointment, session, emergencyReason }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
     if (appointment.status !== 'booked') {
       throw new AppError('Only booked appointments can be force-inserted', 422);
     }
@@ -444,11 +515,11 @@ export const queueService = {
     }
     await session.save();
 
-    try {
+    if (isRedisReady()) try {
       await redis.hmset(redisKey(session._id), {
         globalDelayMin: String(session.globalDelayMin),
       });
-    } catch (err) { console.warn('[queue] Redis write failed:', err.message); }
+    } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
     await publishUpdate(session._id, {
       type:           'break_started',
@@ -490,44 +561,79 @@ export const queueService = {
 
   async trackByToken({ token }) {
     const appointment = await Appointment.findOne({ accessToken: token })
-      .populate('session')
-      .populate('patientProfile', 'fullName');
+      .populate('session', 'currentServing avgConsultationMin globalDelayMin status isOnBreak doctor doctorBranchSchedule startTime')
+      .populate('patientProfile', 'fullName')
+      .lean();
     if (!appointment) throw NotFound('Appointment not found');
 
     const session = appointment.session;
-    const state = await getQueueState(session._id);
 
-    const currentServing     = state?.currentServing     ?? session.currentServing;
-    const avgConsultationMin = state?.avgConsultationMin ?? session.avgConsultationMin;
-    const globalDelayMin     = state?.globalDelayMin     ?? session.globalDelayMin ?? 0;
+    // Doctor/schedule lookups are independent of queue state — start them immediately
+    // so they overlap with getQueueState + aheadAppointments instead of running after.
+    const doctorScheduleP = Promise.all([
+      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
+      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
+    ]);
+
+    // Redis-only lookup (not the shared getQueueState helper): that helper's
+    // fallback re-fetches the session from Mongo on a cache miss, which is a
+    // wasted round-trip here since `session` was already populated above —
+    // falling back to it directly avoids a second DB query on every poll tick
+    // whenever Redis is unavailable or cold.
+    let cached = null;
+    if (isRedisReady()) try {
+      const raw = await redis.hgetall(redisKey(session._id));
+      if (raw && raw.currentServing != null) {
+        cached = {
+          currentServing:     Number(raw.currentServing),
+          avgConsultationMin: Number(raw.avgConsultationMin),
+          globalDelayMin:     Number(raw.globalDelayMin || 0),
+        };
+      }
+    } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
+
+    const currentServing     = cached?.currentServing     ?? session.currentServing;
+    const avgConsultationMin = cached?.avgConsultationMin ?? session.avgConsultationMin;
+    const globalDelayMin     = cached?.globalDelayMin     ?? session.globalDelayMin ?? 0;
 
     // Sum type-specific durations of all active appointments ahead in queue.
     // Cancelled / no-show appointments are excluded, giving accurate ETAs
     // after any gap-creating events.
-    const aheadAppointments = await Appointment.find({
-      session:     session._id,
-      queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
-      status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
-    }).select('appointmentType').lean();
+    const [aheadAppointments, [doctorDoc, scheduleDoc]] = await Promise.all([
+      Appointment.find({
+        session:     session._id,
+        queueNumber: { $gt: currentServing, $lt: appointment.queueNumber },
+        status:      { $in: ['booked', 'called', 'held', 'in_progress'] },
+      }).select('appointmentType').lean(),
+      doctorScheduleP,
+    ]);
 
     const estimatedWaitMin = aheadAppointments.reduce(
       (sum, a) => sum + apptDuration(a, avgConsultationMin),
       globalDelayMin,
     );
 
-    const [doctorDoc, scheduleDoc] = await Promise.all([
-      Membership.findById(session.doctor).select('avatarUrl').populate('account', 'fullName').lean(),
-      DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean(),
-    ]);
+    // A completed appointment keeps its reviewToken forever — without checking
+    // whether it's already been used, a patient who already left a review
+    // would keep getting re-prompted on every fresh visit to this ticket.
+    let reviewToken = null;
+    if (appointment.status === 'completed' && appointment.reviewToken) {
+      const alreadyReviewed = await Review.exists({ appointment: appointment._id });
+      reviewToken = alreadyReviewed ? null : appointment.reviewToken;
+    }
 
     return {
       queueNumber:        appointment.queueNumber,
       currentlyServing:   currentServing,
+      // position = active patients still ahead of this patient (gaps from cancelled/no-show
+      // appointments are excluded), so C correctly shows "2" even if B (queue #2) cancelled.
+      position:           aheadAppointments.length + 1,
       estimatedWaitMin,
       globalDelayMin,
       avgConsultationMin,
       status:             appointment.status,
-      reviewToken:        appointment.status === 'completed' ? (appointment.reviewToken ?? null) : null,
+      sessionClosureNote: appointment.sessionClosureNote ?? null,
+      reviewToken,
       patientName:        appointment.patientProfile.fullName,
       sessionDate:        session.startTime.toISOString().slice(0, 10),
       sessionStartTime:   session.startTime.toISOString(),
@@ -545,7 +651,31 @@ export const queueService = {
     await publishUpdate(sessionId, { type: 'session_ended' });
   },
 
+  // Force-closes a session that's still 'active' when a newer session for
+  // the same doctor is starting — a doctor can't run two live queues at
+  // once, so whatever's left over from the old one (stragglers who never
+  // got called) is finalized as no_show rather than left dangling forever.
+  async forceEndSession({ session }) {
+    const openStatuses = ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'];
+    await Appointment.updateMany(
+      { session: session._id, status: { $in: openStatuses } },
+      { $set: { status: 'no_show' } },
+    );
+    await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended', actualEndTime: new Date() } });
+    await queueService.publishSessionEnded(session._id);
+  },
+
   async publishQueueUpdated(sessionId) {
     await publishUpdate(sessionId, { type: 'updated' });
+  },
+
+  /**
+   * Publish a typed cancellation event that carries the patient's name.
+   * The doctor's dashboard SSE handler checks for type === 'cancellation' to show a toast.
+   * All other clients (patients, receptionists) treat it like a generic 'updated' event
+   * and simply re-fetch their status.
+   */
+  async publishCancellation(sessionId, patientName) {
+    await publishUpdate(sessionId, { type: 'cancellation', patientName: patientName ?? '' });
   },
 };

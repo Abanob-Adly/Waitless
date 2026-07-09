@@ -1,98 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
 import { useLanguage } from "../context/LanguageContext";
 import { api } from "../services/api";
-import { initiatePaymobPayment } from "../services/paymentService";
+import { startAppointmentCheckout } from "../services/paymentService";
 import { fmt12 } from "../utils/time";
+import { RatingPopup } from "../components/ui/RatingPopup";
 import type { ActiveBooking } from "../context/AppContext";
-
-// ── Post-Consultation Rating Popup ────────────────────────────────────────────
-
-function RatingPopup({ doctorName, reviewToken, onDismiss }: { doctorName: string; reviewToken: string; onDismiss: () => void }) {
-  const { t, locale } = useLanguage();
-  const [rating, setRating] = useState(0);
-  const [hovered, setHovered] = useState(0);
-  const [comment, setComment] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit() {
-    if (rating === 0) return;
-    setSubmitting(true);
-    try {
-      await api.post(`/reviews/submit`, { token: reviewToken, rating, comment: comment.trim() || undefined });
-      setSubmitted(true);
-      setTimeout(onDismiss, 2000);
-    } catch {
-      onDismiss();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/50 p-4 pb-8 backdrop-blur-sm sm:items-center">
-      <div className="w-full max-w-sm animate-fade-up rounded-2xl bg-white p-6 shadow-2xl" dir={locale === "ar" ? "rtl" : "ltr"}>
-        {submitted ? (
-          <div className="py-4 text-center">
-            <p className="text-4xl">⭐</p>
-            <p className="mt-3 font-heading text-lg font-bold text-navy">{t("Thank you!")}</p>
-            <p className="mt-1 text-sm text-navy-mid">{t("Your feedback helps improve care.")}</p>
-          </div>
-        ) : (
-          <>
-            <div className="mb-4 text-center">
-              <p className="text-3xl">🩺</p>
-              <h3 className="mt-2 font-heading text-lg font-bold text-navy">{t("Rate Your Consultation")}</h3>
-              <p className="mt-1 text-sm text-navy-mid">{t("How was your experience with")} {doctorName}?</p>
-            </div>
-
-            <div className="mb-4 flex justify-center gap-2">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onMouseEnter={() => setHovered(star)}
-                  onMouseLeave={() => setHovered(0)}
-                  onClick={() => setRating(star)}
-                  className="text-3xl transition-transform hover:scale-110 focus:outline-none"
-                >
-                  <span className={(hovered || rating) >= star ? "text-gold" : "text-border"}>★</span>
-                </button>
-              ))}
-            </div>
-
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Optional comment…"
-              rows={3}
-              className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
-            />
-
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={onDismiss}
-                className="flex-1 rounded-md border border-border py-2.5 text-sm text-navy-mid hover:border-navy hover:text-navy"
-              >
-                {t("Skip")}
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={rating === 0 || submitting}
-                className="flex-1 rounded-md bg-gold py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
-              >
-                {submitting ? t("Sending…") : t("Submit Rating")}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -134,6 +49,7 @@ export function LiveTicket() {
               removeBooking(booking.id);
               navigate("/");
             }}
+            onVisitComplete={() => removeBooking(booking.id)}
           />
       }
     </>
@@ -145,9 +61,11 @@ export function LiveTicket() {
 function TicketView({
   booking,
   onCancel,
+  onVisitComplete,
 }: {
   booking: ActiveBooking;
   onCancel: () => void;
+  onVisitComplete: () => void;
 }) {
   const { t, locale } = useLanguage();
   const navigate = useNavigate();
@@ -157,13 +75,33 @@ function TicketView({
   const [ratingDismissed, setRatingDismissed] = useState(false);
   const {
     position, currentServing, etaMinutes, globalDelayMin, avgConsultationMin,
-    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, reviewToken,
-    emergencyReason, wasForceInserted,
+    isCalled, isCompleted, isOnBreak, sessionDate, sessionStartTime, sessionStatus, reviewToken,
+    emergencyReason, wasForceInserted, sessionClosureNote, appointmentStatus, isReady,
   } = useQueueSubscription(
     trackingToken,
     booking.queueNumber,
     booking.session.avgConsultationMin,
   );
+
+  // Once a visit is done, this ticket shouldn't keep sitting here as "the"
+  // active booking — clear it so the page falls back to "no active ticket"
+  // and the next booking becomes the one that's tracked. Wait for the rating
+  // flow to actually resolve first (if there's a reviewToken to show it for)
+  // so the popup isn't yanked out from under the patient; a short delay
+  // either way avoids the completed view blinking away instantly.
+  const onVisitCompleteRef = useRef(onVisitComplete);
+  useEffect(() => { onVisitCompleteRef.current = onVisitComplete; }, [onVisitComplete]);
+  useEffect(() => {
+    if (!isCompleted) return;
+    if (reviewToken && !ratingDismissed) return;
+    const timer = setTimeout(() => onVisitCompleteRef.current(), 3000);
+    return () => clearTimeout(timer);
+  }, [isCompleted, reviewToken, ratingDismissed]);
+
+  // "Pay at clinic" bookings sit outside the active queue until staff confirms
+  // payment — position/currentServing are meaningless for it, so every
+  // queue-position banner and view below must defer to this first.
+  const isPendingConfirmation = appointmentStatus === "pending_confirmation";
 
   // Use booking's stored date as fallback until backend confirms sessionDate
   const effectiveDate = sessionDate || booking.session.date || "";
@@ -175,30 +113,39 @@ function TicketView({
   ].join("-");
   const isSessionDay = !effectiveDate || effectiveDate === todayLocal;
 
-  // True when it's session day but the scheduled start time is still in the future
-  // (or the doctor hasn't pressed Start yet). We parse the start time from the
-  // booking because the queue subscription doesn't expose session status.
-  const sessionNotStarted = isSessionDay && (() => {
-    const startStr = sessionStartTime || null;
-    if (startStr) {
-      return new Date(startStr) > now;
-    }
-    // Fallback: parse HH:MM from booking.session.startTime against session date
-    const [hh, mm] = (booking.session.startTime ?? "00:00").split(":").map(Number);
-    const scheduledStart = new Date(`${effectiveDate || todayLocal}T00:00:00`);
-    scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
-    return scheduledStart > now;
-  })();
+  // True when it's session day but the doctor hasn't started the session yet.
+  // Uses the backend's real session status rather than guessing from wall-clock
+  // time, so this stays accurate whether the session starts early, late, or on
+  // schedule. Before the first poll resolves, sessionStatus is "" — treat that
+  // as "not yet known" (false) rather than flashing a premature banner.
+  const sessionNotStarted = isSessionDay && sessionStatus === "scheduled";
 
-  // True when it's session day and the scheduled end time has already passed.
-  // At this point the session window is over; if the patient wasn't served they
-  // won't be — show a closed-session view instead of the queue position.
-  const sessionWindowClosed = isSessionDay && (() => {
-    const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
-    const scheduledEnd = new Date(`${effectiveDate || todayLocal}T00:00:00`);
-    scheduledEnd.setHours(hh ?? 0, mm ?? 0, 0, 0);
-    return scheduledEnd < now;
-  })();
+  // True once the session has actually ended (or was cancelled) — checked
+  // against the backend's real sessionStatus, not wall-clock time. This used
+  // to compare `now` against the *scheduled* end time, which was wrong in
+  // both directions: a session running late (still genuinely active past its
+  // scheduled end, waiting patients included — see sessionAutoClose.js,
+  // which keeps a session open until its queue is actually empty) would
+  // flip to "Session Closed" the instant the clock passed the scheduled
+  // time, even though the patient's ticket was still live and counting down.
+  // And a session ended *early* (doctor closes it once everyone's been seen)
+  // wouldn't show as closed at all until the originally-scheduled time
+  // arrived. sessionStatus reflects what actually happened, in both cases.
+  const sessionWindowClosed = isSessionDay && (sessionStatus === "ended" || sessionStatus === "cancelled");
+
+  // Header status badge — must agree with whichever view renders below it,
+  // otherwise a pulsing "Live" badge sits above a "hasn't started yet" card.
+  const headerStatus = isCompleted
+    ? { label: t("Completed"), pulse: false }
+    : isPendingConfirmation
+    ? { label: t("Pending Confirmation"), pulse: false }
+    : !isSessionDay
+    ? { label: t("Upcoming"), pulse: false }
+    : sessionNotStarted
+    ? { label: t("Not Started Yet"), pulse: false }
+    : sessionWindowClosed && !isCalled
+    ? { label: t("Session Ended"), pulse: false }
+    : { label: t("Live"), pulse: true };
 
   // Recommended arrival time: now + EWT − 10 min buffer (arrive early)
   const recommendedArrivalMs = now.getTime() + etaMinutes * 60_000 - 10 * 60_000;
@@ -228,21 +175,21 @@ function TicketView({
 
   const [launchingPayment, setLaunchingPayment] = useState(false);
 
-  const isCardPending = booking.paymentMethod === "card" && booking.paymentStatus === "pending";
+  const isPaymobPending = booking.paymentMethod === "paymob" && booking.paymentStatus === "pending";
 
-  const paymentBadge = isCardPending
-    ? { label: t("Unpaid — Pay with Card"), cls: "bg-danger/10 text-danger" }
+  const paymentBadge = isPaymobPending
+    ? { label: t("Unpaid — Pay with Paymob"), cls: "bg-danger/10 text-danger" }
     : {
         success: { label: t("Paid ✓"), cls: "bg-success/10 text-success" },
         failed:  { label: t("Payment Failed"), cls: "bg-danger/10 text-danger" },
         pending: { label: t("Pay at Clinic"), cls: "bg-gold-tint text-navy" },
       }[booking.paymentStatus] ?? { label: booking.paymentStatus, cls: "bg-gold-tint text-navy" };
 
-  async function handlePayWithCard() {
+  async function handlePayWithPaymob() {
     setLaunchingPayment(true);
     try {
-      const { iframeUrl } = await initiatePaymobPayment(booking.id);
-      window.location.href = iframeUrl;
+      const { checkoutUrl } = await startAppointmentCheckout(booking.id);
+      window.location.assign(checkoutUrl);
     } catch {
       setLaunchingPayment(false);
     }
@@ -252,13 +199,13 @@ function TicketView({
     if (!window.confirm(t("Cancel your appointment? This cannot be undone.")))
       return;
     setCancelling(true);
-    // Best-effort cancel — if it fails the booking is removed from local state anyway
     try {
-      await api.delete(`/appointments/${booking.id}`);
+      await api.delete(`/appointments/${booking.id}/cancel`);
+      onCancel();
     } catch {
-      // ignore — booking was cancelled locally
+      setCancelling(false);
+      window.alert(t("Failed to cancel your appointment. Please try again."));
     }
-    onCancel();
   }
 
   return (
@@ -278,7 +225,25 @@ function TicketView({
         </span>
       </div>
 
-      {isSessionDay && isOnBreak && (
+      {appointmentStatus === "no_show" && sessionClosureNote && (
+        <div className="mb-6 rounded-xl border border-danger/30 bg-danger/5 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 text-lg">🏥</span>
+            <div className="flex-1">
+              <p className="font-semibold text-navy">{t("Session Closed by Clinic")}</p>
+              <p className="mt-1 text-sm text-navy-mid">{t(sessionClosureNote)}</p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="mt-4 w-full rounded-md border border-danger/30 py-2 text-sm font-medium text-danger transition hover:bg-danger/5"
+          >
+            {t("Remove Ticket")}
+          </button>
+        </div>
+      )}
+
+      {isSessionDay && isReady && !isPendingConfirmation && isOnBreak && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-base">☕</span>
           <div>
@@ -290,7 +255,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isOnBreak && globalDelayMin >= 5 && (
+      {isSessionDay && isReady && !isPendingConfirmation && !isOnBreak && globalDelayMin >= 5 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3">
           <span className="text-base">⏱</span>
           <p className="text-sm text-navy">
@@ -300,7 +265,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && wasForceInserted && (
+      {isSessionDay && isReady && !isPendingConfirmation && wasForceInserted && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
           <span className="text-base">🚨</span>
           <div>
@@ -312,7 +277,7 @@ function TicketView({
         </div>
       )}
 
-      {isSessionDay && !isCalled && position > 0 && position <= 3 && (
+      {isSessionDay && isReady && !isPendingConfirmation && !isCalled && position > 0 && position <= 3 && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3">
           <span className="text-base">🔔</span>
           <div>
@@ -349,9 +314,15 @@ function TicketView({
             )}
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span className="flex items-center gap-1.5 rounded-full bg-success px-3 py-1 text-xs font-medium text-white">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-              {t("Live")}
+            <span
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white ${
+                headerStatus.pulse ? "bg-success" : "bg-white/15"
+              }`}
+            >
+              {headerStatus.pulse && (
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+              )}
+              {headerStatus.label}
             </span>
             <p className="text-xs text-white/40">{booking.session.date}</p>
             <p className="text-xs text-white/40">
@@ -362,12 +333,31 @@ function TicketView({
 
         {/* ── Queue position area ── */}
         <div className="px-6 pb-2 pt-6">
-          {!isSessionDay ? (
+          {isSessionDay && !isReady ? (
+            // Wait for the first poll response before deciding which view to
+            // show — otherwise this briefly renders a guess from default/zero
+            // state (e.g. WaitingView at position 0) that then flips to the
+            // real view a moment later, which reads as the ticket "opening
+            // early" and glitching shut.
+            <TicketLoadingView />
+          ) : isCompleted ? (
+            // Must be checked before isCalled — otherwise a finished visit
+            // (status genuinely 'completed') fell through to CalledView or
+            // WaitingView with no dedicated content at all, since isCompleted
+            // previously only affected the header badge and rating popup.
+            <CompletedView reviewToken={reviewToken} />
+          ) : appointmentStatus === "no_show" ? (
+            <NoShowView />
+          ) : isPendingConfirmation ? (
+            <PendingConfirmationView fee={booking.doctor.fee} clinicName={booking.session.clinicName} />
+          ) : !isSessionDay ? (
             <CountdownView sessionDate={effectiveDate} />
           ) : sessionNotStarted ? (
             <SessionNotStartedView
               startTime={booking.session.startTime}
               sessionDate={effectiveDate}
+              queueNumber={booking.queueNumber}
+              avgConsultationMin={avgConsultationMin || booking.session.avgConsultationMin}
             />
           ) : sessionWindowClosed && !isCalled ? (
             <SessionWindowClosedView endTime={booking.session.endTime} />
@@ -400,27 +390,28 @@ function TicketView({
               {booking.doctor.fee} EGP
             </span>
           </div>
-          {isCardPending && (
+          {isPaymobPending && (
             <button
-              onClick={() => void handlePayWithCard()}
+              onClick={() => void handlePayWithPaymob()}
               disabled={launchingPayment}
               className="mt-2 w-full rounded-lg bg-navy py-2.5 text-sm font-semibold text-white transition hover:bg-navy/80 disabled:opacity-60"
             >
-              {launchingPayment ? t("Redirecting…") : t("Pay with Card →")}
+              {launchingPayment ? t("Redirecting…") : t("Pay with Paymob →")}
             </button>
           )}
         </div>
 
         {/* ── Patient notes preview ── */}
         {booking.patientNotes && (
-          <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid">
+          <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid" dir="auto">
             <span className="font-medium text-navy">{t("Note:")} </span>
             {booking.patientNotes.slice(0, 80)}
             {booking.patientNotes.length > 80 ? "…" : ""}
           </div>
         )}
 
-        {isSessionDay && !isCalled && (
+        {!isCompleted && appointmentStatus !== "no_show" && appointmentStatus !== "cancelled" &&
+          (isPendingConfirmation || (isSessionDay && !isCalled)) && (
           <div className="px-6 pb-6 pt-2">
             <button
               onClick={handleCancel}
@@ -449,6 +440,41 @@ function TicketView({
   );
 }
 
+// ── Loading placeholder (shown until the first live poll resolves) ──────────
+
+function TicketLoadingView() {
+  return (
+    <div className="flex flex-col items-center justify-center py-10">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-gold" />
+    </div>
+  );
+}
+
+// ── Pending confirmation view ("pay at clinic" not yet confirmed by staff) ──
+
+function PendingConfirmationView({ fee, clinicName }: { fee: number; clinicName: string }) {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
+        🏥
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        {t("Reserved — pay at reception")}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Your spot is held, but you're not in the live queue yet.")}{" "}
+        {t("Pay the")} <span className="font-semibold text-gold">{fee} EGP</span>{" "}
+        {t("consultation fee at")} <span className="font-semibold text-navy">{clinicName}</span>{" "}
+        {t("reception and staff will confirm it to add you to the queue.")}
+      </p>
+      <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
+        {t("Your queue position and wait time will appear here once confirmed.")}
+      </div>
+    </div>
+  );
+}
+
 // ── Session-not-started view (today but before start time / doctor hasn't pressed Start) ──
 
 function SessionWindowClosedView({ endTime }: { endTime: string }) {
@@ -473,7 +499,17 @@ function SessionWindowClosedView({ endTime }: { endTime: string }) {
   );
 }
 
-function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; sessionDate: string }) {
+function SessionNotStartedView({
+  startTime,
+  sessionDate,
+  queueNumber,
+  avgConsultationMin,
+}: {
+  startTime: string;
+  sessionDate: string;
+  queueNumber: number;
+  avgConsultationMin: number;
+}) {
   const { t, locale } = useLanguage();
   const [, rerender] = useState(0);
 
@@ -491,6 +527,19 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
   const mins  = diffMin % 60;
   const countdownStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 
+  // Personalized arrival time: the session starting doesn't mean this patient
+  // needs to be there right away — estimate when their turn will actually come
+  // (based on how many patients are ahead of them) and tell them to arrive
+  // 10 minutes before THAT, not 10 minutes before the session opens.
+  const patientsAhead = Math.max(0, queueNumber - 1);
+  const estimatedTurnMs = scheduledStart.getTime() + patientsAhead * avgConsultationMin * 60_000;
+  const arrivalMs = estimatedTurnMs - 10 * 60_000;
+  const arrivalDate = new Date(arrivalMs);
+  const recommendedArrival = fmt12(
+    `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+    locale,
+  );
+
   return (
     <div className="py-4 text-center">
       <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-gold-tint text-5xl">
@@ -507,7 +556,15 @@ function SessionNotStartedView({ startTime, sessionDate }: { startTime: string; 
         {t("Your queue position and wait time will appear here once the session begins.")}
       </p>
       <div className="mt-5 rounded-xl border border-gold/30 bg-gold-tint px-4 py-3 text-sm text-navy">
-        {t("Arrive 10 minutes before your scheduled session.")}
+        <p className="font-semibold">
+          {t("You're #")}{queueNumber} {t("in line")} — {t("come around")}{" "}
+          <span className="font-bold">{recommendedArrival}</span>
+        </p>
+        <p className="mt-1 text-xs text-navy-mid">
+          {patientsAhead === 0
+            ? t("Arrive 10 minutes before your scheduled session.")
+            : `${t("Based on")} ${patientsAhead} ${patientsAhead > 1 ? t("patients ahead of you") : t("patient ahead of you")}.`}
+        </p>
       </div>
     </div>
   );
@@ -647,19 +704,60 @@ function WaitingView({
         </div>
       </div>
 
-      {etaMinutes > 10 && (
-        <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-offwhite px-4 py-3">
-          <span className="text-base">📍</span>
-          <div>
-            <p className="text-xs font-medium text-navy">
-              {t("Best time to arrive at the clinic")}
-            </p>
-            <p className="mt-0.5 font-heading text-lg font-bold text-gold">
-              {recommendedArrivalTime}
-            </p>
-          </div>
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-offwhite px-4 py-3">
+        <span className="text-base">📍</span>
+        <div>
+          <p className="text-xs font-medium text-navy">
+            {t("Best time to arrive at the clinic")}
+          </p>
+          <p className="mt-0.5 font-heading text-lg font-bold text-gold">
+            {etaMinutes > 10 ? recommendedArrivalTime : t("Come now — you're almost up!")}
+          </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Completed view ───────────────────────────────────────────────────────────
+// Rating (reviewToken) is handled separately by the RatingPopup overlay —
+// this just replaces the queue-position area once the visit is actually done,
+// instead of leaving it to fall through to CalledView/WaitingView.
+
+function CompletedView({ reviewToken }: { reviewToken: string | null }) {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-success/10 text-5xl">
+        ✅
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">{t("Visit Complete")}</h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Thank you for visiting. We hope you feel better soon!")}
+      </p>
+      {reviewToken && (
+        <p className="mt-2 text-xs text-navy-mid">{t("Let us know how it went — check the rating prompt above.")}</p>
       )}
+    </div>
+  );
+}
+
+// ── No-show view ─────────────────────────────────────────────────────────────
+
+function NoShowView() {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-5xl">
+        🚶
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">{t("Marked as No-Show")}</h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("You didn't check in when called, so your spot was given to the next patient.")}
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        {t("If this is a mistake, please contact the clinic directly.")}
+      </p>
     </div>
   );
 }

@@ -6,19 +6,26 @@ const required = (k) => {
   return v;
 };
 
+const apiUrl = process.env.API_URL || 'http://localhost:3000';
+const appUrl = process.env.APP_URL || 'http://localhost:5173';
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  
-  port: process.env.PORT || 3000,
+  port: Number(process.env.PORT) || 3000,
+
+  app: {
+    api: apiUrl,
+    url: appUrl,
+  },
 
   db: {
-    uri: required('MONGO_URI'), 
+    uri: required('MONGO_URI'),
   },
 
   jwt: {
-    accessSecret:  required('JWT_ACCESS_SECRET'),
+    accessSecret: required('JWT_ACCESS_SECRET'),
     refreshSecret: required('JWT_REFRESH_SECRET'),
-    accessTtl:  '15m',
+    accessTtl: '15m',
     refreshTtl: '30d',
   },
 
@@ -43,7 +50,7 @@ export const env = {
   },
 
   whatsapp: {
-    accessToken:   process.env.WHATSAPP_ACCESS_TOKEN   || null,
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || null,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || null,
   },
 
@@ -56,9 +63,14 @@ export const env = {
   },
 
   paymob: {
-    apiKey:        process.env.PAYMOB_API_KEY        || '',
-    integrationId: process.env.PAYMOB_INTEGRATION_ID || '',
-    iframeId:      process.env.PAYMOB_IFRAME_ID      || '',
-    hmacSecret:    process.env.PAYMOB_HMAC_SECRET    || '',
+    baseUrl: process.env.PAYMOB_BASE_URL || 'https://accept.paymob.com',
+    secretKey: process.env.PAYMOB_SECRET_KEY || null,
+    publicKey: process.env.PAYMOB_PUBLIC_KEY || null,
+    hmacSecret: process.env.PAYMOB_HMAC_SECRET || null,
+    integrationId: process.env.PAYMOB_INTEGRATION_ID
+      ? Number(process.env.PAYMOB_INTEGRATION_ID)
+      : null,
+    notificationUrl: process.env.PAYMOB_NOTIFICATION_URL || `${apiUrl}/webhooks/paymob`,
+    redirectionUrl: process.env.PAYMOB_REDIRECTION_URL || `${appUrl}/billing/result`,
   },
 };

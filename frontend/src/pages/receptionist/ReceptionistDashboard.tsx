@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { useOrg } from "../../context/OrgContext";
 import { useLanguage } from "../../context/LanguageContext";
 import * as sessionService from "../../services/sessionService";
 import { bookWalkIn } from "../../services/appointmentService";
@@ -48,9 +47,9 @@ export function ReceptionistDashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       {/* Header */}
-      <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
+      <div className="mb-8 flex flex-wrap animate-fade-up items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-lg font-bold text-white">
             {initials}
@@ -182,7 +181,9 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
   const [sessions, setSessions] = useState<BackendSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState<{ sessionId: string; waitingCount: number } | null>(null);
+  const [extendMinutes, setExtendMinutes] = useState(15);
+  const [extending, setExtending] = useState(false);
 
   const now = new Date();
   const today = [
@@ -214,6 +215,21 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     }
   }
 
+  // Don't end a session out from under waiting patients without asking first.
+  async function requestClose(sessionId: string) {
+    let waitingCount = 0;
+    try {
+      const q = await sessionService.getQueue(orgId, branchId, sessionId);
+      waitingCount = q.appointments.length;
+    } catch { /* ignore — treat as empty */ }
+    if (waitingCount === 0) {
+      void handleClose(sessionId);
+      return;
+    }
+    setExtendMinutes(15);
+    setConfirmClose({ sessionId, waitingCount });
+  }
+
   async function handleClose(sessionId: string) {
     try {
       await sessionService.endSession(orgId, branchId, sessionId);
@@ -221,6 +237,17 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
       // ignore
     }
     setConfirmClose(null);
+    await load();
+  }
+
+  async function handleExtend() {
+    if (!confirmClose) return;
+    setExtending(true);
+    try {
+      await sessionService.extendSession(orgId, branchId, confirmClose.sessionId, extendMinutes);
+      setConfirmClose(null);
+    } catch { /* ignore */ }
+    setExtending(false);
     await load();
   }
 
@@ -279,7 +306,7 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
                           {expandedId === s.id ? "Hide Queue" : "View Queue"}
                         </button>
                         <button
-                          onClick={() => setConfirmClose(s.id)}
+                          onClick={() => void requestClose(s.id)}
                           className="rounded-md border border-danger/30 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/5"
                         >
                           End Session
@@ -304,22 +331,42 @@ function SessionsTab({ orgId, branchId }: { orgId: string; branchId: string }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 animate-fade-in bg-navy/60 backdrop-blur-sm" onClick={() => setConfirmClose(null)} />
           <div className="relative mx-4 w-full max-w-sm animate-scale-in overflow-hidden rounded-2xl bg-white shadow-2xl p-6">
-            <p className="font-heading text-xl font-bold text-navy">End Session?</p>
+            <p className="font-heading text-xl font-bold text-navy">Patients Still Waiting</p>
             <p className="mt-2 text-sm text-navy-mid">
-              Remaining waiting patients will be removed from the queue.
+              {confirmClose.waitingCount} patient{confirmClose.waitingCount !== 1 ? "s are" : " is"} still in the
+              queue. Ending now will mark them as no-show. Add more time instead?
             </p>
+            <div className="mt-4">
+              <span className="text-sm font-medium text-navy">Add minutes</span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[10, 15, 30, 45].map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    onClick={() => setExtendMinutes(min)}
+                    className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                      extendMinutes === min ? "border-gold bg-gold text-navy" : "border-border text-navy-mid hover:border-gold"
+                    }`}
+                  >
+                    {min} min
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-5 flex gap-3">
               <button
-                onClick={() => setConfirmClose(null)}
-                className="flex h-10 flex-1 items-center justify-center rounded-md border border-border text-sm text-navy-mid transition hover:border-navy"
+                onClick={() => handleClose(confirmClose.sessionId)}
+                disabled={extending}
+                className="flex h-10 flex-1 items-center justify-center rounded-md border border-danger/40 text-sm font-medium text-danger transition hover:bg-danger/5 disabled:opacity-50"
               >
-                Cancel
+                End Anyway
               </button>
               <button
-                onClick={() => handleClose(confirmClose)}
-                className="flex h-10 flex-1 items-center justify-center rounded-md bg-danger text-sm font-medium text-white transition hover:bg-danger/80"
+                onClick={() => void handleExtend()}
+                disabled={extending}
+                className="flex h-10 flex-1 items-center justify-center rounded-md bg-gold text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
               >
-                End Session
+                {extending ? "Adding…" : `Add ${extendMinutes} min`}
               </button>
             </div>
           </div>
@@ -386,12 +433,13 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     if (!selectedSession) { setError(t("Please select an active session.")); return; }
     const nm = validateName(patientName.trim());
     if (!nm.valid) { setError(nm.error); return; }
+    if (!phone.trim()) { setError(t("Phone number is required.")); return; }
 
     setAdding(true);
     setError(null);
     try {
       const appt = await bookWalkIn(orgId, branchId, selectedSession, {
-        patientPhone:    phone.trim() ? toE164(phone.trim()) : undefined,
+        patientPhone:    toE164(phone.trim()),
         patientName:     patientName.trim(),
         appointmentType,
       });
@@ -638,18 +686,31 @@ function CheckInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
 
 function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; branchId: string; sessionId: string }) {
   const [queue, setQueue] = useState<BackendAppointment[]>([]);
+  const [pendingConfirmation, setPendingConfirmation] = useState<BackendAppointment[]>([]);
   const [currentlyServing, setCurrentlyServing] = useState(0);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [delayMin, setDelayMin] = useState("0");
   const [savingDelay, setSavingDelay] = useState(false);
+  const [delayError, setDelayError] = useState<string | null>(null);
+  const [delaySaved, setDelaySaved] = useState(false);
   const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
   const [loadingCash, setLoadingCash] = useState(false);
+  // getQueue was previously not returning globalDelayMin at all, so this
+  // input always displayed "0" regardless of the session's real delay —
+  // sync it from the server once per session, then leave it alone so typing
+  // isn't clobbered by the next 5s poll tick.
+  const delayInitializedRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const q = await sessionService.getQueue(orgId, branchId, sessionId);
       setQueue(q.appointments);
+      setPendingConfirmation(q.pendingConfirmation);
       setCurrentlyServing(q.currentlyServing);
+      if (!delayInitializedRef.current) {
+        setDelayMin(String(q.globalDelayMin));
+        delayInitializedRef.current = true;
+      }
     } catch {
       // Leave stale queue on transient errors to avoid flicker
     }
@@ -690,11 +751,27 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     setActionInProgress(null);
   }
 
+  async function handleSkip(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.skipToNext(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
   async function handleUpdateDelay() {
     setSavingDelay(true);
+    setDelayError(null);
+    setDelaySaved(false);
     try {
       await sessionService.updateSessionDelay(orgId, branchId, sessionId, Number(delayMin));
-    } catch { /* ignore */ }
+      await load();
+      setDelaySaved(true);
+      setTimeout(() => setDelaySaved(false), 3000);
+    } catch {
+      setDelayError("Failed to update delay. Please try again.");
+    }
     setSavingDelay(false);
   }
 
@@ -735,13 +812,48 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     cancelled:   "bg-danger/10 text-danger",
   };
 
-  if (queue.length === 0) {
-    return <p className="text-sm text-navy-mid">Queue is empty.</p>;
-  }
-
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      {pendingConfirmation.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-gold/30 bg-gold-tint/40 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-navy-mid">
+            🏥 Pending Clinic Payments · {pendingConfirmation.length}
+          </p>
+          {pendingConfirmation.map((p) => (
+            <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-2.5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-tint text-xs font-bold text-navy">
+                  {p.queueNumber}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-navy">
+                    {p.patientProfile.fullName || "Patient"}
+                  </p>
+                  {p.patientProfile.phone && (
+                    <p className="text-xs text-navy-mid">{p.patientProfile.phone}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleConfirmPayment(p.id)}
+                disabled={actionInProgress === p.id}
+                className="rounded border border-success/40 bg-success/5 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+                title="Confirm payment and add to the live queue"
+              >
+                {actionInProgress === p.id ? "…" : "✓ Confirm & Add to Queue"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Global Delay + Cash Drawer must stay visible even when the live
+          queue is momentarily empty — that's exactly when a receptionist
+          checks the end-of-day cash total, and delay can be set ahead of the
+          first booking. Previously both sat inside the queue.length===0
+          branch and disappeared entirely whenever the queue was empty. */}
+      <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
         <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">
           Live Queue · {queue.length} entries
         </p>
@@ -754,19 +866,24 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
           className="h-7 w-16 rounded border border-border px-2 text-xs text-navy outline-none focus:border-gold"
         />
         <button
-          onClick={handleUpdateDelay}
+          onClick={() => void handleUpdateDelay()}
           disabled={savingDelay}
           className="rounded border border-gold px-2 py-1 text-xs text-gold transition hover:bg-gold-tint"
         >
           {savingDelay ? "…" : "Update"}
         </button>
       </div>
-      {queue.map((p) => {
+      {delayError && <p className="text-xs text-danger">{delayError}</p>}
+      {delaySaved && <p className="text-xs text-success">Delay updated ✓</p>}
+
+      {queue.length === 0 ? (
+        <p className="text-sm text-navy-mid">Queue is empty.</p>
+      ) : queue.map((p) => {
         const isOverdue = p.status === "booked" && currentlyServing > 0 && p.queueNumber < currentlyServing;
         return (
-        <div key={p.id} className={`flex items-center justify-between rounded-lg px-4 py-2.5 shadow-sm ${isOverdue ? "border border-danger/20 bg-danger/5" : "bg-white"}`}>
+        <div key={p.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5 shadow-sm ${isOverdue ? "border border-danger/20 bg-danger/5" : "bg-white"}`}>
           <div className="flex items-center gap-3">
-            <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-navy ${isOverdue ? "bg-danger/15" : "bg-gold-tint"}`}>
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-navy ${isOverdue ? "bg-danger/15" : "bg-gold-tint"}`}>
               {p.queueNumber}
             </span>
             <div>
@@ -778,7 +895,7 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isOverdue && (
               <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
                 ⚠ Overdue
@@ -808,6 +925,14 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
                   Force Next
                 </button>
                 <button
+                  onClick={() => handleSkip(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
+                  title="Switch turns with the next patient"
+                >
+                  Skip
+                </button>
+                <button
                   onClick={() => handleAction(p.id, "cancelled")}
                   disabled={actionInProgress === p.id}
                   className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
@@ -815,23 +940,33 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
                   Cancel
                 </button>
                 <button
-                  onClick={() => handleAction(p.id, "no_show")}
+                  onClick={() => handleHold(p.id)}
                   disabled={actionInProgress === p.id}
                   className="rounded border border-danger/30 px-2 py-1 text-xs text-danger transition hover:bg-danger/5"
-                  title="Mark as no-show and remove from queue"
+                  title="Hold their spot — can be re-inserted later"
                 >
                   No-Show
                 </button>
               </>
             )}
             {p.status === "called" && (
-              <button
-                onClick={() => handleHold(p.id)}
-                disabled={actionInProgress === p.id}
-                className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-600 transition hover:bg-orange-50"
-              >
-                Hold
-              </button>
+              <>
+                <button
+                  onClick={() => handleSkip(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
+                  title="Switch turns with the next patient"
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={() => handleHold(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-600 transition hover:bg-orange-50"
+                >
+                  Hold
+                </button>
+              </>
             )}
             {p.status === "held" && (
               <button
@@ -885,6 +1020,7 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
         ) : (
           <p className="mt-2 text-xs text-navy-mid">Click Refresh to see today's cash totals.</p>
         )}
+      </div>
       </div>
     </div>
   );

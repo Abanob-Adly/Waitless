@@ -351,7 +351,7 @@ export function OrgLandingPage() {
             >
               {t("Create Your Clinic Account →")}
             </button>
-            <p className="mt-3 text-xs text-navy/50">{t("Free to start · No credit card required")}</p>
+            <p className="mt-3 text-xs text-navy/50">{t("Free to start · No payment required")}</p>
           </div>
         </section>
       )}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { authService, readStoredUser, clearTokens } from "../services/authService";
+import { authService, readStoredUser } from "../services/authService";
 import { toE164 } from "../utils/phone";
 import type {
   AuthUser,
@@ -20,7 +20,7 @@ type AuthCtx = {
   logout: () => void;
   clearAuthError: () => void;
   requestPasswordReset: (email: string) => Promise<boolean>;
-  confirmPasswordReset: (email: string, token: string, newPassword: string) => Promise<boolean>;
+  confirmPasswordReset: (token: string, newPassword: string) => Promise<boolean>;
 };
 
 const AuthContext = createContext<AuthCtx | null>(null);
@@ -146,16 +146,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function confirmPasswordReset(email: string, token: string, newPassword: string): Promise<boolean> {
+  async function confirmPasswordReset(token: string, newPassword: string): Promise<boolean> {
     setIsAuthLoading(true);
     setAuthError(null);
     try {
-      await authService.confirmPasswordReset(email, token, newPassword);
+      await authService.confirmPasswordReset(token, newPassword);
       return true;
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        ?? "Invalid or expired code. Please try again.";
+        ?? "Invalid or expired link. Please try again.";
       setAuthError(msg);
       return false;
     } finally {

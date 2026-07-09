@@ -57,16 +57,6 @@ function adaptOrg(o: Record<string, unknown>): MarketplaceOrg {
   };
 }
 
-function adaptBranch(b: Record<string, unknown>): MarketplaceBranch {
-  const addr = (b.address as Record<string, unknown>) ?? {};
-  return {
-    id: String(b._id ?? b.id),
-    name: String(b.name ?? ""),
-    city: String(addr.city ?? ""),
-    phone: String(b.phone ?? ""),
-  };
-}
-
 function adaptDoctor(m: Record<string, unknown>): MarketplaceDoctor {
   const account = (m.account as Record<string, unknown>) ?? {};
   const stats = (m.ratingStats as Record<string, unknown>) ?? {};

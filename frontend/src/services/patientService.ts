@@ -97,11 +97,14 @@ export type OwnAppointmentItem = {
   queueNumber: number;
   status: string;
   accessToken?: string;
+  reviewToken?: string;
+  hasReview?: boolean;
   sessionDate?: string;
   doctorName: string;
   specialty: string;
   clinicName: string;
   fee?: number;
+  sessionClosureNote?: string;
 };
 
 // Lightweight type for active tickets loaded from backend on any device.
@@ -119,7 +122,7 @@ export type ActiveTicketItem = {
   sessionEndTime: string;
 };
 
-const ACTIVE_STATUSES = new Set(["booked", "called", "held", "skipped", "in_progress"]);
+const ACTIVE_STATUSES = new Set(["pending_confirmation", "booked", "called", "held", "skipped", "in_progress"]);
 
 export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
   try {
@@ -154,6 +157,27 @@ export async function getOwnActiveTickets(): Promise<ActiveTicketItem[]> {
   }
 }
 
+// Raw id → status map for ALL of the patient's appointments (unfiltered) —
+// used to decide whether a locally-cached booking should be evicted. Unlike
+// getOwnActiveTickets (which only lists "active" statuses), this lets callers
+// distinguish "genuinely gone" (cancelled/no_show/missing) from "just
+// completed" — evicting on completion would wipe the booking from local
+// state before the patient ever sees the post-visit review popup.
+export async function getMineStatusMap(): Promise<Map<string, string>> {
+  try {
+    const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");
+    const list = Array.isArray(res.data.data) ? res.data.data : [];
+    return new Map(
+      list.map((a) => {
+        const raw = a as Record<string, unknown>;
+        return [String(raw._id ?? raw.id), String(raw.status ?? "")];
+      }),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> {
   try {
     const res = await api.get<{ data: Record<string, unknown>[] }>("/appointments/mine");
@@ -171,10 +195,13 @@ export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> 
         queueNumber: Number(raw.queueNumber ?? 0),
         status: String(raw.status ?? "booked"),
         accessToken: raw.accessToken ? String(raw.accessToken) : undefined,
+        reviewToken: raw.reviewToken ? String(raw.reviewToken) : undefined,
+        hasReview: Boolean(raw.hasReview),
         sessionDate: startTime ? startTime.slice(0, 10) : undefined,
         doctorName: String(account.fullName ?? "Unknown Doctor"),
         specialty: specialties[0] ?? "",
         clinicName: String(branch.name ?? ""),
+        sessionClosureNote: raw.sessionClosureNote ? String(raw.sessionClosureNote) : undefined,
       };
     });
   } catch {
@@ -184,11 +211,18 @@ export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> 
 
 export async function cancelOwnAppointment(
   appointmentId: string,
-): Promise<{ penaltyApplied: boolean }> {
-  const res = await api.delete<{ penaltyApplied: boolean }>(
-    `/appointments/${appointmentId}/cancel`,
-  );
-  return { penaltyApplied: res.data.penaltyApplied ?? false };
+): Promise<void> {
+  await api.delete(`/appointments/${appointmentId}/cancel`);
+}
+
+// Persists the patient's note for the doctor. Previously this only updated
+// local frontend state (see AppContext.updateBookingNotes) and never reached
+// the backend at all — the doctor never actually saw anything written here.
+export async function updateOwnAppointmentNotes(
+  appointmentId: string,
+  notes: string,
+): Promise<void> {
+  await api.patch(`/appointments/${appointmentId}/notes`, { notes });
 }
 
 export async function getPatientHistory(

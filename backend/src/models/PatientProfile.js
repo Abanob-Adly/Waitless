@@ -32,7 +32,12 @@ patientProfileSchema.index(
 // marketplace patient lookup
 patientProfileSchema.index({ accountId: 1 }, { unique: true, partialFilterExpression: { accountId: { $type: "objectId" } } });
 
-patientProfileSchema.pre('save', function () {
+// pre('validate'), not pre('save') — schema validators (the `match` regex
+// below) run during the validate phase, which happens BEFORE pre('save')
+// hooks. Normalizing on save meant a raw local-format number like
+// "01012345678" (leading 0, fails the E.164 `match` pattern) was rejected
+// before this hook ever got a chance to convert it to "+201012345678".
+patientProfileSchema.pre('validate', function () {
   if (this.isModified('phone') && this.phone) {
     this.phone = normalizePhone(this.phone);
   }

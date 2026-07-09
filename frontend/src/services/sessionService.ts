@@ -2,13 +2,6 @@ import { api } from "./api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SessionExcuse = {
-  submittedAt: string | null;
-  reason: string | null;
-  status: "pending" | "approved" | "denied" | null;
-  reviewedAt: string | null;
-};
-
 export type BackendSession = {
   id: string;
   branchId: string;
@@ -28,9 +21,12 @@ export type BackendSession = {
   isOnBreak: boolean;
   lastBreakEndedAt: string | null;
   globalDelayMin: number;
-  excuse: SessionExcuse | null;
-  penaltyApplied: { amount: number; appliedAt: string } | null;
   lateStartMin: number;
+  excuse: {
+    submittedAt: string | null;
+    reason: string | null;
+    status: "pending" | "approved" | "denied" | null;
+  } | null;
 };
 
 export type QueueStatus = {
@@ -39,6 +35,11 @@ export type QueueStatus = {
   estimatedWaitMin: number;
   status: string;
   appointments: BackendAppointment[];
+  // "Pay at clinic" bookings awaiting staff confirmation — not in the active
+  // queue yet (see appointmentController.confirmPayment).
+  pendingConfirmation: BackendAppointment[];
+  globalDelayMin: number;
+  avgConsultationMin: number;
 };
 
 export type BackendAppointment = {
@@ -67,11 +68,9 @@ function base(orgId: string, branchId: string) {
 }
 
 function adaptSession(s: Record<string, unknown>): BackendSession {
-  // Backend may populate doctor membership with account data
   const doctorObj = s.doctor as Record<string, unknown> | null | undefined;
   const doctorAccount = (doctorObj?.account as Record<string, unknown>) ?? {};
 
-  // Parse date from ISO startTime
   const startIso = String(s.startTime ?? "");
   const date = startIso ? startIso.slice(0, 10) : "";
 
@@ -109,20 +108,15 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     })(),
     globalDelayMin: Number(s.globalDelayMin ?? 0),
     lateStartMin: Number(s.lateStartMin ?? 0),
-    excuse: s.excuse
-      ? {
-          submittedAt: (s.excuse as Record<string, unknown>).submittedAt as string | null,
-          reason:      (s.excuse as Record<string, unknown>).reason as string | null,
-          status:      (s.excuse as Record<string, unknown>).status as SessionExcuse["status"],
-          reviewedAt:  (s.excuse as Record<string, unknown>).reviewedAt as string | null,
-        }
-      : null,
-    penaltyApplied: s.penaltyApplied
-      ? {
-          amount:    Number((s.penaltyApplied as Record<string, unknown>).amount ?? 0),
-          appliedAt: String((s.penaltyApplied as Record<string, unknown>).appliedAt ?? ""),
-        }
-      : null,
+    excuse: (() => {
+      const e = s.excuse as Record<string, unknown> | null | undefined;
+      if (!e?.submittedAt) return null;
+      return {
+        submittedAt: String(e.submittedAt),
+        reason: e.reason ? String(e.reason) : null,
+        status: (e.status as "pending" | "approved" | "denied" | null) ?? null,
+      };
+    })(),
   };
 }
 
@@ -191,6 +185,31 @@ export async function endSession(
   return adaptSession(res.data.data as Record<string, unknown>);
 }
 
+// Pushes the session's end time back instead of ending it — used when
+// patients are still waiting but the scheduled window is up.
+export async function extendSession(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  extraMinutes: number,
+): Promise<BackendSession> {
+  const res = await api.post<{ data: Record<string, unknown> }>(
+    `${base(orgId, branchId)}/${sessionId}/extend`,
+    { extraMinutes },
+  );
+  return adaptSession(res.data.data as Record<string, unknown>);
+}
+
+// Doctor submits a late-start excuse for a session they own.
+export async function submitExcuse(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  reason: string,
+): Promise<void> {
+  await api.post(`${base(orgId, branchId)}/${sessionId}/excuse`, { reason });
+}
+
 // ── Queue ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -216,9 +235,11 @@ export async function getQueue(
   orgId: string,
   branchId: string,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<QueueStatus> {
   const res = await api.get<{ data: Record<string, unknown> }>(
     `${base(orgId, branchId)}/${sessionId}/queue`,
+    { signal },
   );
   const d = res.data.data;
   return {
@@ -229,6 +250,11 @@ export async function getQueue(
     appointments: (Array.isArray(d.appointments) ? (d.appointments as Record<string, unknown>[]) : []).map(
       (a) => adaptAppointment(a),
     ),
+    pendingConfirmation: (Array.isArray(d.pendingConfirmation) ? (d.pendingConfirmation as Record<string, unknown>[]) : []).map(
+      (a) => adaptAppointment(a),
+    ),
+    globalDelayMin: Number(d.globalDelayMin ?? 0),
+    avgConsultationMin: Number(d.avgConsultationMin ?? 0),
   };
 }
 
@@ -266,6 +292,17 @@ export async function holdPatient(
 ): Promise<void> {
   await api.post(
     `${base(orgId, branchId)}/${sessionId}/queue/appointments/${appointmentId}/hold`,
+  );
+}
+
+export async function skipToNext(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  appointmentId: string,
+): Promise<void> {
+  await api.post(
+    `${base(orgId, branchId)}/${sessionId}/queue/appointments/${appointmentId}/skip`,
   );
 }
 
@@ -329,32 +366,6 @@ export async function resumeFromBreak(
   await api.post(
     `${base(orgId, branchId)}/${sessionId}/resume`,
   );
-}
-
-export async function submitExcuse(
-  orgId: string,
-  branchId: string,
-  sessionId: string,
-  reason: string,
-): Promise<{ excuse: SessionExcuse }> {
-  const res = await api.post<{ data: { excuse: SessionExcuse } }>(
-    `${base(orgId, branchId)}/${sessionId}/excuse`,
-    { reason },
-  );
-  return res.data.data;
-}
-
-export async function reviewExcuse(
-  orgId: string,
-  branchId: string,
-  sessionId: string,
-  verdict: "approved" | "denied",
-): Promise<{ excuse: SessionExcuse }> {
-  const res = await api.patch<{ data: { excuse: SessionExcuse } }>(
-    `${base(orgId, branchId)}/${sessionId}/excuse`,
-    { verdict },
-  );
-  return res.data.data;
 }
 
 // ── Force Insert ──────────────────────────────────────────────────────────────

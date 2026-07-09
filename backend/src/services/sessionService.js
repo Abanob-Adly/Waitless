@@ -2,8 +2,11 @@ import Session from '../models/QueueSession.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import ScheduleException from '../models/ScheduleException.js';
 import Appointment from '../models/Appointment.js';
+import PatientProfile from '../models/PatientProfile.js';
+import Account from '../models/Account.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { queueService } from './queueService.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 export const sessionService = {
   async generateSessions({ scheduleId, orgId, fromDate, toDate }) {
@@ -50,8 +53,11 @@ export const sessionService = {
         endTime.setUTCHours(eh, em, 0, 0);
 
         // Skip slots whose end time has already passed — creating them would
-        // cause the auto-close cron to immediately cancel them.
-        if (endTime <= new Date()) {
+        // cause the auto-close cron to immediately cancel them. wallClockNow(),
+        // not new Date() — startTime/endTime are local wall-clock digits (see
+        // wallClockNow.js), so comparing against a genuine UTC instant would
+        // be off by this server's UTC offset.
+        if (endTime <= wallClockNow()) {
           skipped++;
           continue;
         }
@@ -65,6 +71,8 @@ export const sessionService = {
             endTime,
             avgConsultationMin:   schedule.avgConsultationMin || 15,
             maxBookings:          schedule.defaultMaxBookings ?? null,
+            consultationFee:      schedule.consultationFee?.amount ?? 0,
+            currency:             schedule.consultationFee?.currency || 'EGP',
             status:               'scheduled',
             bookingsCount:        0,
             currentServing:       0,
@@ -84,7 +92,7 @@ export const sessionService = {
 
   async listSessions({ branchId, orgId, filters }) {
     const query = { branch: branchId };
-    if (filters.status) query.status = filters.status;
+    if (filters.status) query.status = String(filters.status);
     if (filters.date) {
       const d = new Date(filters.date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
@@ -109,6 +117,19 @@ export const sessionService = {
       throw new AppError('Session is not in scheduled state', 409);
     }
 
+    // A doctor can't run two live queues at once — if an earlier session
+    // (e.g. one that stayed active past its endTime because patients were
+    // still waiting) never got closed, force it closed now instead of
+    // letting it run alongside this new one.
+    const staleActive = await Session.find({
+      doctor: session.doctor,
+      _id:    { $ne: session._id },
+      status: 'active',
+    });
+    for (const stale of staleActive) {
+      await queueService.forceEndSession({ session: stale });
+    }
+
     const now = new Date();
     session.actualStartTime = now;
 
@@ -130,6 +151,20 @@ export const sessionService = {
     return session;
   },
 
+  // Pushes the session's end time back instead of ending it — used when the
+  // doctor still has patients waiting but the scheduled window is up. Also
+  // keeps the session bookable for that much longer (marketplaceService
+  // .getAvailableSessions and sessionAutoClose both key off endTime).
+  async extendSession({ session, extraMinutes }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 409);
+    }
+    session.endTime = new Date(session.endTime.getTime() + extraMinutes * 60_000);
+    await session.save();
+    await queueService.publishQueueUpdated(session._id);
+    return session;
+  },
+
   async endSession({ session }) {
     if (session.status !== 'active') {
       throw new AppError('Session is not active', 409);
@@ -138,10 +173,16 @@ export const sessionService = {
     session.actualEndTime = new Date();
     await session.save();
 
+    // Mark all pending appointments as no_show with a closure note.
     await Appointment.updateMany(
       { session: session._id, status: { $in: ['booked', 'called', 'held', 'skipped', 'in_progress'] } },
-      { $set: { status: 'no_show' } }
+      { $set: { status: 'no_show', sessionClosureNote: 'Session ended by clinic.' } },
     );
+
+    // Notify all waiting patients via SSE that the session has ended.
+    try {
+      await queueService.publishSessionEnded(session._id);
+    } catch { /* non-fatal */ }
 
     return session;
   },

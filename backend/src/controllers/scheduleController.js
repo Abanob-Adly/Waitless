@@ -13,6 +13,44 @@ const feeSchema = z.object({
   currency: z.string().default('EGP'),
 }).optional();
 
+// A doctor can have multiple sessions on the same day (e.g. a morning and an
+// evening clinic) — `schedule` is an array, so more than one slot may share
+// a dayOfWeek. This checks each slot's own range is valid (startTime is
+// zero-padded "HH:MM", so lexicographic comparison matches time order) and
+// that same-day slots don't overlap.
+function checkScheduleSlots(schedule, ctx) {
+  if (!schedule) return;
+
+  schedule.forEach((slot, i) => {
+    if (slot.startTime >= slot.endTime) {
+      ctx.addIssue({
+        code:    z.ZodIssueCode.custom,
+        message: `Slot ${i + 1}: end time must be after start time`,
+        path:    ['schedule', i, 'endTime'],
+      });
+    }
+  });
+
+  const byDay = new Map();
+  schedule.forEach((slot, i) => {
+    if (!byDay.has(slot.dayOfWeek)) byDay.set(slot.dayOfWeek, []);
+    byDay.get(slot.dayOfWeek).push({ ...slot, i });
+  });
+
+  for (const daySlots of byDay.values()) {
+    const sorted = [...daySlots].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].startTime < sorted[i - 1].endTime) {
+        ctx.addIssue({
+          code:    z.ZodIssueCode.custom,
+          message: `Slot ${sorted[i - 1].i + 1} and slot ${sorted[i].i + 1} overlap on the same day`,
+          path:    ['schedule', sorted[i].i, 'startTime'],
+        });
+      }
+    }
+  }
+}
+
 export const scheduleSchemas = {
   create: z.object({
     doctorMembershipId: z.string(),
@@ -21,7 +59,7 @@ export const scheduleSchemas = {
     avgConsultationMin: z.number().int().min(1),
     consultationFee:    feeSchema,
     defaultMaxBookings: z.number().int().min(1).nullable().optional(),
-  }),
+  }).superRefine((data, ctx) => checkScheduleSlots(data.schedule, ctx)),
 
   update: z.object({
     schedule:           z.array(slotSchema).optional(),
@@ -29,7 +67,7 @@ export const scheduleSchemas = {
     consultationFee:    feeSchema,
     status:             z.enum(['active', 'inactive']).optional(),
     defaultMaxBookings: z.number().int().min(1).nullable().optional(),
-  }),
+  }).superRefine((data, ctx) => checkScheduleSlots(data.schedule, ctx)),
 
   createException: z.object({
     date:   z.string().datetime(),

@@ -25,28 +25,26 @@ const invoiceSchema = new Schema({
   planName:            { type: String, required: true },
   amount:              { type: Number, required: true, min: 0 },
   currency:            { type: String, default: 'EGP' },
-  paymentMethod:       { type: String, enum: ['wallet', 'card', 'manual'], default: 'manual' },
+  paymentMethod:       { type: String, enum: ['wallet', 'paymob', 'manual'], default: 'manual' },
   paymobTransactionId: { type: String, default: null },
   status:              { type: String, enum: ['paid', 'failed', 'refunded'], default: 'paid' },
   periodStart:         { type: Date, required: true },
   periodEnd:           { type: Date, required: true },
 }, { timestamps: true });
 
-invoiceSchema.pre('save', async function (next) {
+invoiceSchema.pre('save', async function () {
   if (!this.invoiceNumber) {
     this.invoiceNumber = await generateInvoiceNumber();
   }
-  next();
 });
 
 // Also handle insertMany / create paths that bypass pre-save
-invoiceSchema.pre('insertMany', async function (next, docs) {
+invoiceSchema.pre('insertMany', async function (docs) {
   for (const doc of docs) {
     if (!doc.invoiceNumber) {
       doc.invoiceNumber = await generateInvoiceNumber();
     }
   }
-  next();
 });
 
 export default mongoose.model('Invoice', invoiceSchema);

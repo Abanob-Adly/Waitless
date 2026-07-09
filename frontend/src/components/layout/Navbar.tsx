@@ -12,6 +12,7 @@ export function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [navAvatarUrl, setNavAvatarUrl] = useState(() => localStorage.getItem("waitless_avatar_url") ?? "");
 
@@ -48,9 +49,14 @@ export function Navbar() {
     return () => document.removeEventListener("mousedown", onOutside);
   }, []);
 
+  // Close the mobile nav panel whenever the route changes — otherwise it
+  // stays open over the newly-navigated page.
+  useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
+
   function signOut() {
     logout();
     setDropdownOpen(false);
+    setMobileMenuOpen(false);
     localStorage.removeItem("waitless_avatar_url");
     setNavAvatarUrl("");
     navigate("/");
@@ -300,9 +306,73 @@ export function Navbar() {
               {t("Find Doctor")}
             </Link>
           )}
+
+          {/* Mobile menu toggle — the <nav> above is hidden below md, and
+              "Sign In" is hidden below sm, so without this a mobile visitor
+              had no way to reach Home/Find Doctors/portal links, and a
+              logged-out visitor had no way to sign in at all. */}
+          <button
+            onClick={() => setMobileMenuOpen((o) => !o)}
+            aria-label={t("Menu")}
+            aria-expanded={mobileMenuOpen}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-white/20 text-white/80 transition hover:border-white/40 hover:text-white md:hidden"
+          >
+            {mobileMenuOpen ? (
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M2 2l14 14M16 2L2 16" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M1 4h16M1 9h16M1 14h16" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Mobile nav panel */}
+      {mobileMenuOpen && (
+        <div className="border-t border-white/10 bg-navy px-4 pb-4 pt-2 md:hidden">
+          <nav className="flex flex-col gap-1 text-sm">
+            <MobileNavLink to="/" label={t("Home")} active={isActive("/")} />
+            {isPatient && (
+              <MobileNavLink to="/search" label={t("Find Doctors")} active={isActive("/search") || isActive("/doctors")} />
+            )}
+            {isDoctor && (
+              <MobileNavLink to="/doctor-dashboard" label={t("Doctor Portal")} active={isActive("/doctor-dashboard")} />
+            )}
+            {isAdmin && (
+              <MobileNavLink to="/admin" label={t("Admin Portal")} active={isActive("/admin")} />
+            )}
+            {isReceptionist && (
+              <MobileNavLink to="/reception" label={t("Reception")} active={isActive("/reception")} />
+            )}
+            {!authUser && (
+              <MobileNavLink to="/for-clinics" label={t("For Clinics")} active={isActive("/for-clinics")} />
+            )}
+            {isPatient && (
+              <MobileNavLink to="/dashboard" label={t("My Bookings")} active={isActive("/dashboard")} />
+            )}
+            {!authUser && (
+              <MobileNavLink to="/login" label={t("Sign In")} active={isActive("/login")} />
+            )}
+          </nav>
+        </div>
+      )}
     </header>
+  );
+}
+
+function MobileNavLink({ to, label, active }: { to: string; label: string; active: boolean }) {
+  return (
+    <Link
+      to={to}
+      className={`rounded-md px-3 py-2.5 ${
+        active ? "bg-white/10 font-medium text-gold" : "text-white/80 transition hover:bg-white/5 hover:text-white"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }
 

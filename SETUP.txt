@@ -8,4 +8,15 @@
 
 - note i'm using nodemon with backend for auto refresh
 
+4. run redice (using docker)
+Setup:
+    sudo docker run -d --name local-redis -p 6379:6379 redis:alpine
+later:
+    sudo docker start local-redis
 
+5. run ngrok
+Setup:
+    npm install ngrok -g
+    ngrok config add-authtoken 3GCkIgg1CPiU6nNBUhkTCARchIB_4zJfqgsraJMwRd2fPyqmq
+Run:
+    npx ngrok http --url=cider-feline-decal.ngrok-free.dev 3000

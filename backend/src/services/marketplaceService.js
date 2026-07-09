@@ -7,6 +7,7 @@ import PatientProfile from '../models/PatientProfile.js';
 import Appointment from '../models/Appointment.js';
 import { generateToken } from '../utils/otp.js';
 import { AppError, Conflict, NotFound } from '../utils/errors.js';
+import { wallClockNow } from '../utils/wallClockNow.js';
 
 
 export const marketplaceService = {
@@ -66,7 +67,10 @@ export const marketplaceService = {
       const d = new Date(date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
     } else {
-      query.startTime = { $gte: new Date() };
+      // Bookable as long as the session hasn't ended yet — NOT gated on
+      // startTime, so an already-started 'active' session with open slots
+      // stays bookable instead of disappearing the moment it begins.
+      query.endTime = { $gte: wallClockNow() };
     }
 
     const sessions = await Session.find(query)
@@ -97,7 +101,7 @@ export const marketplaceService = {
     return reviews;
   },
 
-  async bookMarketplace({ actor, sessionId }) {
+  async bookMarketplace({ actor, sessionId, paymentMethod, notes }) {
     const session = await Session.findOne({
       _id:    sessionId,
       status: { $in: ['scheduled', 'active'] },
@@ -117,6 +121,48 @@ export const marketplaceService = {
       });
     }
 
+    // Resume an existing unpaid booking instead of creating a duplicate and
+    // burning another queue slot — this happens when a patient cancels/returns
+    // from the Paymob checkout page and retries payment for the same session.
+    const existing = await Appointment.findOne({
+      session:        sessionId,
+      patientProfile: profile._id,
+      status:         { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] },
+    });
+    if (existing) {
+      if (existing.paymentStatus === 'success') {
+        throw Conflict('You already have an active booking in this session');
+      }
+      return { appointment: existing, accessToken: existing.accessToken };
+    }
+
+    // "Pay at clinic" bookings join the real queue immediately as 'booked' —
+    // paymentStatus stays 'pending' (the model default) until a receptionist
+    // or doctor confirms the cash payment (appointmentController.confirmPayment),
+    // which only flips payment fields, not queue membership.
+    const isPayAtClinic = paymentMethod === 'clinic';
+
+    // Cap concurrent unpaid pay-at-clinic bookings per patient — without this,
+    // a patient could hold unlimited unpaid slots across many sessions with no
+    // commitment, occupying receptionist/doctor queue slots that a paying
+    // patient could have used instead. Online (paymob) bookings pay immediately
+    // and are unaffected. Scoped across all sessions, not just this one — the
+    // `existing` check above already prevents duplicates within one session.
+    if (isPayAtClinic) {
+      const unpaidClinicCount = await Appointment.countDocuments({
+        patientProfile: profile._id,
+        paymentMethod:  'clinic',
+        paymentStatus:  { $ne: 'success' },
+        status:         { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] },
+      });
+      if (unpaidClinicCount >= 2) {
+        throw new AppError(
+          'You have 2 unpaid pay-at-clinic bookings already. Please pay at the clinic or cancel one before booking another this way.',
+          422,
+        );
+      }
+    }
+
     const updated = await Session.reserveQueueNumber(sessionId);
     if (!updated) throw new AppError('Session is no longer accepting bookings', 409);
 
@@ -134,6 +180,8 @@ export const marketplaceService = {
         queueNumber,
         status:           'booked',
         source:           'marketplace',
+        paymentMethod:    paymentMethod ?? null,
+        notes:            notes || undefined,
         accessToken,
       });
     } catch (err) {

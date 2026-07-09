@@ -42,7 +42,6 @@ export const router = createBrowserRouter([
       { path: "org/signup", element: <OrgOnboardingPage /> },
       { path: "accept-invite", element: <AcceptInvitePage /> },
       { path: "q/:token", element: <LiveQueuePage /> },
-      { path: "ticket/:token", element: <LiveTicketByToken /> },
       { path: "review", element: <ReviewPage /> },
       {
         path: "checkout",
@@ -99,5 +98,9 @@ export const router = createBrowserRouter([
         ),
       },
     ],
+  },
+  {
+    path: "ticket/:token",
+    element: <LiveTicketByToken />,
   },
 ]);

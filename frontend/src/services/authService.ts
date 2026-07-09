@@ -38,16 +38,6 @@ export function readStoredUser(): AuthUser {
   return null;
 }
 
-// Decode JWT payload without verifying (for reading claims on the client).
-function decodeJwt(token: string): { sub: string; role: string; activeOrg?: string | null } {
-  try {
-    const payload = token.split(".")[1];
-    return JSON.parse(atob(payload));
-  } catch {
-    return { sub: "", role: "" };
-  }
-}
-
 // Normalize identifier — phone numbers get E.164-formatted.
 function normalizeIdentifier(input: string): string {
   return looksLikePhone(input) ? toE164(input) : input.trim();
@@ -225,8 +215,8 @@ export const authService = {
     await api.post("/auth/password-reset/request", { email });
   },
 
-  async confirmPasswordReset(email: string, token: string, newPassword: string): Promise<void> {
-    await api.post("/auth/password-reset/confirm", { email, token, newPassword });
+  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    await api.post("/auth/password-reset/confirm", { token, newPassword });
   },
 
   async checkAvailability(email: string, phone: string): Promise<{ emailTaken: boolean; phoneTaken: boolean }> {

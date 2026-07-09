@@ -56,6 +56,13 @@ router.post(
 );
 
 router.post(
+  '/appointments/:appointmentId/skip',
+  authenticate,
+  authorize('queue.operate', loadSession),
+  queueController.skip
+);
+
+router.post(
   '/appointments/:appointmentId/reinsert',
   authenticate,
   authorize('queue.operate', loadSession),

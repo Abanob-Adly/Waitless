@@ -7,8 +7,7 @@ export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const { confirmPasswordReset, isAuthLoading, authError, clearAuthError } = useAuth();
 
-  const [email, setEmail] = useState(searchParams.get("email") ?? "");
-  const [token, setToken] = useState("");
+  const token = searchParams.get("token") ?? "";
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -16,8 +15,7 @@ export function ResetPasswordPage() {
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
-    if (!email.trim()) errs.email = "Email is required.";
-    if (token.trim().length !== 6) errs.token = "Enter the 6-digit code from your email.";
+    if (!token.trim()) errs.token = "Invalid reset link.";
     if (newPassword.length < 8) errs.newPassword = "Password must be at least 8 characters.";
     if (newPassword !== confirm) errs.confirm = "Passwords do not match.";
     setErrors(errs);
@@ -28,7 +26,7 @@ export function ResetPasswordPage() {
     e.preventDefault();
     clearAuthError();
     if (!validate()) return;
-    const ok = await confirmPasswordReset(email.trim().toLowerCase(), token.trim(), newPassword);
+    const ok = await confirmPasswordReset(token.trim(), newPassword);
     if (ok) {
       setDone(true);
       setTimeout(() => navigate("/login"), 2000);
@@ -41,7 +39,7 @@ export function ResetPasswordPage() {
         <div className="bg-navy px-8 py-7">
           <p className="font-heading text-sm font-medium text-gold">Waitless</p>
           <h1 className="mt-1 font-heading text-3xl font-bold text-white">Reset password</h1>
-          <p className="mt-1 text-sm text-white/50">Enter the code we sent to your email</p>
+          <p className="mt-1 text-sm text-white/50">Create a new password to finish resetting your account</p>
         </div>
 
         <div className="px-8 py-7">
@@ -51,30 +49,13 @@ export function ResetPasswordPage() {
             </div>
           ) : (
             <>
-              {authError && (
+              {(authError || errors.token) && (
                 <div className="mb-4 rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
-                  {authError}
+                  {authError || errors.token}
                 </div>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <Field
-                  label="Email address *"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={setEmail}
-                  error={errors.email}
-                />
-                <Field
-                  label="6-digit code *"
-                  placeholder="123456"
-                  value={token}
-                  onChange={setToken}
-                  error={errors.token}
-                  inputMode="numeric"
-                  maxLength={6}
-                />
                 <Field
                   label="New password *"
                   type="password"
@@ -102,9 +83,9 @@ export function ResetPasswordPage() {
               </form>
 
               <p className="mt-5 text-center text-sm text-navy-mid">
-                Didn't get a code?{" "}
-                <Link to="/forgot-password" className="font-medium text-gold transition hover:text-gold-light">
-                  Resend →
+                Go back to{" "}
+                <Link to="/login" className="font-medium text-gold transition hover:text-gold-light">
+                  Sign in →
                 </Link>
               </p>
             </>
@@ -114,7 +95,6 @@ export function ResetPasswordPage() {
     </main>
   );
 }
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function Field({

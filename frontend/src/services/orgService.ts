@@ -42,7 +42,6 @@ function adaptBranch(b: Record<string, unknown>): Branch {
     ),
     city: String((b.address as Record<string, unknown>)?.city ?? ""),
     phone: String(b.phone ?? ""),
-    commissionPct: b.commissionPct != null ? Number(b.commissionPct) : 70,
   };
 }
 
@@ -215,8 +214,7 @@ export async function getPlans(): Promise<SubscriptionPlan[]> {
 
 export type PurchasePlanResult =
   | { method: "free";   subscription: Subscription }
-  | { method: "wallet"; subscription: Subscription; invoice: Invoice; walletBalance: number }
-  | { method: "card";   iframeUrl: string; orderId: string; walletBalance: number; planPrice: number; planName: string };
+  | { method: "wallet"; subscription: Subscription; invoice: Invoice; walletBalance: number };
 
 export type Invoice = {
   id: string;
@@ -224,7 +222,7 @@ export type Invoice = {
   planName: string;
   amount: number;
   currency: string;
-  paymentMethod: "wallet" | "card" | "manual";
+  paymentMethod: "wallet" | "paymob" | "manual";
   paymobTransactionId: string | null;
   status: "paid" | "failed" | "refunded";
   periodStart: string;
@@ -259,22 +257,11 @@ export async function purchasePlan(orgId: string, planId: string): Promise<Purch
   if (method === "free") {
     return { method: "free", subscription: adaptSubscription(d.subscription as Record<string, unknown>) };
   }
-  if (method === "wallet") {
-    return {
-      method:       "wallet",
-      subscription: adaptSubscription(d.subscription as Record<string, unknown>),
-      invoice:      adaptInvoice(d.invoice as Record<string, unknown>),
-      walletBalance: Number(d.walletBalance ?? 0),
-    };
-  }
-  // card
   return {
-    method:       "card",
-    iframeUrl:    String(d.iframeUrl ?? ""),
-    orderId:      String(d.orderId ?? ""),
+    method:       "wallet",
+    subscription: adaptSubscription(d.subscription as Record<string, unknown>),
+    invoice:      adaptInvoice(d.invoice as Record<string, unknown>),
     walletBalance: Number(d.walletBalance ?? 0),
-    planPrice:    Number(d.planPrice ?? 0),
-    planName:     String(d.planName ?? ""),
   };
 }
 
@@ -341,7 +328,7 @@ export async function createBranch(
 export async function updateBranch(
   orgId: string,
   branchId: string,
-  data: Partial<{ name: string; phone: string; isActive: boolean; commissionPct: number }>,
+  data: Partial<{ name: string; phone: string; isActive: boolean }>,
 ): Promise<Branch> {
   const res = await api.put<{ data: Record<string, unknown> }>(
     `/orgs/${orgId}/branches/${branchId}`,
@@ -530,8 +517,7 @@ export type WalletTransaction = {
   branchId: string;
   grossAmount: number;
   platformCut: number;
-  commissionAmount: number;
-  doctorNet: number;
+  orgNet: number;
   currency: string;
   status: "settled" | "pending" | "refunded";
   createdAt: string;
@@ -567,8 +553,7 @@ export async function getTransactions(
       branchId: String((tx.branch as Record<string, unknown>)?._id ?? tx.branch ?? ""),
       grossAmount: Number(tx.grossAmount ?? 0),
       platformCut: Number(tx.platformCut ?? 0),
-      commissionAmount: Number(tx.commissionAmount ?? 0),
-      doctorNet: Number(tx.doctorNet ?? 0),
+      orgNet: Number(tx.orgNet ?? 0),
       currency: String(tx.currency ?? "EGP"),
       status: (tx.status as WalletTransaction["status"]) ?? "settled",
       createdAt: String(tx.createdAt ?? ""),

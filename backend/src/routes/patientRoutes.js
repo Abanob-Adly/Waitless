@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../policies/can.js';
 import { validate } from '../middleware/validate.js';
 import { patientController, patientSchemas } from '../controllers/patientController.js';
+import { sessionNoteController } from '../controllers/sessionNoteController.js';
 import PatientProfile from '../models/PatientProfile.js';
 
 const router = Router({ mergeParams: true });
@@ -45,6 +46,13 @@ router.get(
   authenticate,
   authorize('patient.view', loadProfile),
   patientController.getHistory
+);
+
+router.get(
+  '/:profileId/notes',
+  authenticate,
+  authorize('sessionNote.viewPatientHistory', loadProfile),
+  sessionNoteController.getForPatient
 );
 
 export default router;

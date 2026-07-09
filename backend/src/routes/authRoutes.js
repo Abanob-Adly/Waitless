@@ -1,10 +1,29 @@
 import Router from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { authController, schemas } from '../controllers/authController.js';
 import { joinRequestController } from '../controllers/joinRequestController.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { validate } from '../middleware/validate.js';
 
 const router = Router();
+
+// Stricter than the generic /auth limiter (20/15min) — password reset is a
+// higher-value target for abuse (email bombing, token brute-forcing).
+// Keyed by IP+email when an email is present in the body (request step) so
+// one IP can't exhaust the limit for a specific victim while still allowing
+// a shared IP (office/clinic network) to reset different accounts; falls
+// back to IP-only for the confirm step, which has no email in its body.
+const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const ipKey = ipKeyGenerator(req.ip);
+    return req.body?.email ? `${ipKey}:${req.body.email}` : ipKey;
+  },
+  message: { status: 'error', message: 'Too many password reset attempts. Please try again later.' },
+});
 
 // Public
 router.get ('/check-availability', authController.checkAvailability);
@@ -16,8 +35,8 @@ router.post('/worker/login',     validate(schemas.login),    authController.logi
 router.post('/refresh',         validate(schemas.refresh),  authController.refresh);
 router.post('/logout',          authController.logout);
 
-router.post('/password-reset/request', validate(schemas.requestReset), authController.requestPasswordReset);
-router.post('/password-reset/confirm', validate(schemas.confirmReset), authController.confirmPasswordReset);
+router.post('/password-reset/request', passwordResetLimiter, validate(schemas.requestReset), authController.requestPasswordReset);
+router.post('/password-reset/confirm', passwordResetLimiter, validate(schemas.confirmReset), authController.confirmPasswordReset);
 
 // Authenticated
 router.get ('/me',                   authenticate, authController.me);

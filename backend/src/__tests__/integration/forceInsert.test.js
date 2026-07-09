@@ -148,3 +148,36 @@ describe('queueService.forceInsert — queue shifting', () => {
     );
   });
 });
+
+describe('queueService.callNext — force-inserted patient outranks a stale skipped one', () => {
+  it('calls the urgent (force-inserted) patient even when an older skipped patient is waiting', async () => {
+    // #1 was skipped earlier this session and is still waiting to be re-called.
+    // #2 is currently being served. #3 and #4 are booked; #4 gets marked urgent.
+    const session = await makeSession({ currentServing: 2 });
+    await makeAppt(session, 1, 'skipped');
+    await makeAppt(session, 2, 'called');
+    const p3 = await makeAppt(session, 3);
+    const p4 = await makeAppt(session, 4);
+
+    await queueService.forceInsert({ appointment: p4, session });
+
+    const result = await queueService.callNext({ session });
+
+    assert.equal(String(result.appointment._id), String(p4._id), 'the urgent patient should be called next, not the older skipped one');
+    assert.equal(result.appointment.status, 'called');
+
+    const a3 = await Appointment.findById(p3._id).lean();
+    assert.equal(a3.status, 'booked', 'the non-urgent booked patient should be untouched');
+  });
+
+  it('falls back to oldest skipped when no one is force-inserted', async () => {
+    const session = await makeSession({ currentServing: 2 });
+    await makeAppt(session, 1, 'skipped');
+    await makeAppt(session, 2, 'called');
+    await makeAppt(session, 3);
+
+    const result = await queueService.callNext({ session });
+
+    assert.equal(result.appointment.queueNumber, 1, 'skipped patient should still win when nobody is marked urgent');
+  });
+});

@@ -11,6 +11,7 @@ import { Unauthorized } from '../utils/errors.js';
  *   account,                  // full Account doc
  *   activeOrgId,              // ObjectId or null
  *   activeMembership,         // full Membership doc (with discriminator) or null
+ *   orgMemberships,           // ALL of this account's active memberships in activeOrg
  *   isPlatformAdmin,          // boolean
  * }
  */
@@ -28,15 +29,17 @@ export async function authenticate(req, _res, next) {
         if (!account || account.status !== 'active') throw Unauthorized('Account inactive');
 
         let activeMembership = null;
+        let orgMemberships = [];
         if (payload.activeOrg) {
-            // Sort by kind ascending (admin < doctor < receptionist) so that when a user
-            // holds multiple roles the highest-privilege one is consistently selected.
-            activeMembership = await Membership.findOne({
+            orgMemberships = await Membership.find({
                 account: account._id,
                 organization: payload.activeOrg,
                 status: 'active',
+                // Sort by kind ascending (admin < doctor < receptionist) so that when a user
+                // holds multiple roles the highest-privilege one is consistently first.
             }).sort({ kind: 1 });
-            if (!activeMembership) throw Unauthorized('Org membership invalid');
+            if (orgMemberships.length === 0) throw Unauthorized('Org membership invalid');
+            activeMembership = orgMemberships[0];
         }
 
         req.actor = {
@@ -46,6 +49,13 @@ export async function authenticate(req, _res, next) {
                 ? new mongoose.Types.ObjectId(payload.activeOrg)
                 : null,
             activeMembership,
+            // A dual-role account (e.g. clinic owner who is also a practicing
+            // doctor) always resolves activeMembership to its highest-privilege
+            // role (admin). Ownership checks that need "is this account
+            // *specifically* the doctor referenced on this resource" — not
+            // "whichever role is currently active" — must check across every
+            // membership the account holds, not just activeMembership.
+            orgMemberships,
             isPlatformAdmin: account.role === 'super_admin',
         };
 

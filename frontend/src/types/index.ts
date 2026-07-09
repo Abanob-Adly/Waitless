@@ -151,7 +151,7 @@ export type ActiveBooking = {
   doctor: Doctor;
   session: Session;
   queueNumber: number;
-  paymentMethod: "card" | "vodafone" | "clinic" | "wallet";
+  paymentMethod: "paymob" | "clinic";
   paymentStatus: "success" | "failed" | "pending";
   transactionId?: string;
   patientNotes?: string;
@@ -186,7 +186,7 @@ export type BookingPayload = {
 };
 
 export type PaymentPayload = {
-  method: "card" | "vodafone" | "clinic";
+  method: "paymob" | "clinic";
   appointmentId: string;
   amount: number;
   last4?: string;
@@ -196,7 +196,7 @@ export type PaymentRecord = {
   transactionId: string;
   appointmentId: string;
   amount: number;
-  method: "card" | "vodafone" | "clinic";
+  method: "paymob" | "clinic";
   status: "success" | "failed";
   timestamp: string;
   last4?: string;
@@ -225,7 +225,6 @@ export type Branch = {
   address: string;
   city: string;
   phone: string;
-  commissionPct?: number;
 };
 
 export type Membership = {

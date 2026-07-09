@@ -2,15 +2,19 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../../components/layout/Navbar";
 import { api } from "../../services/api";
+import { useLanguage } from "../../context/LanguageContext";
+import { fmt12 } from "../../utils/time";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type AppointmentStatus =
+  | "pending_confirmation"
   | "booked"
   | "called"
   | "in_progress"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "no_show";
 
 type QueueStatus = {
   token: string;
@@ -20,8 +24,12 @@ type QueueStatus = {
   totalInQueue: number;
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
+  reviewToken: string | null;
   sessionDate: string;
+  sessionStartTime: string;
+  avgConsultationMin: number;
   sessionStatus: "scheduled" | "active" | "ended" | "cancelled";
+  sessionClosureNote?: string;
   isOnBreak: boolean;
   doctorAvatarUrl: string;
   doctor: {
@@ -43,27 +51,38 @@ export function LiveTicket() {
 
   useEffect(() => {
     if (!token) return;
+    // Re-bind to a non-optional local: TS can't carry the `!token` guard's
+    // narrowing across the closure boundary into fetchStatus below, even
+    // though token can't change out from under it here.
+    const trackingToken = token;
     let alive = true;
 
     async function fetchStatus() {
       try {
         const res = await api.get<{ data: Record<string, unknown> }>(
-          `/appointments/track/${token}`,
+          `/appointments/track/${trackingToken}`,
         );
         const d = res.data.data;
         if (!alive) return;
-        const queueNumber = Number(d.queueNumber ?? 0);
+        const queueNumber      = Number(d.queueNumber ?? 0);
         const currentlyServing = Number(d.currentlyServing ?? 0);
-        const position = Math.max(0, queueNumber - currentlyServing);
+        // Prefer the server-computed position (active patients ahead + 1) which correctly
+        // skips cancelled/no-show gaps. Fall back to the naive formula if backend is stale.
+        const position = d.position != null
+          ? Math.max(1, Number(d.position))
+          : Math.max(1, queueNumber - currentlyServing);
         setQueueStatus({
-          token: token,
+          token: trackingToken,
           patientName:          String(d.patientName ?? ""),
           queueNumber,
           position,
           totalInQueue:         queueNumber,
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
           status:               String(d.status ?? "booked") as AppointmentStatus,
+          reviewToken:          d.reviewToken ? String(d.reviewToken) : null,
           sessionDate:          String(d.sessionDate ?? ""),
+          sessionStartTime:     String(d.sessionStartTime ?? ""),
+          avgConsultationMin:   Number(d.avgConsultationMin ?? 15),
           sessionStatus:        (String(d.sessionStatus ?? "active") as QueueStatus["sessionStatus"]),
           isOnBreak:            Boolean(d.isOnBreak ?? false),
           doctorAvatarUrl:      String(d.doctorAvatarUrl ?? ""),
@@ -75,7 +94,7 @@ export function LiveTicket() {
           },
         });
       } catch {
-        if (alive) setQueueStatus(null);
+        // Leave stale state on transient error — blanking the ticket is worse than stale data.
       } finally {
         if (alive) setLoading(false);
       }
@@ -84,24 +103,35 @@ export function LiveTicket() {
     // Initial fetch
     void fetchStatus();
 
-    // SSE for real-time updates; fall back to 30s polling if SSE unavailable
+    // SSE for real-time updates.
+    // Retries up to 3 times with 3/6/9 s backoff before falling back to 30 s polling.
     const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
-    const sseUrl = `${apiBase}/appointments/track/${token}/sse`;
+    const sseUrl = `${apiBase}/appointments/track/${trackingToken}/sse`;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let retries = 0;
+    let currentSSE: EventSource | null = null;
 
-    const sse = new EventSource(sseUrl);
-    sse.onmessage = () => { void fetchStatus(); };
-    sse.onerror = () => {
-      // SSE failed — fall back to 30-second polling
-      sse.close();
-      if (!fallbackInterval) {
-        fallbackInterval = setInterval(() => { void fetchStatus(); }, 30_000);
-      }
-    };
+    function connectSSE() {
+      const es = new EventSource(sseUrl);
+      currentSSE = es;
+      es.onmessage = () => { void fetchStatus(); };
+      es.onerror = () => {
+        es.close();
+        if (!alive) return;
+        if (retries < 3) {
+          retries++;
+          setTimeout(() => { if (alive) connectSSE(); }, retries * 3_000);
+        } else if (!fallbackInterval) {
+          fallbackInterval = setInterval(() => { void fetchStatus(); }, 30_000);
+        }
+      };
+    }
+
+    connectSSE();
 
     return () => {
       alive = false;
-      sse.close();
+      currentSSE?.close();
       if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, [token]);
@@ -111,20 +141,26 @@ export function LiveTicket() {
     setCancelling(true);
     try {
       await api.delete(`/appointments/track/${token}`);
-      // Re-poll immediately to show CancelledView instead of navigating away
+      // Re-fetch to get the authoritative cancelled status from the server
       const res = await api.get<{ data: Record<string, unknown> }>(
         `/appointments/track/${token}`,
       );
       const d = res.data.data;
-      const queueNumber = Number(d.queueNumber ?? 0);
+      const queueNumber      = Number(d.queueNumber ?? 0);
       const currentlyServing = Number(d.currentlyServing ?? 0);
       setQueueStatus((prev) =>
         prev
-          ? { ...prev, status: String(d.status ?? "cancelled") as AppointmentStatus, position: Math.max(0, queueNumber - currentlyServing) }
+          ? {
+              ...prev,
+              status: String(d.status ?? "cancelled") as AppointmentStatus,
+              position: d.position != null
+                ? Math.max(1, Number(d.position))
+                : Math.max(1, queueNumber - currentlyServing),
+            }
           : null,
       );
     } catch {
-      // If the cancel call fails (e.g. already cancelled), navigate home
+      // DELETE failed (already cancelled, network error) — navigate home gracefully
       navigate("/");
     } finally {
       setCancelling(false);
@@ -163,9 +199,18 @@ export function LiveTicket() {
     );
   }
 
-  const canCancel = queueStatus.status === "booked";
-  const today = new Date().toISOString().slice(0, 10);
-  const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= today;
+  const canCancel = queueStatus.status === "booked" || queueStatus.status === "pending_confirmation";
+  // Local calendar date, not toISOString().slice(0, 10) — that converts to
+  // UTC first, which reads as "yesterday" for the first few hours after local
+  // midnight in any positive UTC-offset timezone, incorrectly showing a
+  // countdown to an appointment that's actually happening today.
+  const now = new Date();
+  const todayLocal = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= todayLocal;
 
   // ── Main render ──
   return (
@@ -217,7 +262,11 @@ export function LiveTicket() {
 
           {/* Status content */}
           <div className="px-5 pb-8 pt-6">
-            {!isSessionDay ? (
+            {queueStatus.status === "pending_confirmation" ? (
+              <PendingConfirmationView
+                fee={queueStatus.doctor.consultationFee}
+              />
+            ) : !isSessionDay ? (
               <CountdownView sessionDate={queueStatus.sessionDate} />
             ) : queueStatus.sessionStatus === "ended" &&
               queueStatus.status !== "completed" &&
@@ -230,8 +279,9 @@ export function LiveTicket() {
                 )}
                 {queueStatus.status === "called" && <CalledView />}
                 {queueStatus.status === "in_progress" && <InProgressView />}
-                {queueStatus.status === "completed" && <CompletedView token={queueStatus.token} />}
+                {queueStatus.status === "completed" && <CompletedView reviewToken={queueStatus.reviewToken} />}
                 {queueStatus.status === "cancelled" && <CancelledView />}
+                {queueStatus.status === "no_show" && <NoShowView />}
               </>
             )}
           </div>
@@ -258,12 +308,36 @@ export function LiveTicket() {
   );
 }
 
+// ── Pending confirmation view ("pay at clinic" not yet confirmed by staff) ──
+
+function PendingConfirmationView({ fee }: { fee: number }) {
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+        🏥
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        Reserved — pay at reception
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        Your spot is held, but you&apos;re not in the live queue yet. Pay the{" "}
+        <span className="font-semibold text-gold">{fee} EGP</span> consultation
+        fee at reception and staff will confirm it to add you to the queue.
+      </p>
+    </div>
+  );
+}
+
 // ── Countdown view (session is in the future) ────────────────────────────────
 
 function CountdownView({ sessionDate }: { sessionDate: string }) {
+  const { t } = useLanguage();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const session = new Date(sessionDate);
+  // "T00:00:00" (local time), not a bare date string — without it, Date
+  // parses a date-only ISO string as UTC midnight, which drifts into the
+  // wrong local day and throws daysLeft off by one near midnight.
+  const session = new Date(`${sessionDate}T00:00:00`);
   session.setHours(0, 0, 0, 0);
   const daysLeft = Math.round((session.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -275,20 +349,22 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
   });
 
   return (
-    <div className="py-2 text-center">
-      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
         📅
       </div>
       <h2 className="font-heading text-2xl font-bold text-navy">
-        {daysLeft === 1 ? "Tomorrow!" : `${daysLeft} days to go`}
+        {daysLeft <= 0 ? t("Today!") : daysLeft === 1 ? t("Tomorrow!") : `${daysLeft} ${t("days to go")}`}
       </h2>
-      <p className="mt-3 text-sm text-navy-mid">
-        Your appointment is scheduled for{" "}
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Your appointment is scheduled for")}{" "}
         <span className="font-semibold text-navy">{formatted}</span>.
       </p>
-      <p className="mt-2 text-xs text-navy-mid">
-        Come back on the day of your appointment to track your queue position live.
-      </p>
+      <div className="mx-auto mt-5 max-w-xs rounded-xl border border-border bg-offwhite px-4 py-3">
+        <p className="text-xs text-navy-mid">
+          {t("Return on the day of your appointment to track your live queue position.")}
+        </p>
+      </div>
     </div>
   );
 }
@@ -296,6 +372,7 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
 // ── Waiting view (status: "booked") ─────────────────────────────────────────
 
 function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isOnBreak: boolean }) {
+  const { t } = useLanguage();
   const radius = 68;
   const circumference = 2 * Math.PI * radius;
   // Arc progress: 0 = first in queue, 1 = all ahead have been served
@@ -307,15 +384,31 @@ function WaitingView({ queueStatus, isOnBreak }: { queueStatus: QueueStatus; isO
 
   return (
     <div>
-      {queueStatus.sessionStatus === "scheduled" && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
-          <span className="text-xl">⏳</span>
-          <div>
-            <p className="text-sm font-semibold text-navy">Session not started yet</p>
-            <p className="text-xs text-navy-mid">The doctor has not started the session. You will be notified when it begins.</p>
+      {queueStatus.sessionStatus === "scheduled" && (() => {
+        const [hh, mm] = (queueStatus.sessionStartTime
+          ? new Date(queueStatus.sessionStartTime).toISOString().slice(11, 16)
+          : "00:00").split(":").map(Number);
+        const scheduledStart = new Date(`${queueStatus.sessionDate || new Date().toISOString().slice(0, 10)}T00:00:00`);
+        scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+        const patientsAhead = Math.max(0, queueStatus.queueNumber - 1);
+        const arrivalDate = new Date(
+          scheduledStart.getTime() + patientsAhead * queueStatus.avgConsultationMin * 60_000 - 10 * 60_000,
+        );
+        const recommendedArrival = fmt12(
+          `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+        );
+        return (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-navy/20 bg-navy/5 px-4 py-3">
+            <span className="text-xl">⏳</span>
+            <div>
+              <p className="text-sm font-semibold text-navy">{t("Session not started yet")}</p>
+              <p className="text-xs text-navy-mid">
+                {t("You're #")}{queueStatus.queueNumber} {t("in line")} — {t("come around")} <span className="font-semibold text-navy">{recommendedArrival}</span>
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {isOnBreak && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-gold/40 bg-gold-tint px-4 py-3">
           <span className="text-xl">☕</span>
@@ -426,7 +519,7 @@ function InProgressView() {
 
 // ── Completed view (status: "completed") ────────────────────────────────────
 
-function CompletedView({ token }: { token: string }) {
+function CompletedView({ reviewToken }: { reviewToken: string | null }) {
   return (
     <div className="py-2 text-center">
       <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 text-4xl">
@@ -438,12 +531,14 @@ function CompletedView({ token }: { token: string }) {
       <p className="mt-3 text-sm text-navy-mid">
         Thank you for visiting. We hope you feel better soon!
       </p>
-      <Link
-        to={`/review?token=${token}`}
-        className="mt-4 inline-flex h-10 items-center justify-center rounded-sm border border-gold px-6 text-sm font-medium text-gold transition hover:bg-gold-tint"
-      >
-        Rate Your Visit ★
-      </Link>
+      {reviewToken && (
+        <Link
+          to={`/review?token=${reviewToken}`}
+          className="mt-4 inline-flex h-10 items-center justify-center rounded-sm border border-gold px-6 text-sm font-medium text-gold transition hover:bg-gold-tint"
+        >
+          Rate Your Visit ★
+        </Link>
+      )}
       <Link
         to="/"
         className="mt-3 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
@@ -479,25 +574,52 @@ function SessionEndedView() {
   );
 }
 
+// ── No-show view (status: "no_show") ────────────────────────────────────────
+// Previously unhandled — a patient marked no_show while the session was
+// still active (other patients still being served) fell through every
+// status check here and saw a blank queue-position area.
+
+function NoShowView() {
+  const { t } = useLanguage();
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-4xl">
+        🚶
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        {t("Marked as No-Show")}
+      </h2>
+      <p className="mt-3 text-sm text-navy-mid">
+        {t("You didn't check in when called, so your spot was given to the next patient.")}
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        {t("If this is a mistake, please contact the clinic directly.")}
+      </p>
+    </div>
+  );
+}
+
 // ── Cancelled view (status: "cancelled") ────────────────────────────────────
 
 function CancelledView() {
+  const { t } = useLanguage();
   return (
     <div className="py-2 text-center">
       <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-4xl">
         ✕
       </div>
       <h2 className="font-heading text-2xl font-bold text-navy">
-        Appointment cancelled
+        {t("Appointment cancelled")}
       </h2>
       <p className="mt-3 text-sm text-navy-mid">
-        Your appointment has been cancelled. You can rebook at any time.
+        {t("Your appointment has been cancelled. You can rebook at any time.")}
       </p>
+
       <Link
         to="/"
         className="mt-6 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"
       >
-        Find Another Doctor
+        {t("Find Another Doctor")}
       </Link>
     </div>
   );

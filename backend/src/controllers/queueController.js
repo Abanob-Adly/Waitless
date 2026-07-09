@@ -4,7 +4,7 @@ import Session from '../models/QueueSession.js';
 import Appointment from '../models/Appointment.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { NotFound } from '../utils/errors.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const queueSchemas = {
   updateStatus: z.object({
@@ -67,6 +67,18 @@ export const queueController = {
 
     const session = await Session.findById(req.params.sessionId);
     const result = await queueService.holdPatient({ appointment, session });
+    res.json({ data: result });
+  },
+
+  async skip(req, res) {
+    const appointment = await Appointment.findOne({
+      _id:     req.params.appointmentId,
+      session: req.params.sessionId,
+    });
+    if (!appointment) throw NotFound('Appointment not found');
+
+    const session = await Session.findById(req.params.sessionId);
+    const result = await queueService.skipToNext({ appointment, session });
     res.json({ data: result });
   },
 
@@ -139,7 +151,26 @@ export const queueController = {
 
     const channel = `queue.session.${sessionId}`;
     const sub = redis.duplicate();
-    await sub.subscribe(channel);
+    // A duplicated client does not inherit the parent's 'error' listener — an
+    // EventEmitter with no 'error' listener throws and crashes the whole
+    // process on connection failure (e.g. Redis down). Must attach this
+    // before any command is issued on `sub`. ioredis retries in the background
+    // every 200ms while Redis is down, re-emitting 'error' each time — log only
+    // the first one per connection instead of flooding the console forever.
+    let loggedError = false;
+    sub.on('error', (err) => {
+      if (loggedError) return;
+      loggedError = true;
+      console.warn('[queue] SSE subscriber error:', describeRedisError(err));
+    });
+
+    try {
+      await sub.subscribe(channel);
+    } catch (err) {
+      console.warn('[queue] SSE subscribe failed:', describeRedisError(err));
+      res.end();
+      return;
+    }
 
     sub.on('message', (_ch, message) => {
       res.write(`data: ${message}\n\n`);
@@ -164,14 +195,15 @@ export const queueController = {
 
     const fee = session.doctorBranchSchedule?.consultationFee?.amount ?? 0;
 
-    // Include walk-in cash AND clinic appointments confirmed as paid
+    // Cash is collected the moment a receptionist/doctor confirms it — not
+    // when the visit finishes. Pay-at-clinic tickets join the queue and are
+    // typically confirmed well before their consultation completes, so
+    // requiring status: 'completed' here undercounted the drawer all day and
+    // only "caught up" once visits finished.
     const appointments = await Appointment.find({
       session: req.params.sessionId,
-      status:  'completed',
-      $or: [
-        { paymentMethod: 'cash' },
-        { paymentMethod: 'clinic', paymentStatus: 'success' },
-      ],
+      paymentMethod: 'clinic',
+      paymentStatus: 'success',
     }).populate('patientProfile', 'fullName').lean();
 
     const totalCash = appointments.reduce((sum, a) => sum + (a.paidAmount ?? fee), 0);

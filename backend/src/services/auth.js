@@ -5,6 +5,8 @@ import { hashPassword, verifyPassword } from '../utils/password.js';
 import { AppError, Conflict, NotFound, Unauthorized } from '../utils/errors.js';
 import { tokenService } from './token.js';
 import { verificationService } from './verification.js';
+import { sha256 } from "../utils/otp.js";
+import VerificationToken from '../models/verificationToken.js';
 
 // Strips formatting and converts to E.164 (Egyptian default: 01X → +201X).
 function normalizePhone(input = '') {
@@ -194,30 +196,52 @@ export const authService = {
     return account;
   },
 
-  // Password Reset 
+  // Password Reset
   async requestPasswordReset({ email }) {
     const account = await Account.findOne({ email });
     // Always return success — don't leak account existence
     if (!account) return { ok: true };
 
-    await verificationService.issue({
-      account, purpose: 'password_reset', sendTo: email,
-    });
+    try {
+      await verificationService.issue({
+        account, purpose: 'password_reset', sendTo: email,
+      });
+    } catch (err) {
+      // Never let an email-provider failure (e.g. sandbox sender restrictions,
+      // rate limits) turn into a thrown error here — that would both leak
+      // account existence (valid email + provider failure => error response,
+      // invalid email => 200) and break the "always 200" contract this
+      // endpoint depends on. Log for ops visibility, respond identically.
+      console.error('[auth] password reset email failed to send:', err.message);
+    }
     return { ok: true };
   },
 
-  async confirmPasswordReset({ email, token, newPassword }) {
-    const account = await Account.findOne({ email });
+  async confirmPasswordReset({ token, newPassword }) {
+    // Looked up directly by the token's hash — not by "whichever unconsumed
+    // password_reset token is newest", which broke as soon as more than one
+    // reset was outstanding system-wide at the same time (see verification.js
+    // for why this hash is sha256, not bcrypt, specifically so this lookup
+    // can be direct instead of a guess).
+    const verification = await VerificationToken.findOne({
+      purpose: 'password_reset',
+      codeHash: sha256(token),
+      consumedAt: null,
+    });
+
+    if (!verification) throw new AppError('Invalid reset token', 401);
+    if (verification.expiresAt < new Date()) throw new AppError('Code expired', 410, 'EXPIRED');
+
+    const account = await Account.findById(verification.account);
     if (!account) throw new AppError('Invalid reset token', 401);
 
-    await verificationService.consume({ account, purpose: 'password_reset', code: token });
+    verification.consumedAt = new Date();
+    await verification.save();
 
     account.passwordHash = await hashPassword(newPassword);
     await account.save();
 
-    // Revoke all sessions on password change
     await tokenService.revokeAllForAccount(account._id);
-
     return { ok: true };
   },
 };

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { appointmentService } from '../services/appointmentService.js';
 import { queueService } from '../services/queueService.js';
-import redis from '../config/redis.js';
+import redis, { describeRedisError } from '../config/redis.js';
 
 export const appointmentSchemas = {
   confirmPayment: z.object({
@@ -23,6 +23,10 @@ export const appointmentSchemas = {
 
   cancel: z.object({
     reason: z.string().max(200).optional(),
+  }),
+
+  updateOwnNotes: z.object({
+    notes: z.string().max(500).optional(),
   }),
 };
 
@@ -64,16 +68,16 @@ export const appointmentController = {
 
   async cancel(req, res) {
     // Pass the patient's account ID only if the actor is the patient themselves.
-    // Staff cancellations (receptionist/admin) are penalty-free.
+    // Staff cancellations (receptionist/admin)
     const patientAccountId =
       req.actor?.account?.role === 'patient' ? String(req.actor.account._id) : null;
 
-    const { appointment, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment } = await appointmentService.cancelAppointment({
       appointment:       req.resource,
       reason:            req.body.reason,
       patientAccountId,
     });
-    res.json({ data: appointment, penaltyApplied });
+    res.json({ data: appointment });
   },
 
   async track(req, res) {
@@ -94,12 +98,12 @@ export const appointmentController = {
       ? String(appointment.patientProfile.accountId)
       : null;
 
-    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment: updated } = await appointmentService.cancelAppointment({
       appointment,
       reason:           'Patient self-cancelled',
       patientAccountId,
     });
-    res.json({ data: updated, penaltyApplied });
+    res.json({ data: updated });
   },
 
   async getOwn(req, res) {
@@ -119,17 +123,37 @@ export const appointmentController = {
     const DoctorBranchSchedule = (await import('../models/DoctorBranchSchedule.js')).default;
     const Session              = (await import('../models/QueueSession.js')).default;
 
-    const session = await Session.findById(appointment.session).select('doctorBranchSchedule').lean();
+    const session = await Session.findById(appointment.session).select('doctorBranchSchedule status').lean();
     const scheduleDoc = session
       ? await DoctorBranchSchedule.findById(session.doctorBranchSchedule).select('consultationFee').lean()
       : null;
     const fee = req.body.paidAmount ?? (scheduleDoc?.consultationFee?.amount ?? 0);
+
+    // Pay-at-clinic bookings now join the real queue immediately as 'booked'
+    // (see marketplaceService.bookMarketplace) — this only flips payment
+    // fields below. 'pending_confirmation' is kept here only for any
+    // already-existing legacy records created before that change.
+    if (appointment.status === 'pending_confirmation') {
+      if (!session || !['scheduled', 'active'].includes(session.status)) {
+        return res.status(409).json({ error: 'Session is no longer accepting patients' });
+      }
+      appointment.status = 'booked';
+    }
 
     appointment.paymentStatus = 'success';
     appointment.paidAt        = new Date();
     appointment.receivedBy    = req.actor.activeMembership._id;
     appointment.paidAmount    = fee;
     await appointment.save();
+
+    // Publish unconditionally, not just when joinedQueue — pay-at-clinic
+    // appointments now join the queue immediately as 'booked' (unpaid) and
+    // only flip paymentStatus here, so the "unpaid → paid" badge doctors and
+    // receptionists see live needs this push too, not just a queue-membership
+    // change, or it would sit stale until their next 10s poll.
+    try {
+      await queueService.publishQueueUpdated(appointment.session);
+    } catch { /* non-fatal — clients pick it up on next poll */ }
 
     res.json({ data: appointment });
   },
@@ -149,12 +173,34 @@ export const appointmentController = {
     });
     if (!appointment) throw new AppError('Appointment not found', 404);
 
-    const { appointment: updated, penaltyApplied } = await appointmentService.cancelAppointment({
+    const { appointment: updated } = await appointmentService.cancelAppointment({
       appointment,
       reason:           'Patient self-cancelled',
       patientAccountId: String(req.actor.account._id),
     });
-    res.json({ data: updated, penaltyApplied });
+    res.json({ data: updated });
+  },
+
+  // Patient self-service: edit the note they've attached for the doctor.
+  // Previously this only updated local frontend state (never reached the
+  // backend at all, so the doctor never actually saw it) — this is the real
+  // persistence path.
+  async updateOwnNotes(req, res) {
+    const PatientProfile = (await import('../models/PatientProfile.js')).default;
+    const Appointment    = (await import('../models/Appointment.js')).default;
+    const { AppError }   = await import('../utils/errors.js');
+
+    const profile = await PatientProfile.findOne({ accountId: req.actor.account._id });
+    if (!profile) throw new AppError('Patient profile not found', 404);
+
+    const appointment = await Appointment.findOneAndUpdate(
+      { _id: req.params.appointmentId, patientProfile: profile._id },
+      { $set: { notes: req.body.notes ?? '' } },
+      { new: true },
+    );
+    if (!appointment) throw new AppError('Appointment not found', 404);
+
+    res.json({ data: appointment });
   },
 
   // SSE endpoint: streams queue updates to the patient's live ticket (token-based, no auth)
@@ -176,21 +222,39 @@ export const appointmentController = {
     res.write(': connected\n\n');
 
     const channel = `queue.session.${appointment.session}`;
-    const sub = redis.duplicate();
-    await sub.subscribe(channel);
+    try {
+      const sub = redis.duplicate();
+      // A duplicated client does not inherit the parent's 'error' listener —
+      // an EventEmitter with no 'error' listener throws and crashes the whole
+      // process on connection failure (e.g. Redis down), independent of this
+      // try/catch around the subscribe() promise. Must attach before any
+      // command is issued on `sub`. ioredis retries in the background every
+      // 200ms while Redis is down, re-emitting 'error' each time — log only
+      // the first one per connection instead of flooding the console forever.
+      let loggedError = false;
+      sub.on('error', (err) => {
+        if (loggedError) return;
+        loggedError = true;
+        console.warn('[appointments] SSE subscriber error:', describeRedisError(err));
+      });
+      await sub.subscribe(channel);
 
-    sub.on('message', (_ch, message) => {
-      res.write(`data: ${message}\n\n`);
-    });
+      sub.on('message', (_ch, message) => {
+        res.write(`data: ${message}\n\n`);
+      });
 
-    const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
-    }, 25_000);
+      const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 25_000);
 
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      sub.unsubscribe().catch(() => {});
-      sub.quit().catch(() => {});
-    });
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        sub.unsubscribe().catch(() => {});
+        sub.quit().catch(() => {});
+      });
+    } catch {
+      // Redis unavailable — close stream so the client retries with backoff
+      res.end();
+    }
   },
 };

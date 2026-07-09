@@ -5,14 +5,6 @@ import { mockDoctorSessions } from "../../data/mockDoctorSessions";
 import { useLanguage } from "../../context/LanguageContext";
 import { fmt12 } from "../../utils/time";
 
-const mockTransactions = [
-  { id: "t1", patient: "Ahmed Hassan", amount: 300, date: "2026-06-28", status: "paid" as const },
-  { id: "t2", patient: "Sara Mohamed", amount: 300, date: "2026-06-28", status: "paid" as const },
-  { id: "t3", patient: "Omar Ali", amount: 300, date: "2026-06-27", status: "pending" as const },
-  { id: "t4", patient: "Nadia Karim", amount: 300, date: "2026-06-27", status: "paid" as const },
-  { id: "t5", patient: "Youssef Ibrahim", amount: 300, date: "2026-06-26", status: "paid" as const },
-];
-
 export function DoctorDashboardPage() {
   const todaySession = mockDoctorSessions[0];
   const { locale } = useLanguage();
@@ -77,47 +69,6 @@ export function DoctorDashboardPage() {
             <Link to={`/doctor/sessions/${todaySession.id}/queue`}>
               <Button>Open Queue</Button>
             </Link>
-          </div>
-        </section>
-
-        <section className="mt-8 rounded-lg border border-border bg-white p-6 shadow-sm">
-          <h2 className="font-heading text-2xl font-bold text-navy">Wallet</h2>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-              <p className="text-xs text-navy-mid">Total Balance</p>
-              <p className="mt-1 font-heading text-2xl font-bold text-navy">18,750 EGP</p>
-            </div>
-            <div className="rounded-xl border border-gold/30 bg-gold-tint p-4 text-center">
-              <p className="text-xs text-navy-mid">This Month</p>
-              <p className="mt-1 font-heading text-2xl font-bold text-gold">4,500 EGP</p>
-            </div>
-            <div className="rounded-xl border border-border bg-offwhite p-4 text-center">
-              <p className="text-xs text-navy-mid">Pending</p>
-              <p className="mt-1 font-heading text-2xl font-bold text-navy-mid">600 EGP</p>
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <h3 className="text-sm font-semibold text-navy">Recent Transactions</h3>
-            <div className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border">
-              {mockTransactions.map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-navy">{tx.patient}</p>
-                    <p className="text-xs text-navy-mid">{tx.date}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <p className="font-semibold text-navy">+{tx.amount} EGP</p>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      tx.status === "paid" ? "bg-success/10 text-success" : "bg-gold-tint text-gold"
-                    }`}>
-                      {tx.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         </section>
 
