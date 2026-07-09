@@ -51,12 +51,16 @@ export function LiveTicket() {
 
   useEffect(() => {
     if (!token) return;
+    // Re-bind to a non-optional local: TS can't carry the `!token` guard's
+    // narrowing across the closure boundary into fetchStatus below, even
+    // though token can't change out from under it here.
+    const trackingToken = token;
     let alive = true;
 
     async function fetchStatus() {
       try {
         const res = await api.get<{ data: Record<string, unknown> }>(
-          `/appointments/track/${token}`,
+          `/appointments/track/${trackingToken}`,
         );
         const d = res.data.data;
         if (!alive) return;
@@ -68,7 +72,7 @@ export function LiveTicket() {
           ? Math.max(1, Number(d.position))
           : Math.max(1, queueNumber - currentlyServing);
         setQueueStatus({
-          token: token,
+          token: trackingToken,
           patientName:          String(d.patientName ?? ""),
           queueNumber,
           position,
@@ -102,7 +106,7 @@ export function LiveTicket() {
     // SSE for real-time updates.
     // Retries up to 3 times with 3/6/9 s backoff before falling back to 30 s polling.
     const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
-    const sseUrl = `${apiBase}/appointments/track/${token}/sse`;
+    const sseUrl = `${apiBase}/appointments/track/${trackingToken}/sse`;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let retries = 0;
     let currentSSE: EventSource | null = null;

@@ -144,6 +144,7 @@ export function DoctorProfile() {
   }
 
   function openBookingFlow() {
+    if (!doctor) return;
     if (!selectedSession) return;
     if (selectedSession.status === "closed") return;
 

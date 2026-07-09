@@ -433,12 +433,13 @@ function WalkInTab({ orgId, branchId }: { orgId: string; branchId: string }) {
     if (!selectedSession) { setError(t("Please select an active session.")); return; }
     const nm = validateName(patientName.trim());
     if (!nm.valid) { setError(nm.error); return; }
+    if (!phone.trim()) { setError(t("Phone number is required.")); return; }
 
     setAdding(true);
     setError(null);
     try {
       const appt = await bookWalkIn(orgId, branchId, selectedSession, {
-        patientPhone:    phone.trim() ? toE164(phone.trim()) : undefined,
+        patientPhone:    toE164(phone.trim()),
         patientName:     patientName.trim(),
         appointmentType,
       });

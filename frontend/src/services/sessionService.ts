@@ -22,6 +22,11 @@ export type BackendSession = {
   lastBreakEndedAt: string | null;
   globalDelayMin: number;
   lateStartMin: number;
+  excuse: {
+    submittedAt: string | null;
+    reason: string | null;
+    status: "pending" | "approved" | "denied" | null;
+  } | null;
 };
 
 export type QueueStatus = {
@@ -101,6 +106,15 @@ function adaptSession(s: Record<string, unknown>): BackendSession {
     })(),
     globalDelayMin: Number(s.globalDelayMin ?? 0),
     lateStartMin: Number(s.lateStartMin ?? 0),
+    excuse: (() => {
+      const e = s.excuse as Record<string, unknown> | null | undefined;
+      if (!e?.submittedAt) return null;
+      return {
+        submittedAt: String(e.submittedAt),
+        reason: e.reason ? String(e.reason) : null,
+        status: (e.status as "pending" | "approved" | "denied" | null) ?? null,
+      };
+    })(),
   };
 }
 

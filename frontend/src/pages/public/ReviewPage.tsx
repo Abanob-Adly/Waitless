@@ -29,8 +29,6 @@ async function submitReview(token: string, rating: number, comment: string): Pro
 }
 
 type ReviewContext = {
-  appointmentId: string;
-  doctorId: string;
   doctorName: string;
 };
 
