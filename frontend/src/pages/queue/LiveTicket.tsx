@@ -24,6 +24,7 @@ type QueueStatus = {
   totalInQueue: number;
   estimatedWaitMinutes: number;
   status: AppointmentStatus;
+  reviewToken: string | null;
   sessionDate: string;
   sessionStartTime: string;
   avgConsultationMin: number;
@@ -74,6 +75,7 @@ export function LiveTicket() {
           totalInQueue:         queueNumber,
           estimatedWaitMinutes: Number(d.estimatedWaitMin ?? 0),
           status:               String(d.status ?? "booked") as AppointmentStatus,
+          reviewToken:          d.reviewToken ? String(d.reviewToken) : null,
           sessionDate:          String(d.sessionDate ?? ""),
           sessionStartTime:     String(d.sessionStartTime ?? ""),
           avgConsultationMin:   Number(d.avgConsultationMin ?? 15),
@@ -194,8 +196,17 @@ export function LiveTicket() {
   }
 
   const canCancel = queueStatus.status === "booked" || queueStatus.status === "pending_confirmation";
-  const today = new Date().toISOString().slice(0, 10);
-  const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= today;
+  // Local calendar date, not toISOString().slice(0, 10) — that converts to
+  // UTC first, which reads as "yesterday" for the first few hours after local
+  // midnight in any positive UTC-offset timezone, incorrectly showing a
+  // countdown to an appointment that's actually happening today.
+  const now = new Date();
+  const todayLocal = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+  const isSessionDay = !queueStatus.sessionDate || queueStatus.sessionDate <= todayLocal;
 
   // ── Main render ──
   return (
@@ -264,7 +275,7 @@ export function LiveTicket() {
                 )}
                 {queueStatus.status === "called" && <CalledView />}
                 {queueStatus.status === "in_progress" && <InProgressView />}
-                {queueStatus.status === "completed" && <CompletedView token={queueStatus.token} />}
+                {queueStatus.status === "completed" && <CompletedView reviewToken={queueStatus.reviewToken} />}
                 {queueStatus.status === "cancelled" && <CancelledView />}
               </>
             )}
@@ -315,9 +326,13 @@ function PendingConfirmationView({ fee }: { fee: number }) {
 // ── Countdown view (session is in the future) ────────────────────────────────
 
 function CountdownView({ sessionDate }: { sessionDate: string }) {
+  const { t } = useLanguage();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const session = new Date(sessionDate);
+  // "T00:00:00" (local time), not a bare date string — without it, Date
+  // parses a date-only ISO string as UTC midnight, which drifts into the
+  // wrong local day and throws daysLeft off by one near midnight.
+  const session = new Date(`${sessionDate}T00:00:00`);
   session.setHours(0, 0, 0, 0);
   const daysLeft = Math.round((session.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -329,20 +344,22 @@ function CountdownView({ sessionDate }: { sessionDate: string }) {
   });
 
   return (
-    <div className="py-2 text-center">
-      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gold-tint text-4xl">
         📅
       </div>
       <h2 className="font-heading text-2xl font-bold text-navy">
-        {daysLeft === 1 ? "Tomorrow!" : `${daysLeft} days to go`}
+        {daysLeft <= 0 ? t("Today!") : daysLeft === 1 ? t("Tomorrow!") : `${daysLeft} ${t("days to go")}`}
       </h2>
-      <p className="mt-3 text-sm text-navy-mid">
-        Your appointment is scheduled for{" "}
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Your appointment is scheduled for")}{" "}
         <span className="font-semibold text-navy">{formatted}</span>.
       </p>
-      <p className="mt-2 text-xs text-navy-mid">
-        Come back on the day of your appointment to track your queue position live.
-      </p>
+      <div className="mx-auto mt-5 max-w-xs rounded-xl border border-border bg-offwhite px-4 py-3">
+        <p className="text-xs text-navy-mid">
+          {t("Return on the day of your appointment to track your live queue position.")}
+        </p>
+      </div>
     </div>
   );
 }
@@ -497,7 +514,7 @@ function InProgressView() {
 
 // ── Completed view (status: "completed") ────────────────────────────────────
 
-function CompletedView({ token }: { token: string }) {
+function CompletedView({ reviewToken }: { reviewToken: string | null }) {
   return (
     <div className="py-2 text-center">
       <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 text-4xl">
@@ -509,12 +526,14 @@ function CompletedView({ token }: { token: string }) {
       <p className="mt-3 text-sm text-navy-mid">
         Thank you for visiting. We hope you feel better soon!
       </p>
-      <Link
-        to={`/review?token=${token}`}
-        className="mt-4 inline-flex h-10 items-center justify-center rounded-sm border border-gold px-6 text-sm font-medium text-gold transition hover:bg-gold-tint"
-      >
-        Rate Your Visit ★
-      </Link>
+      {reviewToken && (
+        <Link
+          to={`/review?token=${reviewToken}`}
+          className="mt-4 inline-flex h-10 items-center justify-center rounded-sm border border-gold px-6 text-sm font-medium text-gold transition hover:bg-gold-tint"
+        >
+          Rate Your Visit ★
+        </Link>
+      )}
       <Link
         to="/"
         className="mt-3 inline-flex h-10 items-center justify-center rounded-sm bg-gold px-6 text-sm font-medium text-navy transition hover:bg-gold-light"

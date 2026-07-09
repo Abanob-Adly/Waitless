@@ -12,6 +12,7 @@ import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../ser
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 import { fmt12 } from "../utils/time";
+import { RatingPopup } from "../components/ui/RatingPopup";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ export function PatientDashboard() {
   const { t } = useLanguage();
   const [appointmentHistory, setAppointmentHistory] = useState<OwnAppointmentItem[]>([]);
   const [serverTickets, setServerTickets] = useState<ActiveTicketItem[]>([]);
+  const [reviewPrompt, setReviewPrompt] = useState<OwnAppointmentItem | null>(null);
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -41,7 +43,15 @@ export function PatientDashboard() {
 
   useEffect(() => {
     if (authUser?.role !== "patient") return;
-    getOwnAppointmentHistory().then(setAppointmentHistory).catch(console.error);
+    getOwnAppointmentHistory().then((history) => {
+      setAppointmentHistory(history);
+      // Prompt for the most recent completed-but-unreviewed visit, once per
+      // login — showing up here (not just on the ticket page) means a patient
+      // who closed their ticket without rating still gets asked next time
+      // they sign in, rather than never again.
+      const pending = history.find((a) => a.status === "completed" && a.reviewToken && !a.hasReview);
+      if (pending) setReviewPrompt(pending);
+    }).catch(console.error);
 
     async function fetchAndReconcile() {
       try {
@@ -123,6 +133,14 @@ export function PatientDashboard() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
+      {reviewPrompt?.reviewToken && (
+        <RatingPopup
+          doctorName={reviewPrompt.doctorName}
+          reviewToken={reviewPrompt.reviewToken}
+          onDismiss={() => setReviewPrompt(null)}
+        />
+      )}
+
       <div className="mb-8 animate-fade-up">
         <p className="text-sm font-medium text-gold">{t("Your account")}</p>
         <h1 className="font-heading text-4xl font-bold text-navy">
@@ -966,9 +984,9 @@ function HistoryRow({ record }: { record: OwnAppointmentItem }) {
             {t(record.sessionClosureNote)}
           </p>
         )}
-        {isCompleted && record.accessToken && (
+        {isCompleted && record.reviewToken && !record.hasReview && (
           <a
-            href={`/review?token=${record.accessToken}`}
+            href={`/review?token=${record.reviewToken}`}
             className="mt-1 block text-xs font-medium text-gold hover:text-gold-light"
           >
             {t("Leave a Review →")}

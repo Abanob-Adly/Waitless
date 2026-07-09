@@ -97,6 +97,8 @@ export type OwnAppointmentItem = {
   queueNumber: number;
   status: string;
   accessToken?: string;
+  reviewToken?: string;
+  hasReview?: boolean;
   sessionDate?: string;
   doctorName: string;
   specialty: string;
@@ -193,6 +195,8 @@ export async function getOwnAppointmentHistory(): Promise<OwnAppointmentItem[]> 
         queueNumber: Number(raw.queueNumber ?? 0),
         status: String(raw.status ?? "booked"),
         accessToken: raw.accessToken ? String(raw.accessToken) : undefined,
+        reviewToken: raw.reviewToken ? String(raw.reviewToken) : undefined,
+        hasReview: Boolean(raw.hasReview),
         sessionDate: startTime ? startTime.slice(0, 10) : undefined,
         doctorName: String(account.fullName ?? "Unknown Doctor"),
         specialty: specialties[0] ?? "",

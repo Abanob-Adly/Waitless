@@ -122,7 +122,7 @@ export const appointmentService = {
 
   async listAppointments({ sessionId, filters }) {
     const query = { session: sessionId };
-    if (filters.status) query.status = filters.status;
+    if (filters.status) query.status = String(filters.status);
     return Appointment.find(query)
       .populate('patientProfile', 'fullName phone')
       .sort({ queueNumber: 1 });
@@ -171,10 +171,11 @@ export const appointmentService = {
 
   async getOwnAppointments({ actor }) {
     const PatientProfile = (await import('../models/PatientProfile.js')).default;
+    const Review = (await import('../models/Review.js')).default;
     const profile = await PatientProfile.findOne({ accountId: actor.account._id });
     if (!profile) return [];
 
-    return Appointment.find({ patientProfile: profile._id })
+    const appointments = await Appointment.find({ patientProfile: profile._id })
       .populate({
         path: 'doctorMembership',
         select: 'specialties account',
@@ -186,6 +187,20 @@ export const appointmentService = {
       })
       .populate('branch', 'name')
       .sort({ createdAt: -1 })
-      .limit(50);
+      .limit(50)
+      .lean();
+
+    // Completed appointments keep their reviewToken forever, so the client
+    // needs to know which ones are already reviewed — otherwise a patient
+    // who already left a review keeps getting re-prompted for it.
+    const reviewableIds = appointments
+      .filter((a) => a.status === 'completed' && a.reviewToken)
+      .map((a) => a._id);
+    const reviewedIds = new Set(
+      (await Review.find({ appointment: { $in: reviewableIds } }).select('appointment').lean())
+        .map((r) => String(r.appointment)),
+    );
+
+    return appointments.map((a) => ({ ...a, hasReview: reviewedIds.has(String(a._id)) }));
   },
 };
