@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as walletService from "../../services/walletService";
-import type { WalletInfo, WalletEntry, PayoutRequest } from "../../services/walletService";
+import type { WalletInfo, WalletEntry } from "../../services/walletService";
 import { useLanguage } from "../../context/LanguageContext";
 
 interface Props {

@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { getPaymentResult } from "../services/paymentService";
 import type { PaymentResultData } from "../services/paymentService";
-import { useLanguage } from "../context/LanguageContext";
 import type { Doctor, Session } from "../context/AppContext";
 
 type ClinicResultState = {
@@ -24,7 +23,6 @@ export function PaymentResult() {
   const location = useLocation();
   const clinicState = location.state as ClinicResultState | null;
   const navigate = useNavigate();
-  const { locale } = useLanguage();
 
   // ── Clinic flow (pay at clinic — no Paymob redirect) ──────────────────────
   if (clinicState?.appointmentId && clinicState.method === "clinic") {

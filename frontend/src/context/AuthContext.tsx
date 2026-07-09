@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { authService, readStoredUser, clearTokens } from "../services/authService";
+import { authService, readStoredUser } from "../services/authService";
 import { toE164 } from "../utils/phone";
 import type {
   AuthUser,
