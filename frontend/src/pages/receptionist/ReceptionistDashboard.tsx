@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { useOrg } from "../../context/OrgContext";
 import { useLanguage } from "../../context/LanguageContext";
 import * as sessionService from "../../services/sessionService";
 import { bookWalkIn } from "../../services/appointmentService";
@@ -740,6 +739,15 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
     setActionInProgress(null);
   }
 
+  async function handleSkip(apptId: string) {
+    setActionInProgress(apptId);
+    try {
+      await sessionService.skipToNext(orgId, branchId, sessionId, apptId);
+      await load();
+    } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
+
   async function handleUpdateDelay() {
     setSavingDelay(true);
     try {
@@ -891,6 +899,14 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
                   Force Next
                 </button>
                 <button
+                  onClick={() => handleSkip(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
+                  title="Switch turns with the next patient"
+                >
+                  Skip
+                </button>
+                <button
                   onClick={() => handleAction(p.id, "cancelled")}
                   disabled={actionInProgress === p.id}
                   className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
@@ -898,23 +914,33 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
                   Cancel
                 </button>
                 <button
-                  onClick={() => handleAction(p.id, "no_show")}
+                  onClick={() => handleHold(p.id)}
                   disabled={actionInProgress === p.id}
                   className="rounded border border-danger/30 px-2 py-1 text-xs text-danger transition hover:bg-danger/5"
-                  title="Mark as no-show and remove from queue"
+                  title="Hold their spot — can be re-inserted later"
                 >
                   No-Show
                 </button>
               </>
             )}
             {p.status === "called" && (
-              <button
-                onClick={() => handleHold(p.id)}
-                disabled={actionInProgress === p.id}
-                className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-600 transition hover:bg-orange-50"
-              >
-                Hold
-              </button>
+              <>
+                <button
+                  onClick={() => handleSkip(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-border px-2 py-1 text-xs text-navy-mid transition hover:border-navy"
+                  title="Switch turns with the next patient"
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={() => handleHold(p.id)}
+                  disabled={actionInProgress === p.id}
+                  className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-600 transition hover:bg-orange-50"
+                >
+                  Hold
+                </button>
+              </>
             )}
             {p.status === "held" && (
               <button

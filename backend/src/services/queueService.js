@@ -1,6 +1,7 @@
 import Appointment from '../models/Appointment.js';
 import Session from '../models/QueueSession.js';
 import Transaction from '../models/Transaction.js';
+import Review from '../models/Review.js';
 import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
@@ -163,19 +164,76 @@ export const queueService = {
     return { appointment: next };
   },
 
+  // Also used as the "No-Show" action: a patient who doesn't show up when
+  // called is held aside (recoverable via Re-insert), not permanently
+  // removed from the queue — staff can bring them back if they turn up late.
   async holdPatient({ appointment, session }) {
     if (session.status !== 'active') {
       throw new AppError('Session is not active', 422);
     }
-    if (appointment.status !== 'called') {
-      throw new AppError('Only a called appointment can be held', 422);
+    if (!['booked', 'called'].includes(appointment.status)) {
+      throw new AppError('Only a booked or called appointment can be held', 422);
     }
+    const wasCalled = appointment.status === 'called';
     appointment.status = 'held';
     appointment.heldAt = new Date();
     await appointment.save();
 
+    // Only the currently-called patient's hold needs a replacement — a
+    // still-booked patient wasn't occupying the "being served" slot.
+    if (!wasCalled) return { appointment, next: null };
+
     const nextResult = await queueService.callNext({ session });
     return { appointment, next: nextResult.appointment || null };
+  },
+
+  // "Skip" — swap queue positions with the very next booked patient, so the
+  // skipped patient's turn moves to right after them instead of vanishing
+  // into an unordered "skipped" pool. If the skipped patient was currently
+  // being called, the swap partner is called immediately in their place.
+  async skipToNext({ appointment, session }) {
+    if (session.status !== 'active') {
+      throw new AppError('Session is not active', 422);
+    }
+    if (!['booked', 'called'].includes(appointment.status)) {
+      throw new AppError('Only a booked or called appointment can be skipped', 422);
+    }
+
+    const next = await Appointment.findOne({
+      session:     session._id,
+      status:      'booked',
+      queueNumber: { $gt: appointment.queueNumber },
+    }).sort({ queueNumber: 1 });
+
+    if (!next) {
+      throw new AppError('No patient after this one to switch with', 422);
+    }
+
+    const wasCalled  = appointment.status === 'called';
+    const myNumber   = appointment.queueNumber;
+    const nextNumber = next.queueNumber;
+
+    appointment.queueNumber = nextNumber;
+    next.queueNumber        = myNumber;
+
+    if (wasCalled) {
+      appointment.status = 'booked';
+      next.status         = 'called';
+      next.calledAt        = new Date();
+    }
+
+    await appointment.save();
+    await next.save();
+
+    if (wasCalled) {
+      await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
+      try {
+        await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
+      } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
+    }
+    await publishUpdate(session._id, { type: 'updated' });
+
+    return { appointment, swappedWith: next };
   },
 
   async reinsertPatient({ appointment, session }) {
@@ -545,6 +603,15 @@ export const queueService = {
       globalDelayMin,
     );
 
+    // A completed appointment keeps its reviewToken forever — without checking
+    // whether it's already been used, a patient who already left a review
+    // would keep getting re-prompted on every fresh visit to this ticket.
+    let reviewToken = null;
+    if (appointment.status === 'completed' && appointment.reviewToken) {
+      const alreadyReviewed = await Review.exists({ appointment: appointment._id });
+      reviewToken = alreadyReviewed ? null : appointment.reviewToken;
+    }
+
     return {
       queueNumber:        appointment.queueNumber,
       currentlyServing:   currentServing,
@@ -556,7 +623,7 @@ export const queueService = {
       avgConsultationMin,
       status:             appointment.status,
       sessionClosureNote: appointment.sessionClosureNote ?? null,
-      reviewToken:        appointment.status === 'completed' ? (appointment.reviewToken ?? null) : null,
+      reviewToken,
       patientName:        appointment.patientProfile.fullName,
       sessionDate:        session.startTime.toISOString().slice(0, 10),
       sessionStartTime:   session.startTime.toISOString(),
@@ -572,6 +639,20 @@ export const queueService = {
 
   async publishSessionEnded(sessionId) {
     await publishUpdate(sessionId, { type: 'session_ended' });
+  },
+
+  // Force-closes a session that's still 'active' when a newer session for
+  // the same doctor is starting — a doctor can't run two live queues at
+  // once, so whatever's left over from the old one (stragglers who never
+  // got called) is finalized as no_show rather than left dangling forever.
+  async forceEndSession({ session }) {
+    const openStatuses = ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'];
+    await Appointment.updateMany(
+      { session: session._id, status: { $in: openStatuses } },
+      { $set: { status: 'no_show' } },
+    );
+    await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended', actualEndTime: new Date() } });
+    await queueService.publishSessionEnded(session._id);
   },
 
   async publishQueueUpdated(sessionId) {

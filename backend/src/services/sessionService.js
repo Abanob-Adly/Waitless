@@ -92,7 +92,7 @@ export const sessionService = {
 
   async listSessions({ branchId, orgId, filters }) {
     const query = { branch: branchId };
-    if (filters.status) query.status = filters.status;
+    if (filters.status) query.status = String(filters.status);
     if (filters.date) {
       const d = new Date(filters.date + 'T00:00:00Z');
       query.startTime = { $gte: d, $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) };
@@ -115,6 +115,19 @@ export const sessionService = {
   async startSession({ session }) {
     if (session.status !== 'scheduled') {
       throw new AppError('Session is not in scheduled state', 409);
+    }
+
+    // A doctor can't run two live queues at once — if an earlier session
+    // (e.g. one that stayed active past its endTime because patients were
+    // still waiting) never got closed, force it closed now instead of
+    // letting it run alongside this new one.
+    const staleActive = await Session.find({
+      doctor: session.doctor,
+      _id:    { $ne: session._id },
+      status: 'active',
+    });
+    for (const stale of staleActive) {
+      await queueService.forceEndSession({ session: stale });
     }
 
     const now = new Date();

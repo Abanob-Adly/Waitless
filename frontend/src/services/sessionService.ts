@@ -275,6 +275,17 @@ export async function holdPatient(
   );
 }
 
+export async function skipToNext(
+  orgId: string,
+  branchId: string,
+  sessionId: string,
+  appointmentId: string,
+): Promise<void> {
+  await api.post(
+    `${base(orgId, branchId)}/${sessionId}/queue/appointments/${appointmentId}/skip`,
+  );
+}
+
 export async function reinsertPatient(
   orgId: string,
   branchId: string,

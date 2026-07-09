@@ -9,11 +9,11 @@ import { wallClockNow } from '../utils/wallClockNow.js';
  *
  * Finds sessions whose end window has passed and auto-closes them:
  *  - status 'scheduled' (never started): → 'cancelled'  (doctor no-show)
- *  - status 'active'   (started, not ended): → 'ended'  (shift over)
- *
- * For 'active' sessions: any appointment still in an open state is set to
- * 'no_show'. A Redis pub/sub update is published so live-tracking clients
- * disconnect cleanly.
+ *  - status 'active'   (started, not ended): → 'ended'  (shift over),
+ *    but only once no patients are left waiting in its queue — a doctor
+ *    running behind schedule keeps the session alive until it's cleared
+ *    (or ends it manually). A Redis pub/sub update is published on actual
+ *    closure so live-tracking clients disconnect cleanly.
  *
  * Idempotent: the status filter guarantees each session is processed once.
  */
@@ -66,14 +66,19 @@ export function startSessionAutoCloseCron() {
           continue;
         }
 
-        // status === 'active' — close open appointments first. Includes
-        // 'pending_confirmation': if staff never confirmed the payment before
-        // the session ended, there's no queue left for it to join.
+        // status === 'active' — only auto-close once the queue is actually
+        // empty. A doctor running behind schedule shouldn't have patients who
+        // are still waiting mass-marked no_show just because the clock ran
+        // out; let them keep serving past endTime and re-check next tick.
         const openStatuses = ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'];
-        const result = await Appointment.updateMany(
-          { session: session._id, status: { $in: openStatuses } },
-          { $set: { status: 'no_show' } },
-        );
+        const stillWaiting = await Appointment.exists({
+          session: session._id,
+          status:  { $in: openStatuses },
+        });
+        if (stillWaiting) {
+          console.log(`[sessionAutoClose] Session ${session._id} past endTime but patients still waiting — leaving active`);
+          continue;
+        }
 
         await Session.findByIdAndUpdate(session._id, { $set: { status: 'ended', actualEndTime: new Date() } });
 
@@ -84,10 +89,7 @@ export function startSessionAutoCloseCron() {
           // Redis unavailable — clients will detect via next poll
         }
 
-        console.log(
-          `[sessionAutoClose] Ended session ${session._id}, ` +
-          `marked ${result.modifiedCount} appointments no_show`,
-        );
+        console.log(`[sessionAutoClose] Ended session ${session._id} — queue was empty`);
       } catch (err) {
         console.warn(`[sessionAutoClose] Failed for session ${session._id}:`, err.message);
       }

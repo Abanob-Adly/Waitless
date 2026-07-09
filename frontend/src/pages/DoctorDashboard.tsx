@@ -10,6 +10,7 @@ import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
 import { SPECIALTIES } from "../data/mockData";
 import { fmt12 } from "../utils/time";
+import { toE164 } from "../utils/phone";
 
 type DoctorSection = "workspace" | "calendar" | "profile";
 
@@ -297,16 +298,6 @@ function IconCalendar() {
     </svg>
   );
 }
-function IconWallet() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="2" y="6" width="16" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M2 9h16" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="14" cy="13" r="1.5" fill="currentColor" />
-      <path d="M5 4h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 function IconProfile() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -450,6 +441,12 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
   }
+  async function handleSkip(apptId: string) {
+    if (!activeBranchId || !activeSession) return;
+    setActionInProgress(apptId);
+    try { await sessionService.skipToNext(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
+    setActionInProgress(null);
+  }
   // Urgent case — move a booked patient to the front of the remaining queue.
   async function handleForceInsert(apptId: string) {
     if (!activeBranchId || !activeSession) return;
@@ -464,7 +461,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     setWalkInMsg(null);
     try {
       const result = await appointmentService.bookWalkIn(orgId, activeBranchId, activeSession.id, {
-        patientPhone: walkIn.phone.trim(),
+        patientPhone: toE164(walkIn.phone.trim()),
         patientName: walkIn.name.trim(),
       });
       setWalkInMsg({ ok: true, text: `Walk-in added — Queue #${result.queueNumber}` });
@@ -780,8 +777,12 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                 {queue.map((appt) => {
                   const canHold    = appt.status === "called";
                   const canInsert  = appt.status === "held";
-                  const canSkip    = appt.status === "booked";
-                  const canNoShow  = appt.status === "booked" || appt.status === "held";
+                  const canSkip    = appt.status === "booked" || appt.status === "called";
+                  // No-Show holds the patient's spot (recoverable via Re-insert)
+                  // instead of permanently removing them from the queue. Only
+                  // shown for "booked" — a "called" patient who doesn't show up
+                  // is already covered by Hold, which does the same thing.
+                  const canNoShow  = appt.status === "booked";
                   const canForceInsert = appt.status === "booked";
                   return (
                     <div key={appt.id} className="flex items-center justify-between gap-3 px-5 py-3">
@@ -835,18 +836,20 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                         )}
                         {canSkip && (
                           <button
-                            onClick={() => handleAction(appt.id, "skipped")}
+                            onClick={() => handleSkip(appt.id)}
                             disabled={actionInProgress === appt.id}
                             className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-danger hover:text-danger disabled:opacity-60"
+                            title={t("Switch turns with the next patient")}
                           >
                             {t("Skip")}
                           </button>
                         )}
                         {canNoShow && (
                           <button
-                            onClick={() => handleAction(appt.id, "no_show")}
+                            onClick={() => handleHold(appt.id)}
                             disabled={actionInProgress === appt.id}
                             className="rounded-md border border-danger/30 px-2.5 py-1 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
+                            title={t("Hold their spot — can be re-inserted later")}
                           >
                             {t("No-show")}
                           </button>

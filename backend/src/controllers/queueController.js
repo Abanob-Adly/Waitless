@@ -70,6 +70,18 @@ export const queueController = {
     res.json({ data: result });
   },
 
+  async skip(req, res) {
+    const appointment = await Appointment.findOne({
+      _id:     req.params.appointmentId,
+      session: req.params.sessionId,
+    });
+    if (!appointment) throw NotFound('Appointment not found');
+
+    const session = await Session.findById(req.params.sessionId);
+    const result = await queueService.skipToNext({ appointment, session });
+    res.json({ data: result });
+  },
+
   async reinsert(req, res) {
     const appointment = await Appointment.findOne({
       _id:     req.params.appointmentId,
