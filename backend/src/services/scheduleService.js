@@ -43,9 +43,9 @@ export const scheduleService = {
 
   async listSchedules({ orgId, filters }) {
     const query = { organization: orgId };
-    if (filters.branchId)          query.branch           = filters.branchId;
-    if (filters.doctorMembershipId) query.doctorMembership = filters.doctorMembershipId;
-    if (filters.status)            query.status           = filters.status;
+    if (filters.branchId)          query.branch           = String(filters.branchId);
+    if (filters.doctorMembershipId) query.doctorMembership = String(filters.doctorMembershipId);
+    if (filters.status)            query.status           = String(filters.status);
     else                           query.status           = 'active';
 
     return DoctorBranchSchedule.find(query)

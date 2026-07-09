@@ -123,8 +123,11 @@ export const paymentController = {
       res.sendStatus(200);
     } catch (err) {
       console.error('[Paymob webhook] Error:', err);
-      // Still 200 to prevent Paymob retry storms during dev.
-      res.sendStatus(200);
+      // 500, not 200 — a 200 here told Paymob the webhook was fully processed
+      // even when it wasn't (e.g. a transient DB error), so it would never
+      // retry and a real payment could silently fail to activate anything.
+      // Returning 500 lets Paymob's own retry mechanism recover it.
+      res.sendStatus(500);
     }
   },
 };

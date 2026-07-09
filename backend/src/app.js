@@ -19,15 +19,32 @@ import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
 import { startSessionAutoStartCron } from "./jobs/sessionAutoStart.js";
 import cors from "cors";
+import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
 connectDB();
 
 const app = express();
+// Behind ngrok/a reverse proxy, req.ip is the proxy's own address unless we
+// trust its X-Forwarded-For — without this every tunneled client collapses
+// onto one IP and shares a single rate-limit bucket.
+app.set('trust proxy', 1);
+app.use(helmet());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+  : null;
+
+// Failing open to "allow any origin" (the old behavior) is fine for local
+// dev, but silently doing that in production if the env var is ever missing
+// would combine with credentials:true into a real CORS hole. Fail loudly
+// instead so a misconfigured deploy can't ship silently.
+if (!allowedOrigins && env.nodeEnv === 'production') {
+  throw new Error('ALLOWED_ORIGINS must be set in production');
+}
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-    : true,
+  origin: allowedOrigins ?? true,
   credentials: true,
 }));
 app.use(express.json());
