@@ -167,8 +167,8 @@ export const memberService = {
 
   async listMembers({ orgId, filters }) {
     const query = { organization: orgId, status: { $ne: "revoked" } };
-    if (filters.kind) query.kind = filters.kind;
-    if (filters.status) query.status = filters.status;
+    if (filters.kind) query.kind = String(filters.kind);
+    if (filters.status) query.status = String(filters.status);
 
     const page = Math.max(1, parseInt(filters.page || 1));
     const limit = Math.min(100, parseInt(filters.limit || 20));
@@ -288,6 +288,16 @@ export const memberService = {
   },
 
   async revokeMember({ membership }) {
+    // A still-pending invite has no account yet (that's what "pending" means),
+    // but `account` becomes schema-required the moment status flips to
+    // "revoked" — saving that transition always fails validation. There's no
+    // real member to revoke here anyway, just an unaccepted invite token, so
+    // delete it outright instead of trying to "revoke" it.
+    if (membership.status === "pending") {
+      await membership.deleteOne();
+      return { ok: true };
+    }
+
     membership.status = "revoked";
     await membership.save();
     if (membership.account) {
