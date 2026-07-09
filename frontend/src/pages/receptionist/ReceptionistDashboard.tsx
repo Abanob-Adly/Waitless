@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
@@ -47,9 +47,9 @@ export function ReceptionistDashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       {/* Header */}
-      <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
+      <div className="mb-8 flex flex-wrap animate-fade-up items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-lg font-bold text-white">
             {initials}
@@ -691,8 +691,15 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [delayMin, setDelayMin] = useState("0");
   const [savingDelay, setSavingDelay] = useState(false);
+  const [delayError, setDelayError] = useState<string | null>(null);
+  const [delaySaved, setDelaySaved] = useState(false);
   const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
   const [loadingCash, setLoadingCash] = useState(false);
+  // getQueue was previously not returning globalDelayMin at all, so this
+  // input always displayed "0" regardless of the session's real delay —
+  // sync it from the server once per session, then leave it alone so typing
+  // isn't clobbered by the next 5s poll tick.
+  const delayInitializedRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -700,6 +707,10 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
       setQueue(q.appointments);
       setPendingConfirmation(q.pendingConfirmation);
       setCurrentlyServing(q.currentlyServing);
+      if (!delayInitializedRef.current) {
+        setDelayMin(String(q.globalDelayMin));
+        delayInitializedRef.current = true;
+      }
     } catch {
       // Leave stale queue on transient errors to avoid flicker
     }
@@ -751,9 +762,16 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
 
   async function handleUpdateDelay() {
     setSavingDelay(true);
+    setDelayError(null);
+    setDelaySaved(false);
     try {
       await sessionService.updateSessionDelay(orgId, branchId, sessionId, Number(delayMin));
-    } catch { /* ignore */ }
+      await load();
+      setDelaySaved(true);
+      setTimeout(() => setDelaySaved(false), 3000);
+    } catch {
+      setDelayError("Failed to update delay. Please try again.");
+    }
     setSavingDelay(false);
   }
 
@@ -829,11 +847,13 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
         </div>
       )}
 
-      {queue.length === 0 ? (
-        <p className="text-sm text-navy-mid">Queue is empty.</p>
-      ) : (
+      {/* Global Delay + Cash Drawer must stay visible even when the live
+          queue is momentarily empty — that's exactly when a receptionist
+          checks the end-of-day cash total, and delay can be set ahead of the
+          first booking. Previously both sat inside the queue.length===0
+          branch and disappeared entirely whenever the queue was empty. */}
       <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-navy-mid">
           Live Queue · {queue.length} entries
         </p>
@@ -846,19 +866,24 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
           className="h-7 w-16 rounded border border-border px-2 text-xs text-navy outline-none focus:border-gold"
         />
         <button
-          onClick={handleUpdateDelay}
+          onClick={() => void handleUpdateDelay()}
           disabled={savingDelay}
           className="rounded border border-gold px-2 py-1 text-xs text-gold transition hover:bg-gold-tint"
         >
           {savingDelay ? "…" : "Update"}
         </button>
       </div>
-      {queue.map((p) => {
+      {delayError && <p className="text-xs text-danger">{delayError}</p>}
+      {delaySaved && <p className="text-xs text-success">Delay updated ✓</p>}
+
+      {queue.length === 0 ? (
+        <p className="text-sm text-navy-mid">Queue is empty.</p>
+      ) : queue.map((p) => {
         const isOverdue = p.status === "booked" && currentlyServing > 0 && p.queueNumber < currentlyServing;
         return (
-        <div key={p.id} className={`flex items-center justify-between rounded-lg px-4 py-2.5 shadow-sm ${isOverdue ? "border border-danger/20 bg-danger/5" : "bg-white"}`}>
+        <div key={p.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5 shadow-sm ${isOverdue ? "border border-danger/20 bg-danger/5" : "bg-white"}`}>
           <div className="flex items-center gap-3">
-            <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-navy ${isOverdue ? "bg-danger/15" : "bg-gold-tint"}`}>
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-navy ${isOverdue ? "bg-danger/15" : "bg-gold-tint"}`}>
               {p.queueNumber}
             </span>
             <div>
@@ -870,7 +895,7 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isOverdue && (
               <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">
                 ⚠ Overdue
@@ -997,7 +1022,6 @@ function SessionQueuePanel({ orgId, branchId, sessionId }: { orgId: string; bran
         )}
       </div>
       </div>
-      )}
     </div>
   );
 }

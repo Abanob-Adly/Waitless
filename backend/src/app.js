@@ -14,7 +14,8 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { authenticate } from "./middleware/authenticate.js";
 import { validate } from "./middleware/validate.js";
 import { patientController, patientSchemas } from "./controllers/patientController.js";
-import { appointmentController } from "./controllers/appointmentController.js";
+import { appointmentController, appointmentSchemas } from "./controllers/appointmentController.js";
+import { sessionNoteController } from "./controllers/sessionNoteController.js";
 import { startSessionGeneratorCron } from "./jobs/sessionGenerator.js";
 import { startSessionAutoCloseCron } from "./jobs/sessionAutoClose.js";
 import { startSessionAutoStartCron } from "./jobs/sessionAutoStart.js";
@@ -90,12 +91,21 @@ app.use('/admin', adminPayoutRoutes);
 // Patient self-service endpoints
 app.get("/patients/me", authenticate, patientController.getOwn);
 app.patch("/patients/me", authenticate, validate(patientSchemas.updateOwn), patientController.updateOwn);
+app.get("/patients/me/notes", authenticate, sessionNoteController.getMySharedNotes);
 
 // Patient: own appointment history
 app.get("/appointments/mine", authenticate, appointmentController.getOwn);
 
 // Patient: self-cancel
 app.delete("/appointments/:appointmentId/cancel", authenticate, appointmentController.selfCancel);
+
+// Patient: edit their own note to the doctor
+app.patch(
+  "/appointments/:appointmentId/notes",
+  authenticate,
+  validate(appointmentSchemas.updateOwnNotes),
+  appointmentController.updateOwnNotes,
+);
 
 // Public appointment tracking & self-cancel (no auth — token-based)
 app.get("/appointments/track/:token", appointmentController.track);

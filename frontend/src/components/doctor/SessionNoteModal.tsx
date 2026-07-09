@@ -104,6 +104,7 @@ export function SessionNoteModal({
                     value={form[key]}
                     onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                     rows={rows}
+                    dir="auto"
                     className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
                   />
                 </div>

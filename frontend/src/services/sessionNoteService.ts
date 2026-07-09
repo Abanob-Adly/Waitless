@@ -89,3 +89,40 @@ export async function getPatientNotes(orgId: string, profileId: string): Promise
   );
   return (Array.isArray(res.data.data) ? res.data.data : []).map(adaptNote);
 }
+
+// ── Patient-facing: notes a doctor has explicitly shared ─────────────────────
+
+export type SharedPatientNote = {
+  id: string;
+  chiefComplaint: string;
+  diagnosis: string;
+  prescription: string;
+  followUp: string;
+  generalNotes: string;
+  doctorName: string;
+  visitDate: string;
+  createdAt: string;
+};
+
+function adaptSharedNote(n: Record<string, unknown>): SharedPatientNote {
+  const appt = (n.appointment as Record<string, unknown>) ?? {};
+  const session = (appt.session as Record<string, unknown>) ?? {};
+  const doctor = (session.doctor as Record<string, unknown>) ?? {};
+  const account = (doctor.account as Record<string, unknown>) ?? {};
+  return {
+    id: String(n._id ?? n.id ?? ""),
+    chiefComplaint: String(n.chiefComplaint ?? ""),
+    diagnosis: String(n.diagnosis ?? ""),
+    prescription: String(n.prescription ?? ""),
+    followUp: String(n.followUp ?? ""),
+    generalNotes: String(n.generalNotes ?? ""),
+    doctorName: String(account.fullName ?? ""),
+    visitDate: String(session.startTime ?? n.createdAt ?? ""),
+    createdAt: String(n.createdAt ?? ""),
+  };
+}
+
+export async function getMySharedNotes(): Promise<SharedPatientNote[]> {
+  const res = await api.get<{ data: Record<string, unknown>[] }>("/patients/me/notes");
+  return (Array.isArray(res.data.data) ? res.data.data : []).map(adaptSharedNote);
+}

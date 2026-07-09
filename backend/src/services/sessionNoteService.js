@@ -1,4 +1,11 @@
 import SessionNote from '../models/SessionNote.js';
+import PatientProfile from '../models/PatientProfile.js';
+// Registers the 'Session' model — required even though it's never referenced
+// by name below, because getSharedForPatientAccount populates through
+// Appointment.session, and Mongoose only resolves a ref by string name at
+// populate time (it throws MissingSchemaError if nothing has imported the
+// model yet, regardless of which file actually issues the query).
+import '../models/QueueSession.js';
 
 const CONTENT_FIELDS = ['chiefComplaint', 'diagnosis', 'prescription', 'followUp', 'generalNotes'];
 
@@ -48,6 +55,28 @@ export const sessionNoteService = {
     }
     return SessionNote.find(filter)
       .populate({ path: 'appointment', select: 'session queueNumber status createdAt' })
+      .sort({ createdAt: -1 })
+      .lean();
+  },
+
+  // A patient's own view of notes explicitly shared with them — internal
+  // (non-shared) notes and every other patient's notes stay invisible; there
+  // is no "share with colleague" path here, only "share with the patient".
+  async getSharedForPatientAccount({ accountId }) {
+    const profile = await PatientProfile.findOne({ accountId }).lean();
+    if (!profile) return [];
+
+    return SessionNote.find({ patientProfile: profile._id, isSharedWithPatient: true })
+      .select('-editHistory')
+      .populate({
+        path: 'appointment',
+        select: 'queueNumber status createdAt session',
+        populate: {
+          path: 'session',
+          select: 'startTime doctor',
+          populate: { path: 'doctor', select: 'account', populate: { path: 'account', select: 'fullName' } },
+        },
+      })
       .sort({ createdAt: -1 })
       .lean();
   },

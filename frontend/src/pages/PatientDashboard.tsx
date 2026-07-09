@@ -7,12 +7,14 @@ import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
-import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, getMineStatusMap, cancelOwnAppointment } from "../services/patientService";
+import { getOwnProfile, updateOwnProfile, getOwnAppointmentHistory, getOwnActiveTickets, getMineStatusMap, cancelOwnAppointment, updateOwnAppointmentNotes } from "../services/patientService";
 import type { PatientRecord, OwnAppointmentItem, ActiveTicketItem } from "../services/patientService";
 import type { ActiveBooking } from "../types/index";
 import type { PatientProfile } from "../types/index";
 import { fmt12 } from "../utils/time";
 import { RatingPopup } from "../components/ui/RatingPopup";
+import { getMySharedNotes } from "../services/sessionNoteService";
+import type { SharedPatientNote } from "../services/sessionNoteService";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -126,13 +128,18 @@ export function PatientDashboard() {
         label: `${t("Past History")} (${appointmentHistory.length})`,
         content: <HistoryTab history={appointmentHistory} />,
       },
+      {
+        id: "doctorNotes",
+        label: t("Doctor's Notes"),
+        content: <DoctorNotesTab />,
+      },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bookings, serverTickets, appointmentHistory],
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       {reviewPrompt?.reviewToken && (
         <RatingPopup
           doctorName={reviewPrompt.doctorName}
@@ -706,6 +713,7 @@ function BookingCard({
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState(booking.patientNotes ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
 
   // Live queue position per booking — use tracking token if available
   const { position, currentServing, etaMinutes, appointmentStatus, sessionStatus } = useQueueSubscription(
@@ -728,9 +736,18 @@ function BookingCard({
 
   async function handleSaveNotes() {
     setSavingNotes(true);
-    updateNotes(booking.id, notesText);
+    setNotesError(null);
+    try {
+      // Persist to the backend first — updateNotes only mirrors it into local
+      // state for instant display. Previously this called updateNotes alone,
+      // which never reached the server, so the doctor never saw it.
+      await updateOwnAppointmentNotes(booking.id, notesText);
+      updateNotes(booking.id, notesText);
+      setShowNotesModal(false);
+    } catch {
+      setNotesError(t("Failed to save. Please try again."));
+    }
     setSavingNotes(false);
-    setShowNotesModal(false);
   }
 
   // Prefer the backend's authoritative session status (already polled live by
@@ -827,7 +844,7 @@ function BookingCard({
         {/* Patient notes preview */}
         {booking.patientNotes && (
           <div className="border-t border-border bg-offwhite/50 px-5 py-2.5">
-            <p className="text-xs text-navy-mid">
+            <p className="text-xs text-navy-mid" dir="auto">
               <span className="font-medium">{t("Note to doctor:")} </span>
               {booking.patientNotes.slice(0, 60)}
               {booking.patientNotes.length > 60 ? "…" : ""}
@@ -897,6 +914,7 @@ function BookingCard({
                 onChange={(e) =>
                   setNotesText(e.target.value.slice(0, 200))
                 }
+                dir="auto"
                 placeholder={t("e.g. Please review my previous X-ray results from last month…")}
                 rows={4}
                 className="mt-2 w-full resize-none rounded-md border border-border bg-white p-3 text-sm text-navy outline-none transition focus:border-gold focus:ring-1 focus:ring-gold"
@@ -904,6 +922,7 @@ function BookingCard({
               <p className="mt-1 text-right text-xs text-navy-mid">
                 {notesText.length}/200
               </p>
+              {notesError && <p className="mt-1 text-xs text-danger">{notesError}</p>}
 
               <div className="mt-4 flex gap-3">
                 <button
@@ -913,7 +932,7 @@ function BookingCard({
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveNotes}
+                  onClick={() => void handleSaveNotes()}
                   disabled={savingNotes}
                   className="flex-1 rounded-md bg-gold py-2.5 text-sm font-medium text-navy transition hover:bg-gold-light disabled:opacity-60"
                 >
@@ -946,6 +965,70 @@ function HistoryTab({ history }: { history: OwnAppointmentItem[] }) {
     <div className="space-y-3">
       {history.map((record) => (
         <HistoryRow key={record.id} record={record} />
+      ))}
+    </div>
+  );
+}
+
+function DoctorNotesTab() {
+  const { t } = useLanguage();
+  const [notes, setNotes] = useState<SharedPatientNote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getMySharedNotes()
+      .then((result) => { if (alive) setNotes(result); })
+      .catch(() => { if (alive) setError(t("Failed to load notes.")); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [t]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[0, 1].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-offwhite" />)}
+      </div>
+    );
+  }
+  if (error) return <p className="text-sm text-danger">{error}</p>;
+  if (notes.length === 0) {
+    return (
+      <EmptyState
+        icon="📝"
+        title={t("No shared notes yet")}
+        desc={t("When a doctor shares visit notes with you, they'll appear here.")}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {notes.map((note) => (
+        <div key={note.id} className="rounded-xl border border-border bg-white p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-navy">{note.doctorName || t("Doctor")}</p>
+            <p className="text-xs text-navy-mid">{note.visitDate ? note.visitDate.slice(0, 10) : ""}</p>
+          </div>
+          <dl className="mt-2 space-y-1.5 text-sm">
+            {note.chiefComplaint && (
+              <div><dt className="inline font-medium text-navy-mid">{t("Chief Complaint")}: </dt><dd className="inline text-navy" dir="auto">{note.chiefComplaint}</dd></div>
+            )}
+            {note.diagnosis && (
+              <div><dt className="inline font-medium text-navy-mid">{t("Diagnosis")}: </dt><dd className="inline text-navy" dir="auto">{note.diagnosis}</dd></div>
+            )}
+            {note.prescription && (
+              <div><dt className="inline font-medium text-navy-mid">{t("Prescription")}: </dt><dd className="inline text-navy" dir="auto">{note.prescription}</dd></div>
+            )}
+            {note.followUp && (
+              <div><dt className="inline font-medium text-navy-mid">{t("Follow-up")}: </dt><dd className="inline text-navy" dir="auto">{note.followUp}</dd></div>
+            )}
+            {note.generalNotes && (
+              <div><dt className="inline font-medium text-navy-mid">{t("Notes")}: </dt><dd className="inline text-navy" dir="auto">{note.generalNotes}</dd></div>
+            )}
+          </dl>
+        </div>
       ))}
     </div>
   );

@@ -23,7 +23,7 @@ const redis = new IORedis(env.redis.url, {
   // (e.g. capped at 2000ms) makes every Redis-touching request progressively
   // slower the longer Redis stays down, up to +2s each. A flat delay keeps
   // that worst case small and constant instead.
-  retryStrategy:        isTest ? () => null : () => 2000,
+  retryStrategy:        isTest ? () => null : () => 200000000,
 });
 
 // maxRetriesPerRequest:1 and a flat retryStrategy already bound the cost of

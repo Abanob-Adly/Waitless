@@ -33,10 +33,10 @@ export function PaymentResult() {
         </div>
 
         <h1 className="mt-6 font-heading text-3xl font-bold text-navy">
-          Spot Reserved!
+          You're in the Queue!
         </h1>
         <p className="mt-2 text-sm text-navy-mid">
-          Arrive at the clinic and pay at reception — you'll join the live queue once staff confirms your payment.
+          Pay the consultation fee at the clinic reception when you arrive — your ticket shows as unpaid until staff confirms it.
         </p>
 
         <div className="mt-8 overflow-hidden rounded-xl border border-border bg-white text-left shadow-sm">

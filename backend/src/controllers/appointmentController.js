@@ -24,6 +24,10 @@ export const appointmentSchemas = {
   cancel: z.object({
     reason: z.string().max(200).optional(),
   }),
+
+  updateOwnNotes: z.object({
+    notes: z.string().max(500).optional(),
+  }),
 };
 
 export const appointmentController = {
@@ -125,18 +129,15 @@ export const appointmentController = {
       : null;
     const fee = req.body.paidAmount ?? (scheduleDoc?.consultationFee?.amount ?? 0);
 
-    // "Pay at clinic" bookings are held out of the active queue as
-    // 'pending_confirmation' until a receptionist/doctor confirms the
-    // payment here — at which point it joins the real queue as 'booked'.
-    // Confirming payment on an already-booked/completed appointment (e.g.
-    // the existing cash-at-checkout flow) only updates payment fields.
-    let joinedQueue = false;
+    // Pay-at-clinic bookings now join the real queue immediately as 'booked'
+    // (see marketplaceService.bookMarketplace) — this only flips payment
+    // fields below. 'pending_confirmation' is kept here only for any
+    // already-existing legacy records created before that change.
     if (appointment.status === 'pending_confirmation') {
       if (!session || !['scheduled', 'active'].includes(session.status)) {
         return res.status(409).json({ error: 'Session is no longer accepting patients' });
       }
       appointment.status = 'booked';
-      joinedQueue = true;
     }
 
     appointment.paymentStatus = 'success';
@@ -145,11 +146,14 @@ export const appointmentController = {
     appointment.paidAmount    = fee;
     await appointment.save();
 
-    if (joinedQueue) {
-      try {
-        await queueService.publishQueueUpdated(appointment.session);
-      } catch { /* non-fatal — clients pick it up on next poll */ }
-    }
+    // Publish unconditionally, not just when joinedQueue — pay-at-clinic
+    // appointments now join the queue immediately as 'booked' (unpaid) and
+    // only flip paymentStatus here, so the "unpaid → paid" badge doctors and
+    // receptionists see live needs this push too, not just a queue-membership
+    // change, or it would sit stale until their next 10s poll.
+    try {
+      await queueService.publishQueueUpdated(appointment.session);
+    } catch { /* non-fatal — clients pick it up on next poll */ }
 
     res.json({ data: appointment });
   },
@@ -175,6 +179,28 @@ export const appointmentController = {
       patientAccountId: String(req.actor.account._id),
     });
     res.json({ data: updated });
+  },
+
+  // Patient self-service: edit the note they've attached for the doctor.
+  // Previously this only updated local frontend state (never reached the
+  // backend at all, so the doctor never actually saw it) — this is the real
+  // persistence path.
+  async updateOwnNotes(req, res) {
+    const PatientProfile = (await import('../models/PatientProfile.js')).default;
+    const Appointment    = (await import('../models/Appointment.js')).default;
+    const { AppError }   = await import('../utils/errors.js');
+
+    const profile = await PatientProfile.findOne({ accountId: req.actor.account._id });
+    if (!profile) throw new AppError('Patient profile not found', 404);
+
+    const appointment = await Appointment.findOneAndUpdate(
+      { _id: req.params.appointmentId, patientProfile: profile._id },
+      { $set: { notes: req.body.notes ?? '' } },
+      { new: true },
+    );
+    if (!appointment) throw new AppError('Appointment not found', 404);
+
+    res.json({ data: appointment });
   },
 
   // SSE endpoint: streams queue updates to the patient's live ticket (token-based, no auth)

@@ -206,7 +206,16 @@ function DashboardHome({
   };
 
   return (
-    <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="space-y-6">
+      {(branchCount === 0 || scheduleCount === 0) && (
+        <GettingStartedChecklist
+          branchDone={branchCount > 0}
+          scheduleDone={scheduleCount > 0}
+          onGoToBranches={() => onSelect("branches")}
+          onGoToSchedules={() => onSelect("schedules")}
+        />
+      )}
+      <div className="grid animate-fade-up grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card, i) => {
         const cls = themeMap[card.theme];
         return (
@@ -260,6 +269,81 @@ function DashboardHome({
           </span>
         </button>
       )}
+      </div>
+    </div>
+  );
+}
+
+// ── Getting-started checklist ─────────────────────────────────────────────────
+// Shown on first login (and until both steps are done) to walk a new org
+// through the two things it actually needs before it can run a queue: at
+// least one branch, and at least one doctor schedule. Disappears on its own
+// once both exist — no dismiss button or localStorage tracking needed.
+
+function GettingStartedChecklist({
+  branchDone, scheduleDone, onGoToBranches, onGoToSchedules,
+}: {
+  branchDone: boolean;
+  scheduleDone: boolean;
+  onGoToBranches: () => void;
+  onGoToSchedules: () => void;
+}) {
+  const { t } = useLanguage();
+  const steps = [
+    {
+      done: branchDone,
+      title: t("Add your first branch"),
+      desc: t("A branch is a physical clinic location — you need at least one before doctors can be scheduled."),
+      cta: t("Add Branch →"),
+      onClick: onGoToBranches,
+    },
+    {
+      done: scheduleDone,
+      title: t("Set up a doctor's schedule"),
+      desc: t("Define weekly hours for a doctor so sessions (and the live queue) can be generated automatically."),
+      cta: t("Set Schedule →"),
+      onClick: onGoToSchedules,
+      disabled: !branchDone,
+    },
+  ];
+
+  return (
+    <div className="animate-fade-up rounded-xl border border-gold/30 bg-gold-tint/40 p-5">
+      <p className="font-heading text-base font-bold text-navy">{t("Get your clinic ready")}</p>
+      <p className="mt-0.5 text-xs text-navy-mid">{t("Two quick steps before patients can book with you.")}</p>
+      <div className="mt-4 space-y-2.5">
+        {steps.map((step, i) => (
+          <div
+            key={i}
+            className={`flex items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 transition ${
+              step.done ? "border-success/30" : "border-border"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                step.done ? "bg-success text-white" : "bg-offwhite text-navy-mid"
+              }`}>
+                {step.done ? "✓" : i + 1}
+              </span>
+              <div>
+                <p className={`text-sm font-medium ${step.done ? "text-navy-mid line-through" : "text-navy"}`}>
+                  {step.title}
+                </p>
+                {!step.done && <p className="mt-0.5 text-xs text-navy-mid">{step.desc}</p>}
+              </div>
+            </div>
+            {!step.done && (
+              <button
+                onClick={step.onClick}
+                disabled={step.disabled}
+                className="shrink-0 rounded-md bg-gold px-3 py-1.5 text-xs font-semibold text-navy transition hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {step.cta}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -614,13 +698,13 @@ function BranchesTab() {
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
           {branches.map((b) => (
-            <div key={b.id} className="flex items-center justify-between px-5 py-4">
-              <div>
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+              <div className="min-w-0">
                 <p className="font-medium text-navy">{b.name}</p>
                 <p className="text-sm text-navy-mid">{b.address}{b.city ? `, ${b.city}` : ""}</p>
                 {b.phone && <p className="text-xs text-navy-mid">{b.phone}</p>}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 <button
                   onClick={() => setEditingBranch(b)}
                   className="text-xs font-medium text-gold hover:text-gold-light transition"
@@ -1154,7 +1238,11 @@ function SchedulesTab() {
       {schedules.length === 0 ? (
         <EmptyState icon="📅" title={t("No schedules yet")} body={t("Add a doctor's weekly schedule to auto-generate sessions.")} />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-white">
+        <div className="overflow-x-auto rounded-xl border border-border bg-white">
+          {/* min-w keeps all 7 day-columns at a legible width — this scrolls
+              horizontally on mobile instead of squeezing each day into ~50px,
+              which made the slot chips inside unreadable. */}
+          <div className="min-w-[560px]">
           <div className="grid grid-cols-7 border-b border-border">
             {DAYS.map((day, d) => {
               const count = slotsByDay[d].length;
@@ -1212,6 +1300,7 @@ function SchedulesTab() {
                 })}
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}
@@ -2049,7 +2138,8 @@ function WalletTab() {
         <EmptyState icon="💳" title={t("No transactions yet")} body={t("Completed appointments will appear here as settled transactions.")} />
       ) : (
         <>
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="min-w-[560px] divide-y divide-border overflow-hidden">
             <div className="grid grid-cols-5 bg-offwhite px-4 py-2 text-xs font-semibold uppercase tracking-wide text-navy-mid">
               <span className="col-span-2">{t("Patient / Branch")}</span>
               <span className="text-right">{t("Gross")}</span>
@@ -2071,6 +2161,7 @@ function WalletTab() {
                 </div>
               </div>
             ))}
+          </div>
           </div>
 
           {/* Pagination */}

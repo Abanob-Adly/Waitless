@@ -101,7 +101,7 @@ export const marketplaceService = {
     return reviews;
   },
 
-  async bookMarketplace({ actor, sessionId, paymentMethod }) {
+  async bookMarketplace({ actor, sessionId, paymentMethod, notes }) {
     const session = await Session.findOne({
       _id:    sessionId,
       status: { $in: ['scheduled', 'active'] },
@@ -136,10 +136,10 @@ export const marketplaceService = {
       return { appointment: existing, accessToken: existing.accessToken };
     }
 
-    // "Pay at clinic" bookings don't join the active queue immediately —
-    // a receptionist or doctor must confirm the payment first (see
-    // appointmentController.confirmPayment), which flips this to 'booked'.
-    // Every other method keeps the existing immediate-booking behavior.
+    // "Pay at clinic" bookings join the real queue immediately as 'booked' —
+    // paymentStatus stays 'pending' (the model default) until a receptionist
+    // or doctor confirms the cash payment (appointmentController.confirmPayment),
+    // which only flips payment fields, not queue membership.
     const isPayAtClinic = paymentMethod === 'clinic';
 
     // Cap concurrent unpaid pay-at-clinic bookings per patient — without this,
@@ -178,9 +178,10 @@ export const marketplaceService = {
         branch:           session.branch,
         doctorMembership: session.doctor,
         queueNumber,
-        status:           isPayAtClinic ? 'pending_confirmation' : 'booked',
+        status:           'booked',
         source:           'marketplace',
         paymentMethod:    paymentMethod ?? null,
+        notes:            notes || undefined,
         accessToken,
       });
     } catch (err) {

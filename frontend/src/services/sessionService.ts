@@ -38,6 +38,8 @@ export type QueueStatus = {
   // "Pay at clinic" bookings awaiting staff confirmation — not in the active
   // queue yet (see appointmentController.confirmPayment).
   pendingConfirmation: BackendAppointment[];
+  globalDelayMin: number;
+  avgConsultationMin: number;
 };
 
 export type BackendAppointment = {
@@ -251,6 +253,8 @@ export async function getQueue(
     pendingConfirmation: (Array.isArray(d.pendingConfirmation) ? (d.pendingConfirmation as Record<string, unknown>[]) : []).map(
       (a) => adaptAppointment(a),
     ),
+    globalDelayMin: Number(d.globalDelayMin ?? 0),
+    avgConsultationMin: Number(d.avgConsultationMin ?? 0),
   };
 }
 

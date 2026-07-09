@@ -147,11 +147,14 @@ export function useQueueSubscription(
 
   const position = positionFromServer ?? Math.max(1, queueNumber - currentServing);
 
-  // Guard against false positive: 0 >= 0 is true but means "not yet loaded"
-  const isCalled =
-    (currentServing > 0 && currentServing >= queueNumber) ||
-    appointmentStatus === "called" ||
-    appointmentStatus === "in_progress";
+  // Bug: this used to be `currentServing >= queueNumber`, which stays true
+  // forever once the queue passes this patient's number — so after being
+  // called and then served (or skipped, held, no-show'd — anything that
+  // moves currentServing on without this patient's own status changing back),
+  // the ticket kept showing "It's your turn" indefinitely. appointmentStatus
+  // is the authoritative source (comes from the same response) — no need to
+  // infer "called" from a number comparison that doesn't reset.
+  const isCalled = appointmentStatus === "called" || appointmentStatus === "in_progress";
 
   // Use server-provided ETA when available, otherwise compute locally
   const computedEta =

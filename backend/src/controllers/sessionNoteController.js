@@ -21,9 +21,14 @@ export const sessionNoteController = {
   },
 
   async upsertForAppointment(req, res) {
+    // Attribute edits to the treating-doctor membership on the appointment,
+    // not req.actor.activeMembership — for a dual-role account (admin +
+    // doctor) activeMembership always resolves to the admin one (see
+    // authenticate.js), even though the sessionNote.manage policy just
+    // verified this account holds the specific doctor membership below.
     const note = await sessionNoteService.upsertForAppointment({
       appointment:       req.resource,
-      actorMembershipId: req.actor.activeMembership._id,
+      actorMembershipId: req.resource.doctorMembership,
       data:              req.body,
     });
     res.json({ data: note });
@@ -33,6 +38,13 @@ export const sessionNoteController = {
     const notes = await sessionNoteService.getForPatient({
       patientProfileId: req.params.profileId,
       actorMembership:  req.actor.activeMembership,
+    });
+    res.json({ data: notes });
+  },
+
+  async getMySharedNotes(req, res) {
+    const notes = await sessionNoteService.getSharedForPatientAccount({
+      accountId: req.actor.account._id,
     });
     res.json({ data: notes });
   },

@@ -215,6 +215,16 @@ export async function cancelOwnAppointment(
   await api.delete(`/appointments/${appointmentId}/cancel`);
 }
 
+// Persists the patient's note for the doctor. Previously this only updated
+// local frontend state (see AppContext.updateBookingNotes) and never reached
+// the backend at all — the doctor never actually saw anything written here.
+export async function updateOwnAppointmentNotes(
+  appointmentId: string,
+  notes: string,
+): Promise<void> {
+  await api.patch(`/appointments/${appointmentId}/notes`, { notes });
+}
+
 export async function getPatientHistory(
   orgId: string,
   profileId: string,

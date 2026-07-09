@@ -5,6 +5,7 @@ import { marketplaceService } from '../services/marketplaceService.js';
 export const marketplaceSchemas = {
   book: z.object({
     paymentMethod: z.enum(['clinic', 'paymob']).optional(),
+    notes:         z.string().max(500).optional(),
   }),
 };
 
@@ -49,6 +50,7 @@ export const marketplaceController = {
       actor:         req.actor,
       sessionId:     req.params.sessionId,
       paymentMethod: req.body.paymentMethod,
+      notes:         req.body.notes,
     });
     res.status(201).json({ data: { appointment, accessToken } });
   },

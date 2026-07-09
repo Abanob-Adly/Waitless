@@ -195,10 +195,13 @@ export const queueController = {
 
     const fee = session.doctorBranchSchedule?.consultationFee?.amount ?? 0;
 
-    // Include clinic appointments confirmed as paid
+    // Cash is collected the moment a receptionist/doctor confirms it — not
+    // when the visit finishes. Pay-at-clinic tickets join the queue and are
+    // typically confirmed well before their consultation completes, so
+    // requiring status: 'completed' here undercounted the drawer all day and
+    // only "caught up" once visits finished.
     const appointments = await Appointment.find({
       session: req.params.sessionId,
-      status:  'completed',
       paymentMethod: 'clinic',
       paymentStatus: 'success',
     }).populate('patientProfile', 'fullName').lean();

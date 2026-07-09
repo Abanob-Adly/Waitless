@@ -36,6 +36,15 @@ async function makeFixtures() {
     organization, account: oid(), status: 'active', branches: [branch._id],
   });
 
+  // A clinic owner who is *also* a practicing doctor — one account, two
+  // memberships in the same org. authenticate.js always resolves
+  // activeMembership to the highest-privilege one (admin), which must not
+  // block this account from writing notes on visits where it's the treating
+  // doctor (see isTreatingDoctor in policies.js).
+  const dualRoleAccount = oid();
+  const dualRoleAdmin = await AdminMembership.create({ organization, account: dualRoleAccount, status: 'active' });
+  const dualRoleDoctor = await DoctorMembership.create({ organization, account: dualRoleAccount, status: 'active' });
+
   const patientProfile = await PatientProfile.create({
     fullName: 'Test Patient', phone: '+201012345678', organizationId: organization,
   });
@@ -51,11 +60,25 @@ async function makeFixtures() {
     source:           'walk_in',
   });
 
-  return { organization, otherOrg, doctor, otherDoctor, admin, outsideAdmin, receptionist, patientProfile, appointment };
+  const dualRoleAppointment = await Appointment.create({
+    session:          oid(),
+    patientProfile:   patientProfile._id,
+    organization,
+    branch:           branch._id,
+    doctorMembership: dualRoleDoctor._id,
+    queueNumber:      2,
+    status:           'completed',
+    source:           'walk_in',
+  });
+
+  return {
+    organization, otherOrg, doctor, otherDoctor, admin, outsideAdmin, receptionist,
+    dualRoleAdmin, dualRoleDoctor, patientProfile, appointment, dualRoleAppointment,
+  };
 }
 
-function makeActor(membership) {
-  return { activeMembership: membership, activeOrgId: membership.organization };
+function makeActor(membership, orgMemberships = [membership]) {
+  return { activeMembership: membership, activeOrgId: membership.organization, orgMemberships };
 }
 
 describe('sessionNoteService — create, update, history', () => {
@@ -136,6 +159,50 @@ describe('sessionNoteService — create, update, history', () => {
   });
 });
 
+describe('sessionNoteService.getSharedForPatientAccount — patient-facing view', () => {
+  it('returns only notes explicitly marked isSharedWithPatient', async () => {
+    const { doctor, patientProfile, appointment } = await makeFixtures();
+    const patientAccountId = oid();
+    await PatientProfile.findByIdAndUpdate(patientProfile._id, { accountId: patientAccountId });
+
+    await sessionNoteService.upsertForAppointment({
+      appointment, actorMembershipId: doctor._id,
+      data: { diagnosis: 'Shared with patient', isSharedWithPatient: true },
+    });
+
+    const notes = await sessionNoteService.getSharedForPatientAccount({ accountId: patientAccountId });
+    assert.equal(notes.length, 1);
+    assert.equal(notes[0].diagnosis, 'Shared with patient');
+  });
+
+  it('does not return a note that has not been shared', async () => {
+    const { doctor, patientProfile, appointment } = await makeFixtures();
+    const patientAccountId = oid();
+    await PatientProfile.findByIdAndUpdate(patientProfile._id, { accountId: patientAccountId });
+
+    await sessionNoteService.upsertForAppointment({
+      appointment, actorMembershipId: doctor._id,
+      data: { diagnosis: 'Internal only' }, // isSharedWithPatient defaults to false
+    });
+
+    const notes = await sessionNoteService.getSharedForPatientAccount({ accountId: patientAccountId });
+    assert.equal(notes.length, 0);
+  });
+
+  it('never returns another patient\'s shared notes', async () => {
+    const { doctor, patientProfile, appointment } = await makeFixtures();
+    await PatientProfile.findByIdAndUpdate(patientProfile._id, { accountId: oid() });
+    await sessionNoteService.upsertForAppointment({
+      appointment, actorMembershipId: doctor._id,
+      data: { diagnosis: 'Belongs to someone else', isSharedWithPatient: true },
+    });
+
+    const unrelatedAccountId = oid();
+    const notes = await sessionNoteService.getSharedForPatientAccount({ accountId: unrelatedAccountId });
+    assert.equal(notes.length, 0);
+  });
+});
+
 describe('sessionNote policies — access control', () => {
   it('sessionNote.view: the treating doctor can view', async () => {
     const { doctor, appointment } = await makeFixtures();
@@ -178,5 +245,24 @@ describe('sessionNote policies — access control', () => {
     assert.equal(can(makeActor(doctor), 'sessionNote.viewPatientHistory', profile), true);
     assert.equal(can(makeActor(admin), 'sessionNote.viewPatientHistory', profile), true);
     assert.equal(can(makeActor(receptionist), 'sessionNote.viewPatientHistory', profile), false);
+  });
+
+  // Regression: a dual-role account (admin + doctor in the same org) reported
+  // notes "not saving" — root cause was activeMembership always resolving to
+  // the admin role for such accounts, so sessionNote.manage's old check
+  // (activeMembership.kind === 'doctor') never matched even when this exact
+  // account was the treating doctor. Fixed via isTreatingDoctor checking
+  // orgMemberships (every membership the account holds), not just whichever
+  // one was picked as "active".
+  it('sessionNote.manage: a dual-role account (admin+doctor) can write notes on a visit where it is the treating doctor, even though activeMembership resolved to admin', async () => {
+    const { dualRoleAdmin, dualRoleDoctor, dualRoleAppointment } = await makeFixtures();
+    const actor = makeActor(dualRoleAdmin, [dualRoleAdmin, dualRoleDoctor]);
+    assert.equal(can(actor, 'sessionNote.manage', dualRoleAppointment), true);
+  });
+
+  it('sessionNote.manage: a dual-role account still cannot write notes on a visit treated by a different doctor', async () => {
+    const { dualRoleAdmin, dualRoleDoctor, appointment } = await makeFixtures();
+    const actor = makeActor(dualRoleAdmin, [dualRoleAdmin, dualRoleDoctor]);
+    assert.equal(can(actor, 'sessionNote.manage', appointment), false);
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, memo } from "react";
 import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -15,13 +15,59 @@ import { toE164 } from "../utils/phone";
 
 type DoctorSection = "workspace" | "calendar" | "profile";
 
+// ── Queue reorder animation (FLIP) ──────────────────────────────────────────
+// When an action (skip, call-next, etc.) changes queue order, React just
+// re-renders rows in their new positions with no visual transition — rows
+// appear to teleport. FLIP (First-Last-Invert-Play) fakes a smooth reorder
+// with plain CSS: measure each row's position before the reorder, let React
+// update the DOM, then measure again and animate away from the delta. No
+// animation library needed for this.
+function useFlipAnimatedOrder(ids: string[]) {
+  const rowsRef = useRef(new Map<string, HTMLDivElement>());
+  const prevRectsRef = useRef(new Map<string, DOMRect>());
+  const idsKey = ids.join(",");
+
+  const registerRow = useCallback((id: string) => (el: HTMLDivElement | null) => {
+    if (el) rowsRef.current.set(id, el);
+    else rowsRef.current.delete(id);
+  }, []);
+
+  useLayoutEffect(() => {
+    for (const id of ids) {
+      const el = rowsRef.current.get(id);
+      const prev = prevRectsRef.current.get(id);
+      if (!el || !prev) continue;
+      const next = el.getBoundingClientRect();
+      const deltaY = prev.top - next.top;
+      if (Math.abs(deltaY) > 0.5) {
+        el.style.transition = "none";
+        el.style.transform = `translateY(${deltaY}px)`;
+        void el.offsetHeight; // force reflow so the "from" transform paints before animating away
+        el.style.transition = "transform 300ms ease-in-out";
+        el.style.transform = "";
+      }
+    }
+    const newRects = new Map<string, DOMRect>();
+    for (const id of ids) {
+      const el = rowsRef.current.get(id);
+      if (el) newRects.set(id, el.getBoundingClientRect());
+    }
+    prevRectsRef.current = newRects;
+    // idsKey (order+membership) is the real dependency; ids itself is a new
+    // array reference every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  return registerRow;
+}
+
 // ── Queue row ─────────────────────────────────────────────────────────────────
 // Memoized so a poll/SSE tick that leaves this appointment's data unchanged
 // (see mergeAppointments in useDoctorActiveSession, which preserves object
 // identity for unchanged rows) skips re-rendering it entirely, instead of
 // re-rendering every row in the queue on every tick.
 const QueueRow = memo(function QueueRow({
-  appt, t, actionInProgress, onHold, onReinsert, onForceInsert, onSkip, onNotes,
+  appt, t, actionInProgress, onHold, onReinsert, onForceInsert, onSkip, onNotes, onConfirmPayment,
 }: {
   appt: BackendAppointment;
   t: (text: string) => string;
@@ -31,6 +77,7 @@ const QueueRow = memo(function QueueRow({
   onForceInsert: (id: string) => void;
   onSkip: (id: string) => void;
   onNotes: (id: string, patientName: string) => void;
+  onConfirmPayment: (id: string) => void;
 }) {
   const canHold = appt.status === "called";
   const canInsert = appt.status === "held";
@@ -42,8 +89,24 @@ const QueueRow = memo(function QueueRow({
   const canNoShow = appt.status === "booked";
   const canForceInsert = appt.status === "booked";
   const busy = actionInProgress === appt.id;
+
+  // Brief highlight flash whenever this row's own status or queue position
+  // actually changes (skip, call-next, hold, etc.) — separate from the FLIP
+  // position animation, this calls out *which* row just changed even when
+  // its position on screen didn't move.
+  const [flash, setFlash] = useState(false);
+  const prevRef = useRef({ status: appt.status, queueNumber: appt.queueNumber });
+  useEffect(() => {
+    if (prevRef.current.status !== appt.status || prevRef.current.queueNumber !== appt.queueNumber) {
+      prevRef.current = { status: appt.status, queueNumber: appt.queueNumber };
+      setFlash(true);
+      const timer = setTimeout(() => setFlash(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [appt.status, appt.queueNumber]);
+
   return (
-    <div className="flex items-center justify-between gap-3 px-5 py-3">
+    <div className={`flex flex-wrap items-center justify-between gap-3 px-5 py-3 transition-colors duration-500 ${flash ? "bg-gold-tint/40" : ""}`}>
       <div className="flex items-center gap-3">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
           {appt.queueNumber}
@@ -51,9 +114,14 @@ const QueueRow = memo(function QueueRow({
         <div>
           <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
           <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+          {appt.notes && (
+            <p className="mt-0.5 max-w-[220px] truncate text-xs italic text-navy-mid" title={appt.notes} dir="auto">
+              "{appt.notes}"
+            </p>
+          )}
         </div>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
           appt.status === "booked"      ? "bg-offwhite text-navy-mid"
           : appt.status === "called"    ? "bg-success/10 text-success"
@@ -78,6 +146,16 @@ const QueueRow = memo(function QueueRow({
           >
             {appt.paymentStatus === "success" ? t("Clinic ✓") : t("Clinic — unpaid")}
           </span>
+        )}
+        {appt.paymentMethod === "clinic" && appt.paymentStatus !== "success" && (
+          <button
+            onClick={() => onConfirmPayment(appt.id)}
+            disabled={busy}
+            className="rounded-md border border-success/40 bg-success/5 px-2.5 py-1 text-xs font-medium text-success transition hover:bg-success/10 disabled:opacity-60"
+            title={t("Mark clinic cash payment as received")}
+          >
+            💵 {t("Confirm Payment")}
+          </button>
         )}
         {canHold && (
           <button
@@ -204,7 +282,7 @@ export function DoctorDashboard() {
     }
   }
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       {/* Specialty backfill modal — blocks dashboard until doctor sets a specialty */}
       {needsSpecialty && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/70 p-4 backdrop-blur-sm">
@@ -244,7 +322,7 @@ export function DoctorDashboard() {
       )}
 
       {/* Header */}
-      <div className="mb-8 flex animate-fade-up items-start justify-between gap-4">
+      <div className="mb-8 flex flex-wrap animate-fade-up items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           {avatarUrl ? (
             <img
@@ -445,7 +523,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [endingSession, setEndingSession] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
-  const [endSessionModal, setEndSessionModal] = useState<{ sessionId: string; branchId: string; waitingCount: number } | null>(null);
+  const [endSessionModal, setEndSessionModal] = useState<{ sessionId: string; branchId: string; waitingCount: number; avgConsultationMin: number } | null>(null);
   const [extendMinutes, setExtendMinutes] = useState(15);
   const [extending, setExtending] = useState(false);
   const [excuseModal, setExcuseModal] = useState<{ sessionId: string; branchId: string } | null>(null);
@@ -484,6 +562,10 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const [breakPending, setBreakPending] = useState(false);
   const [breakError, setBreakError] = useState<string | null>(null);
   const [breakCooldownSec, setBreakCooldownSec] = useState(0);
+  const [delayMin, setDelayMin] = useState("0");
+  const [savingDelay, setSavingDelay] = useState(false);
+  const [delayError, setDelayError] = useState<string | null>(null);
+  const [delaySaved, setDelaySaved] = useState(false);
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [walkIn, setWalkIn] = useState({ phone: "", name: "" });
   const [walkInMsg, setWalkInMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -502,8 +584,9 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     memberships.find((m) => m.userId === doctorAccountId && m.userRole === "doctor")?.id ??
     memberships.find((m) => m.userId === doctorAccountId)?.id ?? "";
 
-  const { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload: load, reloadQueueNow } =
+  const { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload: load, reloadQueueNow, applyOptimisticSkip } =
     useDoctorActiveSession(orgId, branches, myMembershipId, doctorAccountId, { onCancellation: handleCancellation });
+  const registerQueueRow = useFlipAnimatedOrder(useMemo(() => queue.map((a) => a.id), [queue]));
 
   // ── Load sessions list ─────────────────────────────────────────────────────
   function loadSessions() {
@@ -539,6 +622,30 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     return () => clearInterval(id);
   }, [breakCooldownSec]);
 
+  // ── Sync global delay from active session ─────────────────────────────────
+  // Depend on activeSession?.id (not the whole object) so this only re-syncs
+  // when actually switching sessions, not on every 10s poll of the same one —
+  // otherwise it would overwrite whatever the doctor is actively typing.
+  useEffect(() => {
+    if (activeSession) setDelayMin(String(activeSession.globalDelayMin ?? 0));
+  }, [activeSession?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleUpdateDelay() {
+    if (!activeBranchId || !activeSession) return;
+    setSavingDelay(true);
+    setDelayError(null);
+    setDelaySaved(false);
+    try {
+      await sessionService.updateSessionDelay(orgId, activeBranchId, activeSession.id, Number(delayMin));
+      await load();
+      setDelaySaved(true);
+      setTimeout(() => setDelaySaved(false), 3000);
+    } catch {
+      setDelayError("Failed to update delay. Please try again.");
+    }
+    setSavingDelay(false);
+  }
+
   // ── Queue polling ──────────────────────────────────────────────────────────
   useEffect(() => {
     void load();
@@ -564,12 +671,12 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     if (!activeBranchId || !activeSession) return;
     try { await sessionService.callNext(orgId, activeBranchId, activeSession.id); await reloadQueueNow(); } catch { /* ignore */ }
   }
-  async function handleConfirmPayment(apptId: string) {
+  const handleConfirmPayment = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.confirmCashPayment(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
-  }
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
   // Stable references (via useCallback) so QueueRow's React.memo isn't
   // defeated by a fresh function prop on every render.
   const handleHold = useCallback(async (apptId: string) => {
@@ -587,9 +694,17 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const handleSkip = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
-    try { await sessionService.skipToNext(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
+    // Show the swap immediately instead of waiting on the round-trip + reload;
+    // roll back to the pre-click queue if the real request then fails.
+    const rollback = applyOptimisticSkip(apptId);
+    try {
+      await sessionService.skipToNext(orgId, activeBranchId, activeSession.id, apptId);
+      await reloadQueueNow();
+    } catch {
+      rollback?.();
+    }
     setActionInProgress(null);
-  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow, applyOptimisticSkip]);
   const handleOpenNotes = useCallback((appointmentId: string, patientName: string) => {
     if (!activeBranchId || !activeSession) return;
     setNoteModal({ branchId: activeBranchId, sessionId: activeSession.id, appointmentId, patientName });
@@ -650,12 +765,14 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   // between ending anyway or pushing the end time back instead.
   async function requestEndSession(sessionId: string, branchId: string) {
     let count: number;
+    let avgMin = activeSession?.avgConsultationMin ?? 15;
     if (sessionId === activeSession?.id) {
       count = queue.filter((p) => p.status === "booked" || p.status === "called" || p.status === "held" || p.status === "in_progress").length;
     } else {
       try {
         const q = await sessionService.getQueue(orgId, branchId, sessionId);
         count = q.appointments.length;
+        if (q.avgConsultationMin > 0) avgMin = q.avgConsultationMin;
       } catch {
         count = 0;
       }
@@ -664,8 +781,11 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
       void doEndSession(sessionId, branchId);
       return;
     }
-    setExtendMinutes(15);
-    setEndSessionModal({ sessionId, branchId, waitingCount: count });
+    // Default the suggested extension to how long the remaining queue will
+    // actually take (waiting patients × avg consultation time), not a fixed
+    // guess — a doctor with 5 patients left needs more than a flat "15 min".
+    setExtendMinutes(Math.max(5, Math.ceil(count * avgMin)));
+    setEndSessionModal({ sessionId, branchId, waitingCount: count, avgConsultationMin: avgMin });
   }
 
   async function doEndSession(sessionId: string, branchId: string) {
@@ -723,7 +843,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   };
 
   return (
-    <div className="flex gap-5">
+    <div className="flex flex-col gap-5 lg:flex-row">
       {/* ── Main area ─────────────────────────────────────────────────────── */}
       <div className="min-w-0 flex-1 space-y-5">
 
@@ -813,7 +933,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
         {!isLoading && activeSession && activeSession.status === "active" && (
           <>
             <div className="rounded-xl border border-gold/40 bg-gold-tint px-5 py-4">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-gold">{t("Active Session")}</p>
                   <p className="mt-0.5 font-heading text-base font-bold text-navy">
@@ -855,7 +975,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <StatBox label={t("Total")} value={queue.length.toString()} />
               <div className="relative">
                 <StatBox label={t("Waiting")} value={waitingCount.toString()} accent />
@@ -867,6 +987,28 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
               </div>
               <StatBox label={t("Held")} value={heldCount.toString()} />
               <StatBox label={t("Done")} value={doneCount.toString()} success />
+            </div>
+
+            {/* Global delay — same control as reception, so either side can
+                shift every waiting patient's ETA forward at once. */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-offwhite px-4 py-2.5">
+              <label className="text-xs font-medium text-navy-mid">{t("Global Delay (min):")}</label>
+              <input
+                type="number"
+                min="0"
+                value={delayMin}
+                onChange={(e) => setDelayMin(e.target.value)}
+                className="h-8 w-20 rounded border border-border bg-white px-2 text-sm text-navy outline-none focus:border-gold"
+              />
+              <button
+                onClick={() => void handleUpdateDelay()}
+                disabled={savingDelay}
+                className="rounded-md border border-gold px-3 py-1.5 text-xs font-medium text-gold transition hover:bg-gold-tint disabled:opacity-60"
+              >
+                {savingDelay ? t("Saving…") : t("Update")}
+              </button>
+              {delayError && <p className="w-full text-xs text-danger">{delayError}</p>}
+              {delaySaved && <p className="w-full text-xs text-success">{t("Delay updated ✓")}</p>}
             </div>
 
             {/* Break banner */}
@@ -929,17 +1071,19 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
             ) : (
               <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
                 {queue.map((appt) => (
-                  <QueueRow
-                    key={appt.id}
-                    appt={appt}
-                    t={t}
-                    actionInProgress={actionInProgress}
-                    onHold={handleHold}
-                    onReinsert={handleReinsert}
-                    onForceInsert={handleForceInsert}
-                    onSkip={handleSkip}
-                    onNotes={handleOpenNotes}
-                  />
+                  <div key={appt.id} ref={registerQueueRow(appt.id)} className="animate-scale-in">
+                    <QueueRow
+                      appt={appt}
+                      t={t}
+                      actionInProgress={actionInProgress}
+                      onHold={handleHold}
+                      onReinsert={handleReinsert}
+                      onForceInsert={handleForceInsert}
+                      onSkip={handleSkip}
+                      onNotes={handleOpenNotes}
+                      onConfirmPayment={handleConfirmPayment}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -989,7 +1133,7 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
       </div>
 
       {/* ── Sessions sidebar ──────────────────────────────────────────────── */}
-      <div className="w-64 shrink-0">
+      <div className="w-full shrink-0 lg:w-64">
         <div className="rounded-xl border border-border bg-white shadow-sm">
           <button
             onClick={() => setSidebarOpen((v) => !v)}
@@ -1161,20 +1305,31 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
               </p>
               <div>
                 <span className="text-sm font-medium text-navy">{t("Add minutes")}</span>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[10, 15, 30, 45].map((min) => (
-                    <button
-                      key={min}
-                      type="button"
-                      onClick={() => setExtendMinutes(min)}
-                      className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
-                        extendMinutes === min ? "border-gold bg-gold text-navy" : "border-border text-navy-mid hover:border-gold"
-                      }`}
-                    >
-                      {min} {t("min")}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const suggested = Math.max(5, Math.ceil(endSessionModal.waitingCount * endSessionModal.avgConsultationMin));
+                  const options = [...new Set([suggested, 10, 15, 30, 45])].sort((a, b) => a - b);
+                  return (
+                    <>
+                      <p className="mt-1 text-xs text-navy-mid">
+                        {t("Suggested: enough time for")} {endSessionModal.waitingCount} × {endSessionModal.avgConsultationMin} {t("min avg")} = {suggested} {t("min")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {options.map((min) => (
+                          <button
+                            key={min}
+                            type="button"
+                            onClick={() => setExtendMinutes(min)}
+                            className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                              extendMinutes === min ? "border-gold bg-gold text-navy" : "border-border text-navy-mid hover:border-gold"
+                            }`}
+                          >
+                            {min} {t("min")}{min === suggested ? ` (${t("suggested")})` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               {sessionActionError && <p className="text-xs text-danger">{t(sessionActionError)}</p>}
               <div className="flex gap-3">
@@ -1490,7 +1645,7 @@ function CalendarTab({ orgId, doctorAccountId }: { orgId: string; doctorAccountI
                                 {appt.patientProfile.fullName || "Patient"}
                               </p>
                               <p className="text-[10px] text-navy-mid">{appt.patientProfile.phone}</p>
-                              {appt.notes && <p className="mt-0.5 text-[10px] italic text-navy-mid">"{appt.notes}"</p>}
+                              {appt.notes && <p className="mt-0.5 text-[10px] italic text-navy-mid" dir="auto">"{appt.notes}"</p>}
                             </div>
                           </div>
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyle[appt.status] ?? ""}`}>

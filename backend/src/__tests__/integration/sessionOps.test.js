@@ -10,12 +10,18 @@ import mongoose from 'mongoose';
 import { connect, disconnect, clearAll } from '../helpers/db.js';
 import { sessionService } from '../../services/sessionService.js';
 import { queueService } from '../../services/queueService.js';
+import { queueController } from '../../controllers/queueController.js';
 import Session from '../../models/QueueSession.js';
 import Appointment from '../../models/Appointment.js';
 import DoctorBranchSchedule from '../../models/DoctorBranchSchedule.js';
-import { LATE_START_GRACE_MIN } from '../../config/fees.js';
 
 const oid = () => new mongoose.Types.ObjectId();
+
+// Local test threshold only — the production monetary-penalty system (which
+// used to define this in config/fees.js) was intentionally removed; nothing
+// in production code enforces a late-start grace period anymore. Kept here
+// purely so these tests can still express "a little late" vs "genuinely late".
+const LATE_START_GRACE_MIN = 5;
 
 async function makeSchedule(consultationFeeAmount = 200) {
   return DoctorBranchSchedule.create({
@@ -47,7 +53,7 @@ async function makeSession(overrides = {}) {
   });
 }
 
-async function makeAppt(session, queueNumber, status = 'booked', paymentMethod = null) {
+async function makeAppt(session, queueNumber, status = 'booked', paymentMethod = null, paymentStatus = 'pending') {
   return Appointment.create({
     session:          session._id,
     patientProfile:   oid(),
@@ -58,7 +64,18 @@ async function makeAppt(session, queueNumber, status = 'booked', paymentMethod =
     status,
     source:           'walk_in',
     paymentMethod,
+    paymentStatus,
+    paidAmount:       paymentStatus === 'success' ? 200 : undefined,
   });
+}
+
+function makeRes() {
+  return {
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
 }
 
 before(connect);
@@ -279,36 +296,46 @@ describe('queueService.checkDailyCapacity', () => {
 
 // ── Cash summary ──────────────────────────────────────────────────────────────
 
-describe('queueController.cashSummary — data queries', () => {
-  it('counts only cash-paid completed appointments', async () => {
+describe('queueController.cashSummary', () => {
+  it('counts a confirmed clinic payment even before the visit completes', async () => {
+    // Regression: this used to require status: 'completed', but pay-at-clinic
+    // tickets are confirmed at reception well before their consultation
+    // finishes — the drawer summary sat empty/undercounted all day and only
+    // "caught up" once visits completed.
     const session = await makeSession({ status: 'active' });
-    // These should be counted
-    await makeAppt(session, 1, 'completed', 'cash');
-    await makeAppt(session, 2, 'completed', 'cash');
-    // These should NOT be counted
-    await makeAppt(session, 3, 'completed', 'clinic');  // different payment method
-    await makeAppt(session, 4, 'booked',    'cash');    // not completed yet
+    await makeAppt(session, 1, 'called', 'clinic', 'success');
 
-    const cashAppts = await Appointment.find({
-      session:       session._id,
-      status:        'completed',
-      paymentMethod: 'cash',
-    }).lean();
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
 
-    assert.equal(cashAppts.length, 2, 'only 2 cash-completed appointments should be found');
+    assert.equal(res.body.data.count, 1);
+    assert.equal(res.body.data.totalCash, 200);
   });
 
-  it('returns empty list when no cash payments exist', async () => {
+  it('counts only confirmed (paymentStatus success) clinic payments', async () => {
     const session = await makeSession({ status: 'active' });
-    await makeAppt(session, 1, 'completed', 'clinic');
-    await makeAppt(session, 2, 'completed', 'paymob');
+    await makeAppt(session, 1, 'completed', 'clinic', 'success'); // counted
+    await makeAppt(session, 2, 'booked',    'clinic', 'pending'); // not yet confirmed
+    await makeAppt(session, 3, 'completed', 'paymob', 'success'); // different payment method
 
-    const cashAppts = await Appointment.find({
-      session:       session._id,
-      status:        'completed',
-      paymentMethod: 'cash',
-    }).lean();
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
 
-    assert.equal(cashAppts.length, 0);
+    assert.equal(res.body.data.count, 1);
+  });
+
+  it('returns an empty summary when no clinic payments have been confirmed', async () => {
+    const session = await makeSession({ status: 'active' });
+    await makeAppt(session, 1, 'completed', 'paymob', 'success');
+    await makeAppt(session, 2, 'booked',    'clinic', 'pending');
+
+    const req = { params: { sessionId: String(session._id) } };
+    const res = makeRes();
+    await queueController.cashSummary(req, res);
+
+    assert.equal(res.body.data.count, 0);
+    assert.equal(res.body.data.totalCash, 0);
   });
 });

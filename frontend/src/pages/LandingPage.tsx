@@ -83,6 +83,7 @@ export function LandingPage() {
     if (!authUser) return;
     if (authUser.role === "admin") { navigate("/admin", { replace: true }); return; }
     if (authUser.role === "doctor") { navigate("/doctor-dashboard", { replace: true }); return; }
+    if (authUser.role === "receptionist") { navigate("/reception", { replace: true }); return; }
   }, [authUser, navigate]);
 
   const isPatient = authUser?.role === "patient";

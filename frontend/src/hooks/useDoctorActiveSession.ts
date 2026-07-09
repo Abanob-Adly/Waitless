@@ -11,6 +11,12 @@ type UseDoctorActiveSessionResult = {
   isLoading: boolean;
   reload: () => Promise<void>;
   reloadQueueNow: () => Promise<void>;
+  // Mirrors the backend's skipToNext swap locally so the UI updates the
+  // instant the button is clicked instead of waiting on the round-trip +
+  // reload. Returns a rollback function to restore the prior queue if the
+  // real request then fails, or null if there was nothing to swap (e.g. no
+  // booked patient after this one) — same case the backend itself rejects.
+  applyOptimisticSkip: (appointmentId: string) => (() => void) | null;
 };
 
 // Replacing `queue` wholesale on every poll/SSE tick hands a brand-new array
@@ -220,5 +226,42 @@ export function useDoctorActiveSession(
     }
   }
 
-  return { activeSession, activeBranchId, queue, pendingConfirmation, isLoading, reload, reloadQueueNow };
+  // Mirrors queueService.skipToNext (backend): swap queueNumber with the next
+  // 'booked' appointment, and if this one was 'called', flip statuses too so
+  // the next one becomes 'called' in its place. Re-sorts by queueNumber
+  // afterward, matching the order a fresh fetch would return, so the two
+  // rows visibly trade positions instead of just swapping their numbers
+  // in place.
+  function applyOptimisticSkip(appointmentId: string): (() => void) | null {
+    let previous: BackendAppointment[] = [];
+    let didSwap = false;
+    setQueue((prev) => {
+      previous = prev;
+      const appt = prev.find((a) => a.id === appointmentId);
+      if (!appt || (appt.status !== "booked" && appt.status !== "called")) return prev;
+      const next = prev
+        .filter((a) => a.status === "booked" && a.queueNumber > appt.queueNumber)
+        .sort((a, b) => a.queueNumber - b.queueNumber)[0];
+      if (!next) return prev;
+
+      const wasCalled = appt.status === "called";
+      const updated = prev.map((a) => {
+        if (a.id === appt.id) {
+          return { ...a, queueNumber: next.queueNumber, status: wasCalled ? "booked" as const : a.status };
+        }
+        if (a.id === next.id) {
+          return { ...a, queueNumber: appt.queueNumber, status: wasCalled ? "called" as const : a.status };
+        }
+        return a;
+      });
+      didSwap = true;
+      return updated.sort((a, b) => a.queueNumber - b.queueNumber);
+    });
+    return didSwap ? () => setQueue(previous) : null;
+  }
+
+  return {
+    activeSession, activeBranchId, queue, pendingConfirmation, isLoading,
+    reload, reloadQueueNow, applyOptimisticSkip,
+  };
 }

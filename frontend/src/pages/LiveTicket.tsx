@@ -102,15 +102,18 @@ function TicketView({
   // as "not yet known" (false) rather than flashing a premature banner.
   const sessionNotStarted = isSessionDay && sessionStatus === "scheduled";
 
-  // True when it's session day and the scheduled end time has already passed.
-  // At this point the session window is over; if the patient wasn't served they
-  // won't be — show a closed-session view instead of the queue position.
-  const sessionWindowClosed = isSessionDay && (() => {
-    const [hh, mm] = (booking.session.endTime ?? "00:00").split(":").map(Number);
-    const scheduledEnd = new Date(`${effectiveDate || todayLocal}T00:00:00`);
-    scheduledEnd.setHours(hh ?? 0, mm ?? 0, 0, 0);
-    return scheduledEnd < now;
-  })();
+  // True once the session has actually ended (or was cancelled) — checked
+  // against the backend's real sessionStatus, not wall-clock time. This used
+  // to compare `now` against the *scheduled* end time, which was wrong in
+  // both directions: a session running late (still genuinely active past its
+  // scheduled end, waiting patients included — see sessionAutoClose.js,
+  // which keeps a session open until its queue is actually empty) would
+  // flip to "Session Closed" the instant the clock passed the scheduled
+  // time, even though the patient's ticket was still live and counting down.
+  // And a session ended *early* (doctor closes it once everyone's been seen)
+  // wouldn't show as closed at all until the originally-scheduled time
+  // arrived. sessionStatus reflects what actually happened, in both cases.
+  const sessionWindowClosed = isSessionDay && (sessionStatus === "ended" || sessionStatus === "cancelled");
 
   // Header status badge — must agree with whichever view renders below it,
   // otherwise a pulsing "Live" badge sits above a "hasn't started yet" card.
@@ -319,6 +322,14 @@ function TicketView({
             // real view a moment later, which reads as the ticket "opening
             // early" and glitching shut.
             <TicketLoadingView />
+          ) : isCompleted ? (
+            // Must be checked before isCalled — otherwise a finished visit
+            // (status genuinely 'completed') fell through to CalledView or
+            // WaitingView with no dedicated content at all, since isCompleted
+            // previously only affected the header badge and rating popup.
+            <CompletedView reviewToken={reviewToken} />
+          ) : appointmentStatus === "no_show" ? (
+            <NoShowView />
           ) : isPendingConfirmation ? (
             <PendingConfirmationView fee={booking.doctor.fee} clinicName={booking.session.clinicName} />
           ) : !isSessionDay ? (
@@ -374,14 +385,15 @@ function TicketView({
 
         {/* ── Patient notes preview ── */}
         {booking.patientNotes && (
-          <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid">
+          <div className="mx-6 mb-2 rounded-lg bg-gold-tint px-4 py-2.5 text-xs text-navy-mid" dir="auto">
             <span className="font-medium text-navy">{t("Note:")} </span>
             {booking.patientNotes.slice(0, 80)}
             {booking.patientNotes.length > 80 ? "…" : ""}
           </div>
         )}
 
-        {(isPendingConfirmation || (isSessionDay && !isCalled)) && (
+        {!isCompleted && appointmentStatus !== "no_show" && appointmentStatus !== "cancelled" &&
+          (isPendingConfirmation || (isSessionDay && !isCalled)) && (
           <div className="px-6 pb-6 pt-2">
             <button
               onClick={handleCancel}
@@ -685,6 +697,49 @@ function WaitingView({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Completed view ───────────────────────────────────────────────────────────
+// Rating (reviewToken) is handled separately by the RatingPopup overlay —
+// this just replaces the queue-position area once the visit is actually done,
+// instead of leaving it to fall through to CalledView/WaitingView.
+
+function CompletedView({ reviewToken }: { reviewToken: string | null }) {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-success/10 text-5xl">
+        ✅
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">{t("Visit Complete")}</h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("Thank you for visiting. We hope you feel better soon!")}
+      </p>
+      {reviewToken && (
+        <p className="mt-2 text-xs text-navy-mid">{t("Let us know how it went — check the rating prompt above.")}</p>
+      )}
+    </div>
+  );
+}
+
+// ── No-show view ─────────────────────────────────────────────────────────────
+
+function NoShowView() {
+  const { t } = useLanguage();
+  return (
+    <div className="py-4 text-center">
+      <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-5xl">
+        🚶
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">{t("Marked as No-Show")}</h2>
+      <p className="mt-3 text-sm leading-6 text-navy-mid">
+        {t("You didn't check in when called, so your spot was given to the next patient.")}
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        {t("If this is a mistake, please contact the clinic directly.")}
+      </p>
     </div>
   );
 }

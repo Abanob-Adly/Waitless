@@ -281,6 +281,7 @@ export function LiveTicket() {
                 {queueStatus.status === "in_progress" && <InProgressView />}
                 {queueStatus.status === "completed" && <CompletedView reviewToken={queueStatus.reviewToken} />}
                 {queueStatus.status === "cancelled" && <CancelledView />}
+                {queueStatus.status === "no_show" && <NoShowView />}
               </>
             )}
           </div>
@@ -569,6 +570,31 @@ function SessionEndedView() {
       >
         Find Another Doctor
       </Link>
+    </div>
+  );
+}
+
+// ── No-show view (status: "no_show") ────────────────────────────────────────
+// Previously unhandled — a patient marked no_show while the session was
+// still active (other patients still being served) fell through every
+// status check here and saw a blank queue-position area.
+
+function NoShowView() {
+  const { t } = useLanguage();
+  return (
+    <div className="py-2 text-center">
+      <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-red-50 text-4xl">
+        🚶
+      </div>
+      <h2 className="font-heading text-2xl font-bold text-navy">
+        {t("Marked as No-Show")}
+      </h2>
+      <p className="mt-3 text-sm text-navy-mid">
+        {t("You didn't check in when called, so your spot was given to the next patient.")}
+      </p>
+      <p className="mt-2 text-xs text-navy-mid">
+        {t("If this is a mistake, please contact the clinic directly.")}
+      </p>
     </div>
   );
 }

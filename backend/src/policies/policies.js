@@ -197,6 +197,19 @@ const appointmentPolicies = {
   },
 };
 
+// True when this account holds the specific doctor membership referenced on
+// the resource, in ANY of its active memberships for this org — not just
+// whichever one activeMembership resolved to. A dual-role account (admin +
+// doctor in the same org, e.g. a clinic owner who also practices) always gets
+// activeMembership = admin (see authenticate.js), which would otherwise
+// silently block them from writing their own clinical notes.
+function isTreatingDoctor(actor, doctorMembershipId) {
+  if (!doctorMembershipId) return false;
+  return (actor.orgMemberships || []).some(
+    (m) => m.kind === 'doctor' && m._id.equals(doctorMembershipId),
+  );
+}
+
 const sessionNotePolicies = {
   // Clinical documentation is restricted to the doctor who treated this
   // specific patient visit, plus org admins (the confirmed "clinical admin"
@@ -205,9 +218,8 @@ const sessionNotePolicies = {
   'sessionNote.view': (actor, appointment) => {
     if (!appointment || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(appointment.organization)) return false;
-    const m = actor.activeMembership;
-    if (m.kind === 'admin') return true;
-    return m.kind === 'doctor' && m._id.equals(appointment.doctorMembership);
+    if (actor.activeMembership.kind === 'admin') return true;
+    return isTreatingDoctor(actor, appointment.doctorMembership);
   },
 
   // Writing (create/update) is narrower than viewing — only the treating
@@ -216,8 +228,7 @@ const sessionNotePolicies = {
   'sessionNote.manage': (actor, appointment) => {
     if (!appointment || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(appointment.organization)) return false;
-    const m = actor.activeMembership;
-    return m.kind === 'doctor' && m._id.equals(appointment.doctorMembership);
+    return isTreatingDoctor(actor, appointment.doctorMembership);
   },
 
   // Gate for a patient's full note history — any admin or doctor in the same
@@ -227,8 +238,8 @@ const sessionNotePolicies = {
   'sessionNote.viewPatientHistory': (actor, profile) => {
     if (!profile || !actor.activeMembership) return false;
     if (!actor.activeOrgId?.equals(profile.organizationId)) return false;
-    const m = actor.activeMembership;
-    return m.kind === 'admin' || m.kind === 'doctor';
+    if (actor.activeMembership.kind === 'admin') return true;
+    return (actor.orgMemberships || []).some((m) => m.kind === 'doctor');
   },
 };
 

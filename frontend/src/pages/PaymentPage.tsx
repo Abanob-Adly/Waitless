@@ -26,7 +26,7 @@ const METHOD_OPTIONS: { value: "paymob" | "clinic"; icon: string; title: string;
     value: "clinic",
     icon: "🏥",
     title: "Pay at Clinic",
-    desc: "Reserve your spot now and pay the consultation fee at the clinic reception. Staff will confirm and add you to the queue.",
+    desc: "Join the queue right away and pay the consultation fee at the clinic reception. Your ticket shows as unpaid until staff confirms it.",
   },
 ];
 
@@ -63,13 +63,14 @@ export function PaymentPage() {
   const [paymentMethod, setPaymentMethod] = useState<"paymob" | "clinic">("paymob");
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
 
   async function handlePayWithPaymob() {
     setProcessing(true);
     setError(null);
 
     try {
-      const appt = await bookMarketplace(session.id);
+      const appt = await bookMarketplace(session.id, { notes: notes.trim() || undefined });
 
       const { checkoutUrl } = await startAppointmentCheckout(appt.id);
 
@@ -88,7 +89,7 @@ export function PaymentPage() {
     setError(null);
 
     try {
-      const appt = await bookMarketplace(session.id, { paymentMethod: "clinic" });
+      const appt = await bookMarketplace(session.id, { paymentMethod: "clinic", notes: notes.trim() || undefined });
 
       const booking: ActiveBooking = {
         id: appt.id,
@@ -98,6 +99,7 @@ export function PaymentPage() {
         paymentMethod: "clinic",
         paymentStatus: "pending",
         accessToken: appt.accessToken ?? undefined,
+        patientNotes: notes.trim() || undefined,
       };
       addBooking(booking);
 
@@ -190,6 +192,22 @@ export function PaymentPage() {
             </div>
           </div>
 
+          {/* Optional note for the doctor */}
+          <div className="mt-6">
+            <label className="mb-1.5 block text-sm font-medium text-navy">
+              Notes for the doctor <span className="font-normal text-navy-mid">(optional)</span>
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              maxLength={500}
+              rows={3}
+              dir="auto"
+              placeholder="e.g. symptoms, allergies, or anything the doctor should know before your visit"
+              className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </div>
+
           {error && (
             <div className="mt-4 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
               {error}
@@ -204,12 +222,12 @@ export function PaymentPage() {
             {processing ? (
               <>
                 <Spinner />
-                {paymentMethod === "paymob" ? "Redirecting to Paymob…" : "Reserving your spot…"}
+                {paymentMethod === "paymob" ? "Redirecting to Paymob…" : "Joining the queue…"}
               </>
             ) : paymentMethod === "paymob" ? (
               `Pay ${doctor.fee} EGP with Paymob →`
             ) : (
-              `Reserve & Pay at Clinic →`
+              `Join Queue & Pay at Clinic →`
             )}
           </button>
 
