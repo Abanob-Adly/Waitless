@@ -56,7 +56,7 @@ export function AdminDashboard() {
     overview: t("Overview"), branches: t("Branches"), staff: t("Staff"),
     joinrequests: t("Join Requests"),
     schedules: t("Schedules"), sessions: t("Sessions"), wallet: t("My Wallet"),
-    billing: t("Billing"), whatsapp: "WhatsApp", settings: t("Settings"),
+    billing: t("Subscriptions"), whatsapp: "WhatsApp", settings: t("Settings"),
   };
 
   function renderSection() {
@@ -195,7 +195,7 @@ function DashboardHome({
     { id: "schedules", icon: <IconCalendar />, title: t("Schedules"),     desc: t("Set weekly doctor schedules, auto-generate sessions"), theme: "gold",    badge: scheduleCount > 0 ? String(scheduleCount) : undefined },
     { id: "sessions",  icon: <IconClock />,    title: t("Sessions"),      desc: t("View and cap daily patient sessions per branch"),      theme: "success" },
     { id: "settings",  icon: <IconSettings />, title: t("Settings"),      desc: t("Edit organization name and branch commission rates"),  theme: "navy" },
-    { id: "billing",   icon: <IconBilling />,  title: t("Billing"),       desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
+    { id: "billing",   icon: <IconBilling />,  title: t("Subscriptions"), desc: t("Subscription plans and feature access tiers"),         theme: "navy" },
     { id: "whatsapp",  icon: <IconChat />,     title: "WhatsApp",         desc: t("Automate appointment reminders via WhatsApp"),         theme: "success" },
   ];
 
@@ -383,14 +383,19 @@ function IconJoinRequest() {
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab() {
-  const { org, branches, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
+  const { org, branches, schedules, memberships, subscription, plans, isLoading, toggleVisibility } = useOrg();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [toggling, setToggling] = useState(false);
   const [visResult, setVisResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   if (isLoading) return <Skeleton />;
 
   const plan = plans.find((p) => p.id === subscription?.planId);
+  const hasBranch   = branches.length > 0;
+  const hasSchedule = schedules.length > 0;
+  const isTrial     = subscription?.status === "trial";
+  const showOnboarding = !hasBranch || !hasSchedule || isTrial;
   const doctorCount = memberships.filter((m) => m.userRole === "doctor" && m.status === "active").length;
   const staffCount = new Set(memberships.filter((m) => m.status === "active").map((m) => m.userId || m.id)).size;
 
@@ -429,23 +434,37 @@ function OverviewTab() {
         ))}
       </div>
 
-      {branches.length === 0 && (
-        <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">{t("Add your first branch to get started")}</p>
+      {showOnboarding && (
+        <div className="rounded-xl border border-gold bg-gold-tint p-5">
+          <p className="font-heading text-sm font-bold text-navy">{t("Getting Started")}</p>
           <p className="mt-1 text-xs text-navy-mid">
-            {t("Doctors, schedules, and sessions all require a branch. Head to the Branches tab to add one.")}
+            {t("Complete these steps to start accepting patients on Waitless.")}
           </p>
-        </div>
-      )}
-
-      {subscription?.status === "trial" && branches.length > 0 && (
-        <div className="rounded-xl border border-gold bg-gold-tint px-5 py-4">
-          <p className="text-sm font-semibold text-navy">
-            {t("Free Trial")}
-          </p>
-          <p className="mt-1 text-xs text-navy-mid">
-            {t("Upgrade to a paid plan to unlock marketplace listing and more features.")}
-          </p>
+          <div className="mt-4 space-y-2.5">
+            <OnboardingStep
+              done={hasBranch}
+              title={t("Create your first branch")}
+              desc={t("Add your clinic's location — doctors and schedules are attached to a branch.")}
+              cta={t("Add Branch →")}
+              onClick={() => navigate("/admin?tab=branches")}
+            />
+            <OnboardingStep
+              done={hasSchedule}
+              lockedReason={!hasBranch ? t("Add a branch first") : undefined}
+              title={t("Set up a doctor's schedule")}
+              desc={t("Define working hours and consultation fees so patients can book sessions.")}
+              cta={t("Add Schedule →")}
+              onClick={() => navigate("/admin?tab=schedules")}
+            />
+            <OnboardingStep
+              done={!isTrial}
+              optional
+              title={t("Upgrade your subscription")}
+              desc={t("Unlock marketplace listing, more branches, and higher patient limits — anytime you're ready.")}
+              cta={t("View Plans →")}
+              onClick={() => navigate("/admin?tab=billing")}
+            />
+          </div>
         </div>
       )}
 
@@ -481,6 +500,50 @@ function OverviewTab() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function OnboardingStep({
+  done, optional, lockedReason, title, desc, cta, onClick,
+}: {
+  done: boolean;
+  optional?: boolean;
+  lockedReason?: string;
+  title: string;
+  desc: string;
+  cta: string;
+  onClick: () => void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border bg-white p-3 ${done ? "border-success/30" : "border-border"}`}>
+      <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+        done ? "bg-success text-white" : "bg-offwhite text-navy-mid"
+      }`}>
+        {done ? "✓" : ""}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className={`text-sm font-semibold ${done ? "text-navy-mid line-through" : "text-navy"}`}>
+          {title}
+          {optional && !done && (
+            <span className="ml-1.5 rounded-full bg-offwhite px-1.5 py-0.5 text-[10px] font-medium normal-case text-navy-mid no-underline">
+              {t("Optional")}
+            </span>
+          )}
+        </p>
+        {!done && <p className="mt-0.5 text-xs text-navy-mid">{desc}</p>}
+      </div>
+      {!done && (
+        <button
+          onClick={onClick}
+          disabled={!!lockedReason}
+          title={lockedReason}
+          className="shrink-0 rounded-md border border-gold px-3 py-1.5 text-xs font-medium text-navy transition hover:bg-gold-tint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {cta}
+        </button>
+      )}
     </div>
   );
 }
@@ -605,7 +668,7 @@ function BranchesTab() {
 
 function StaffTab() {
   const { memberships, branches, isLoading, inviteStaff, removeMember, updateMember, grantAdmin, revokeAdmin, subscription, plans } = useOrg();
-  const { t, locale } = useLanguage();
+  const { t } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -621,7 +684,15 @@ function StaffTab() {
       : `Remove ${nameOrEmail || "this staff member"}? This cannot be undone.`;
     if (!window.confirm(msg)) return;
     setRemoving(memberId);
-    await removeMember(memberId);
+    setEditError(null);
+    const ok = await removeMember(memberId);
+    if (!ok) {
+      setEditError(
+        isPending
+          ? "Failed to cancel invite. Please try again."
+          : "Failed to remove staff member. Please try again.",
+      );
+    }
     setRemoving(null);
   }
 
@@ -1241,7 +1312,7 @@ type BranchConflict = { currentBranches: number; allowedBranches: number; planNa
 type PaymentModal = { planId: string; planName: string; planPrice: number; walletBalance: number };
 
 function BillingTab() {
-  const { org, subscription, plans, branches, isLoading, upgradePlan, refresh } = useOrg();
+  const { org, subscription, plans, branches, isLoading, refresh } = useOrg();
   const { t, locale } = useLanguage();
   const [searchParams] = useSearchParams();
 
@@ -1562,9 +1633,9 @@ function BillingTab() {
         </div>
       </div>
 
-      {/* ── Billing History ─────────────────────────────────────────────── */}
+      {/* ── Subscription History ────────────────────────────────────────── */}
       <div>
-        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Billing History")}</h2>
+        <h2 className="mb-3 font-heading text-base font-bold text-navy">{t("Subscription History")}</h2>
 
         {invoicesLoading ? (
           <Skeleton />
@@ -2035,9 +2106,8 @@ function WalletTab() {
 // ── Settings Tab ──────────────────────────────────────────────────────────────
 
 function SettingsTab() {
-  const { org, branches, updateOrg, refresh } = useOrg();
+  const { org, updateOrg } = useOrg();
   const { t } = useLanguage();
-  const orgId = org?.id ?? "";
 
   const [orgName, setOrgName] = useState(org?.name ?? "");
   const [savingName, setSavingName] = useState(false);
