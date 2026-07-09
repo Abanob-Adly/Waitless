@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../services/api";
+import { fmt12 } from "../../utils/time";
 
 type TrackData = {
   queueNumber: number;
@@ -10,6 +11,8 @@ type TrackData = {
   status: string;
   sessionStatus?: string;
   sessionDate?: string;
+  sessionStartTime?: string;
+  avgConsultationMin?: number;
   doctorName?: string;
   consultationFee?: number;
 };
@@ -120,6 +123,24 @@ export function LiveQueuePage() {
   const isDone = status === "completed" || status === "no_show" || status === "cancelled";
   const todayUtc = new Date().toISOString().slice(0, 10);
   const isFutureAppointment = data.sessionDate ? data.sessionDate > todayUtc : false;
+  const isNotStarted = !isFutureAppointment && !isCalled && !isDone && data.sessionStatus === "scheduled";
+
+  // Personalized arrival time: the session starting doesn't mean this patient
+  // needs to be there right away — estimate when their turn will actually
+  // come (based on how many patients are ahead) and recommend arriving
+  // 10 minutes before THAT, not 10 minutes before the session opens.
+  let recommendedArrival = "";
+  if (isNotStarted && data.sessionStartTime) {
+    const [hh, mm] = new Date(data.sessionStartTime).toISOString().slice(11, 16).split(":").map(Number);
+    const scheduledStart = new Date(`${data.sessionDate ?? todayUtc}T00:00:00`);
+    scheduledStart.setHours(hh ?? 0, mm ?? 0, 0, 0);
+    const patientsAhead = Math.max(0, queueNumber - 1);
+    const avgMin = data.avgConsultationMin ?? 15;
+    const arrivalDate = new Date(scheduledStart.getTime() + patientsAhead * avgMin * 60_000 - 10 * 60_000);
+    recommendedArrival = fmt12(
+      `${String(arrivalDate.getHours()).padStart(2, "0")}:${String(arrivalDate.getMinutes()).padStart(2, "0")}`,
+    );
+  }
 
   return (
     <main className="min-h-[calc(100vh-64px)] bg-offwhite px-4 py-10">
@@ -176,7 +197,20 @@ export function LiveQueuePage() {
           className="animate-fade-up overflow-hidden rounded-xl border bg-white shadow-sm"
           style={{ animationDelay: "80ms" }}
         >
-          {isCalled ? (
+          {isNotStarted ? (
+            <div className="flex items-center gap-3 px-6 py-5">
+              <span className="text-xl">⏳</span>
+              <div>
+                <p className="font-semibold text-navy">Session not started yet</p>
+                <p className="mt-0.5 text-sm text-navy-mid">
+                  You're #{queueNumber} in line
+                  {recommendedArrival && (
+                    <> — come around <span className="font-semibold text-navy">{recommendedArrival}</span></>
+                  )}
+                </p>
+              </div>
+            </div>
+          ) : isCalled ? (
             <div className="px-6 py-8 text-center">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-3xl">
                 🔔
