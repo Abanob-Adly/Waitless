@@ -174,6 +174,7 @@ export const paymentService = {
           planId:       payment.plan,
           billingCycle: payment.billingCycle,
           providerRef:  String(obj.id),
+          amountCents:  payment.amountCents,
         });
         break;
 

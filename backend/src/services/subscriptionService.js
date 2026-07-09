@@ -1,5 +1,6 @@
 import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import Invoice from '../models/Invoice.js';
 import { NotFound } from '../utils/errors.js';
 
 function addPeriod(from, cycle) {
@@ -24,12 +25,14 @@ export const subscriptionService = {
    * Called by the Paymob webhook when a subscription payment succeeds.
    * Creates a new subscription or extends the existing one.
    */
-  async activateOrRenew({ orgId, planId, billingCycle, providerRef }) {
+  async activateOrRenew({ orgId, planId, billingCycle, providerRef, amountCents }) {
     const plan = await SubscriptionPlan.findById(planId);
     if (!plan) throw NotFound('Plan not found');
 
     const existing = await this.getActive(orgId);
     const now = new Date();
+
+    let subscription;
 
     // Same plan renewal → extend from whichever is later (now or currentPeriodEnd)
     if (existing && String(existing.plan._id) === String(planId)) {
@@ -43,26 +46,44 @@ export const subscriptionService = {
       existing.cancelAtPeriodEnd       = false;
       existing.cancelledAt             = null;
       await existing.save();
-      return existing;
+      subscription = existing;
+    } else {
+      // Plan change → cancel the old one, create a fresh subscription
+      if (existing) {
+        existing.state       = 'cancelled';
+        existing.cancelledAt = now;
+        await existing.save();
+      }
+
+      subscription = await Subscription.create({
+        organization:           orgId,
+        plan:                   planId,
+        state:                  'active',
+        billingCycle,
+        currentPeriodStart:     now,
+        currentPeriodEnd:       addPeriod(now, billingCycle),
+        provider:               'paymob',
+        providerSubscriptionId: providerRef,
+      });
     }
 
-    // Plan change → cancel the old one, create a fresh subscription
-    if (existing) {
-      existing.state       = 'cancelled';
-      existing.cancelledAt = now;
-      await existing.save();
-    }
-
-    return Subscription.create({
-      organization:           orgId,
-      plan:                   planId,
-      state:                  'active',
-      billingCycle,
-      currentPeriodStart:     now,
-      currentPeriodEnd:       addPeriod(now, billingCycle),
-      provider:               'paymob',
-      providerSubscriptionId: providerRef,
+    // Every real (Paymob) charge gets a billing-history record — this was
+    // previously only done for wallet/manual activation in orgService,
+    // so Paymob-paid plans (the primary payment gate) never showed up here.
+    await Invoice.create({
+      organization:        orgId,
+      plan:                planId,
+      planName:            plan.name,
+      amount:              (amountCents ?? 0) / 100,
+      currency:            plan.currency || 'EGP',
+      paymentMethod:       'paymob',
+      paymobTransactionId: providerRef,
+      status:              'paid',
+      periodStart:         subscription.currentPeriodStart,
+      periodEnd:           subscription.currentPeriodEnd,
     });
+
+    return subscription;
   },
 
   /**
