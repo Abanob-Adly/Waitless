@@ -23,7 +23,13 @@ type QueueSubscriptionResult = {
 };
 
 /**
- * Polls the public queue tracking endpoint every 3 seconds.
+ * Subscribes to the public queue tracking endpoint via SSE for real-time
+ * updates, re-fetching only when the server actually pushes a change —
+ * not on a fixed timer. Falls back to 30s polling only if the SSE
+ * connection can't be established after retries (matches the pattern in
+ * pages/queue/LiveTicket.tsx). This used to poll unconditionally every 3
+ * seconds, which — combined with each request's cost — made the ticket
+ * page feel like it was constantly reloading.
  * `trackingToken` is the accessToken returned when an appointment is booked.
  */
 export function useQueueSubscription(
@@ -104,10 +110,38 @@ export function useQueueSubscription(
     }
 
     tick();
-    const id = setInterval(tick, 3000);
+
+    // SSE for real-time updates. Retries up to 3 times with 3/6/9s backoff
+    // before falling back to 30s polling.
+    const apiBase = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+    const sseUrl = `${apiBase}/appointments/track/${trackingToken}/sse`;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let retries = 0;
+    let currentSSE: EventSource | null = null;
+
+    function connectSSE() {
+      const es = new EventSource(sseUrl);
+      currentSSE = es;
+      es.onopen = () => { retries = 0; };
+      es.onmessage = () => { void tick(); };
+      es.onerror = () => {
+        es.close();
+        if (!alive) return;
+        if (retries < 3) {
+          retries++;
+          setTimeout(() => { if (alive) connectSSE(); }, retries * 3_000);
+        } else if (!fallbackInterval) {
+          fallbackInterval = setInterval(() => { void tick(); }, 30_000);
+        }
+      };
+    }
+
+    connectSSE();
+
     return () => {
       alive = false;
-      clearInterval(id);
+      currentSSE?.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, [trackingToken]);
 

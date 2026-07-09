@@ -75,6 +75,13 @@ sessionSchema.index(
   { unique: true }
 );
 
+// listSessions() filters by branch + a startTime range (calendar views, the
+// "today" lookup, etc.) — the single-field indexes on branch/startTime alone
+// force Mongo to intersect two indexes instead of doing one range scan. The
+// sessionGenerator cron never prunes old sessions, so this compound index
+// keeps that query fast as sessions accumulate over months.
+sessionSchema.index({ branch: 1, startTime: 1 });
+
 /**
  * Atomically reserves the next queue number for a new booking.
  * Returns the updated Session (use .bookingsCount as the new queueNumber),
