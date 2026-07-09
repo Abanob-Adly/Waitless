@@ -119,6 +119,71 @@ describe('bookMarketplace — pay-at-clinic queue gating', () => {
   });
 });
 
+describe('bookMarketplace — concurrent unpaid pay-at-clinic cap', () => {
+  it('allows a patient to hold 2 unpaid clinic bookings across different sessions', async () => {
+    const branch = await makeBranch();
+    const schedule = await makeSchedule(branch);
+    const session1 = await makeSession(branch, schedule);
+    const session2 = await makeSession(branch, schedule);
+    const actor = makeActor();
+
+    await marketplaceService.bookMarketplace({ actor, sessionId: session1._id, paymentMethod: 'clinic' });
+    const { appointment } = await marketplaceService.bookMarketplace({ actor, sessionId: session2._id, paymentMethod: 'clinic' });
+
+    assert.equal(appointment.status, 'pending_confirmation');
+  });
+
+  it('rejects a 3rd concurrent unpaid clinic booking for the same patient', async () => {
+    const branch = await makeBranch();
+    const schedule = await makeSchedule(branch);
+    const session1 = await makeSession(branch, schedule);
+    const session2 = await makeSession(branch, schedule);
+    const session3 = await makeSession(branch, schedule);
+    const actor = makeActor();
+
+    await marketplaceService.bookMarketplace({ actor, sessionId: session1._id, paymentMethod: 'clinic' });
+    await marketplaceService.bookMarketplace({ actor, sessionId: session2._id, paymentMethod: 'clinic' });
+
+    await assert.rejects(
+      () => marketplaceService.bookMarketplace({ actor, sessionId: session3._id, paymentMethod: 'clinic' }),
+      /2 unpaid pay-at-clinic bookings/,
+    );
+  });
+
+  it('does not count paymob (online-paid) bookings toward the clinic cap', async () => {
+    const branch = await makeBranch();
+    const schedule = await makeSchedule(branch);
+    const session1 = await makeSession(branch, schedule);
+    const session2 = await makeSession(branch, schedule);
+    const session3 = await makeSession(branch, schedule);
+    const actor = makeActor();
+
+    await marketplaceService.bookMarketplace({ actor, sessionId: session1._id, paymentMethod: 'paymob' });
+    await marketplaceService.bookMarketplace({ actor, sessionId: session2._id, paymentMethod: 'clinic' });
+
+    const { appointment } = await marketplaceService.bookMarketplace({ actor, sessionId: session3._id, paymentMethod: 'clinic' });
+    assert.equal(appointment.status, 'pending_confirmation');
+  });
+
+  it('a 3rd clinic booking succeeds once one of the first 2 has been paid/confirmed', async () => {
+    const branch = await makeBranch();
+    const schedule = await makeSchedule(branch);
+    const session1 = await makeSession(branch, schedule);
+    const session2 = await makeSession(branch, schedule);
+    const session3 = await makeSession(branch, schedule);
+    const actor = makeActor();
+
+    const first = await marketplaceService.bookMarketplace({ actor, sessionId: session1._id, paymentMethod: 'clinic' });
+    await marketplaceService.bookMarketplace({ actor, sessionId: session2._id, paymentMethod: 'clinic' });
+
+    const req = { resource: first.appointment, body: {}, actor: { activeMembership: { _id: oid() } } };
+    await appointmentController.confirmPayment(req, makeRes());
+
+    const { appointment } = await marketplaceService.bookMarketplace({ actor, sessionId: session3._id, paymentMethod: 'clinic' });
+    assert.equal(appointment.status, 'pending_confirmation');
+  });
+});
+
 describe('appointmentController.confirmPayment — joining the queue', () => {
   it('transitions pending_confirmation to booked and marks payment success', async () => {
     const branch = await makeBranch();

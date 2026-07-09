@@ -136,17 +136,38 @@ export const marketplaceService = {
       return { appointment: existing, accessToken: existing.accessToken };
     }
 
-    const updated = await Session.reserveQueueNumber(sessionId);
-    if (!updated) throw new AppError('Session is no longer accepting bookings', 409);
-
-    const queueNumber = updated.bookingsCount;
-    const accessToken = generateToken(16);
-
     // "Pay at clinic" bookings don't join the active queue immediately —
     // a receptionist or doctor must confirm the payment first (see
     // appointmentController.confirmPayment), which flips this to 'booked'.
     // Every other method keeps the existing immediate-booking behavior.
     const isPayAtClinic = paymentMethod === 'clinic';
+
+    // Cap concurrent unpaid pay-at-clinic bookings per patient — without this,
+    // a patient could hold unlimited unpaid slots across many sessions with no
+    // commitment, occupying receptionist/doctor queue slots that a paying
+    // patient could have used instead. Online (paymob) bookings pay immediately
+    // and are unaffected. Scoped across all sessions, not just this one — the
+    // `existing` check above already prevents duplicates within one session.
+    if (isPayAtClinic) {
+      const unpaidClinicCount = await Appointment.countDocuments({
+        patientProfile: profile._id,
+        paymentMethod:  'clinic',
+        paymentStatus:  { $ne: 'success' },
+        status:         { $in: ['pending_confirmation', 'booked', 'called', 'held', 'skipped', 'in_progress'] },
+      });
+      if (unpaidClinicCount >= 2) {
+        throw new AppError(
+          'You have 2 unpaid pay-at-clinic bookings already. Please pay at the clinic or cancel one before booking another this way.',
+          422,
+        );
+      }
+    }
+
+    const updated = await Session.reserveQueueNumber(sessionId);
+    if (!updated) throw new AppError('Session is no longer accepting bookings', 409);
+
+    const queueNumber = updated.bookingsCount;
+    const accessToken = generateToken(16);
 
     let appointment;
     try {

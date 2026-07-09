@@ -6,7 +6,7 @@ import { getActiveSubscription } from '../utils/subscription.js';
 import { Membership } from '../models/Membership.js';
 import DoctorBranchSchedule from '../models/DoctorBranchSchedule.js';
 import { walletService } from './walletService.js';
-import redis, { describeRedisError } from '../config/redis.js';
+import redis, { describeRedisError, isRedisReady } from '../config/redis.js';
 import { env } from '../config/env.js';
 import { AppError, NotFound } from '../utils/errors.js';
 import { generateToken } from '../utils/otp.js';
@@ -31,17 +31,22 @@ const redisKey      = (id) => `queue:session:${id}`;
 const redisPubChan  = (id) => `queue.session.${id}`;
 
 async function getQueueState(sessionId) {
-  try {
-    const raw = await redis.hgetall(redisKey(sessionId));
-    if (raw && raw.currentServing != null) {
-      return {
-        currentServing:     Number(raw.currentServing),
-        avgConsultationMin: Number(raw.avgConsultationMin),
-        globalDelayMin:     Number(raw.globalDelayMin || 0),
-        status:             raw.status,
-      };
-    }
-  } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
+  // Skip the Redis round-trip entirely once we know the connection is down —
+  // attempting it anyway just pays the retry-delay tax before falling back
+  // to the exact same Mongo read below.
+  if (isRedisReady()) {
+    try {
+      const raw = await redis.hgetall(redisKey(sessionId));
+      if (raw && raw.currentServing != null) {
+        return {
+          currentServing:     Number(raw.currentServing),
+          avgConsultationMin: Number(raw.avgConsultationMin),
+          globalDelayMin:     Number(raw.globalDelayMin || 0),
+          status:             raw.status,
+        };
+      }
+    } catch (err) { console.warn('[queue] Redis read failed:', describeRedisError(err)); }
+  }
 
   const session = await Session.findById(sessionId).lean();
   if (!session) return null;
@@ -54,6 +59,10 @@ async function getQueueState(sessionId) {
 }
 
 async function publishUpdate(sessionId, payload) {
+  // Pub/sub has no Mongo fallback (nothing to "read" — it's a live push), so
+  // when Redis is down this is a same-tick no-op instead of a wasted retry;
+  // clients relying on SSE will pick the change up on their next poll/refetch.
+  if (!isRedisReady()) return;
   try {
     await redis.publish(redisPubChan(sessionId), JSON.stringify(payload));
   } catch (err) { console.warn('[queue] Redis publish failed:', describeRedisError(err)); }
@@ -61,6 +70,7 @@ async function publishUpdate(sessionId, payload) {
 
 export const queueService = {
   async populateRedis({ session }) {
+    if (!isRedisReady()) return;
     try {
       await redis.hmset(redisKey(session._id), {
         currentServing:     String(session.currentServing),
@@ -156,7 +166,7 @@ export const queueService = {
     await next.save();
 
     await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
-    try {
+    if (isRedisReady()) try {
       await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
     } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, { type: 'updated', currentServing: next.queueNumber });
@@ -227,7 +237,7 @@ export const queueService = {
 
     if (wasCalled) {
       await Session.findByIdAndUpdate(session._id, { $set: { currentServing: next.queueNumber } });
-      try {
+      if (isRedisReady()) try {
         await redis.hset(redisKey(session._id), 'currentServing', String(next.queueNumber));
       } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     }
@@ -250,7 +260,7 @@ export const queueService = {
     await Session.findByIdAndUpdate(session._id, {
       $set: { currentServing: appointment.queueNumber },
     });
-    try {
+    if (isRedisReady()) try {
       await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
     } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
     await publishUpdate(session._id, {
@@ -271,7 +281,7 @@ export const queueService = {
     const patch = {};
     if (data.avgConsultationMin != null) patch.avgConsultationMin = String(data.avgConsultationMin);
     if (data.globalDelayMin     != null) patch.globalDelayMin     = String(data.globalDelayMin);
-    try {
+    if (isRedisReady()) try {
       await redis.hmset(redisKey(session._id), patch);
     } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
 
@@ -320,7 +330,7 @@ export const queueService = {
       await Session.findByIdAndUpdate(session._id, {
         $set: { currentServing: appointment.queueNumber },
       });
-      try {
+      if (isRedisReady()) try {
         await redis.hset(redisKey(session._id), 'currentServing', String(appointment.queueNumber));
       } catch (err) { console.warn('[queue] Redis write failed:', describeRedisError(err)); }
       await publishUpdate(session._id, {
@@ -338,7 +348,7 @@ export const queueService = {
         if (overrunMin > 0.5) { // ignore sub-30-second noise
           const rounded = Math.round(overrunMin * 10) / 10;
           await Session.findByIdAndUpdate(session._id, { $inc: { globalDelayMin: rounded } });
-          try {
+          if (isRedisReady()) try {
             const prev    = Number(await redis.hget(redisKey(session._id), 'globalDelayMin') || 0);
             const updated = Math.round((prev + rounded) * 10) / 10;
             await redis.hset(redisKey(session._id), 'globalDelayMin', String(updated));
@@ -356,7 +366,7 @@ export const queueService = {
 
           await Session.findByIdAndUpdate(session._id, { avgConsultationMin: newAvg });
           session.avgConsultationMin = newAvg; // keep in-memory ref consistent
-          try {
+          if (isRedisReady()) try {
             await redis.hset(redisKey(session._id), 'avgConsultationMin', String(newAvg));
           } catch (err) { console.warn('[adaptive] Redis write failed:', describeRedisError(err)); }
 
@@ -505,7 +515,7 @@ export const queueService = {
     }
     await session.save();
 
-    try {
+    if (isRedisReady()) try {
       await redis.hmset(redisKey(session._id), {
         globalDelayMin: String(session.globalDelayMin),
       });
@@ -571,7 +581,7 @@ export const queueService = {
     // falling back to it directly avoids a second DB query on every poll tick
     // whenever Redis is unavailable or cold.
     let cached = null;
-    try {
+    if (isRedisReady()) try {
       const raw = await redis.hgetall(redisKey(session._id));
       if (raw && raw.currentServing != null) {
         cached = {

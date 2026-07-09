@@ -233,9 +233,11 @@ export async function getQueue(
   orgId: string,
   branchId: string,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<QueueStatus> {
   const res = await api.get<{ data: Record<string, unknown> }>(
     `${base(orgId, branchId)}/${sessionId}/queue`,
+    { signal },
   );
   const d = res.data.data;
   return {

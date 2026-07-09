@@ -26,6 +26,18 @@ const redis = new IORedis(env.redis.url, {
   retryStrategy:        isTest ? () => null : () => 2000,
 });
 
+// maxRetriesPerRequest:1 and a flat retryStrategy already bound the cost of
+// a single Redis command while Redis is down, but that bound (one retry
+// cycle, up to ~2s) is still paid on every command issued from a hot path
+// like a queue-load or queue-action request. Once ioredis has told us the
+// connection is down, there's no reason to attempt (and wait out) another
+// command before falling back to Mongo — checking .status first turns that
+// ~2s tax into a same-tick skip. status flips back to 'ready' automatically
+// once the background reconnect (driven by retryStrategy) succeeds.
+export function isRedisReady() {
+  return redis.status === 'ready';
+}
+
 // ioredis often surfaces connection failures as an AggregateError (e.g. one
 // ECONNREFUSED per resolved address for "localhost") whose own .message is
 // empty — logging err.message alone prints nothing useful. Prefer the error

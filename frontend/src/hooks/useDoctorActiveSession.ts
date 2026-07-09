@@ -13,6 +13,20 @@ type UseDoctorActiveSessionResult = {
   reloadQueueNow: () => Promise<void>;
 };
 
+// Replacing `queue` wholesale on every poll/SSE tick hands a brand-new array
+// of brand-new objects to React even when nothing changed, which defeats
+// React.memo on the row components downstream (they'd re-render every tick
+// regardless of memoization since the `appt` prop reference always differs).
+// Reusing the previous object reference for any appointment whose fields are
+// unchanged lets memo actually skip those rows.
+function mergeAppointments(prev: BackendAppointment[], next: BackendAppointment[]): BackendAppointment[] {
+  const prevById = new Map(prev.map((a) => [a.id, a]));
+  return next.map((a) => {
+    const old = prevById.get(a.id);
+    return old && JSON.stringify(old) === JSON.stringify(a) ? old : a;
+  });
+}
+
 function todayString() {
   const d = new Date();
   return [
@@ -48,10 +62,23 @@ export function useDoctorActiveSession(
   const sseCleanupRef = useRef<(() => void) | null>(null);
   const activeSessionRef = useRef<{ orgId: string; branchId: string; sessionId: string } | null>(null);
 
+  // Only the most recently-issued queue fetch matters — an older one that's
+  // still in flight when a newer one starts (e.g. an SSE tick lands mid-poll)
+  // would otherwise race and can resolve second, overwriting fresher data
+  // with stale data. Aborting the previous request before issuing a new one
+  // removes that race instead of just hoping the newer one wins.
+  const queueFetchAbortRef = useRef<AbortController | null>(null);
+
   function reloadQueue(orgIdArg: string, branchId: string, sessionId: string) {
-    sessionService.getQueue(orgIdArg, branchId, sessionId)
-      .then((q) => { setQueue(q.appointments); setPendingConfirmation(q.pendingConfirmation); })
-      .catch(() => { /* leave stale */ });
+    queueFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    queueFetchAbortRef.current = controller;
+    sessionService.getQueue(orgIdArg, branchId, sessionId, controller.signal)
+      .then((q) => {
+        setQueue((prev) => mergeAppointments(prev, q.appointments));
+        setPendingConfirmation(q.pendingConfirmation);
+      })
+      .catch(() => { /* leave stale (includes intentional aborts) */ });
   }
 
   function ensureSSE(orgIdArg: string, branchId: string, sessionId: string) {
@@ -80,9 +107,12 @@ export function useDoctorActiveSession(
     sseCleanupRef.current = () => { sse.close(); activeSessionRef.current = null; };
   }
 
-  // Clean up SSE on unmount
+  // Clean up SSE + any in-flight queue fetch on unmount
   useEffect(() => {
-    return () => { sseCleanupRef.current?.(); };
+    return () => {
+      sseCleanupRef.current?.();
+      queueFetchAbortRef.current?.abort();
+    };
   }, []);
 
   const reload = useCallback(async () => {
@@ -137,12 +167,15 @@ export function useDoctorActiveSession(
           setActiveSession(found);
           setActiveBranchId(foundBranch.id);
           ensureSSE(orgId, foundBranch.id, found.id);
+          queueFetchAbortRef.current?.abort();
+          const controller = new AbortController();
+          queueFetchAbortRef.current = controller;
           try {
-            const q = await sessionService.getQueue(orgId, foundBranch.id, found.id);
-            setQueue(q.appointments);
+            const q = await sessionService.getQueue(orgId, foundBranch.id, found.id, controller.signal);
+            setQueue((prev) => mergeAppointments(prev, q.appointments));
             setPendingConfirmation(q.pendingConfirmation);
           } catch {
-            // Leave stale queue data on transient error
+            // Leave stale queue data on transient error (includes intentional aborts)
           }
           return;
       }
@@ -175,12 +208,15 @@ export function useDoctorActiveSession(
   // updates immediately instead of waiting for the next 10s poll.
   async function reloadQueueNow() {
     if (!orgId || !activeBranchId || !activeSession) return;
+    queueFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    queueFetchAbortRef.current = controller;
     try {
-      const q = await sessionService.getQueue(orgId, activeBranchId, activeSession.id);
-      setQueue(q.appointments);
+      const q = await sessionService.getQueue(orgId, activeBranchId, activeSession.id, controller.signal);
+      setQueue((prev) => mergeAppointments(prev, q.appointments));
       setPendingConfirmation(q.pendingConfirmation);
     } catch {
-      // Leave stale queue data on transient error — the 10s poll will retry.
+      // Leave stale queue data on transient error (includes intentional aborts) — the 10s poll will retry.
     }
   }
 

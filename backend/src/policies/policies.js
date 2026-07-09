@@ -197,6 +197,41 @@ const appointmentPolicies = {
   },
 };
 
+const sessionNotePolicies = {
+  // Clinical documentation is restricted to the doctor who treated this
+  // specific patient visit, plus org admins (the confirmed "clinical admin"
+  // definition for this pass — no separate clinical-admin role exists yet).
+  // Receptionists never see clinical notes, even though they share the org.
+  'sessionNote.view': (actor, appointment) => {
+    if (!appointment || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(appointment.organization)) return false;
+    const m = actor.activeMembership;
+    if (m.kind === 'admin') return true;
+    return m.kind === 'doctor' && m._id.equals(appointment.doctorMembership);
+  },
+
+  // Writing (create/update) is narrower than viewing — only the treating
+  // doctor authors their own clinical notes; admins can view for oversight
+  // but do not edit another doctor's documentation.
+  'sessionNote.manage': (actor, appointment) => {
+    if (!appointment || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(appointment.organization)) return false;
+    const m = actor.activeMembership;
+    return m.kind === 'doctor' && m._id.equals(appointment.doctorMembership);
+  },
+
+  // Gate for a patient's full note history — any admin or doctor in the same
+  // org may call this endpoint; the service layer then filters individual
+  // notes further (a non-admin doctor only sees notes they personally wrote,
+  // not a colleague's, since this route isn't scoped to one specific visit).
+  'sessionNote.viewPatientHistory': (actor, profile) => {
+    if (!profile || !actor.activeMembership) return false;
+    if (!actor.activeOrgId?.equals(profile.organizationId)) return false;
+    const m = actor.activeMembership;
+    return m.kind === 'admin' || m.kind === 'doctor';
+  },
+};
+
 const queuePolicies = {
   'queue.view': (actor) => {
     return !!actor.activeMembership;
@@ -251,6 +286,7 @@ export const policies = {
   ...schedulePolicies,
   ...sessionPolicies,
   ...appointmentPolicies,
+  ...sessionNotePolicies,
   ...queuePolicies,
   ...payoutPolicies,
   ...patientPolicies,

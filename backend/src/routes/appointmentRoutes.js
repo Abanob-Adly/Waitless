@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../policies/can.js';
 import { validate } from '../middleware/validate.js';
 import { appointmentController, appointmentSchemas } from '../controllers/appointmentController.js';
+import { sessionNoteController, sessionNoteSchemas } from '../controllers/sessionNoteController.js';
 import Appointment from '../models/Appointment.js';
 
 const router = Router({ mergeParams: true });
@@ -54,6 +55,21 @@ router.patch(
   authorize('appointment.confirm_payment', loadAppointment),
   validate(appointmentSchemas.confirmPayment),
   appointmentController.confirmPayment
+);
+
+router.get(
+  '/:appointmentId/notes',
+  authenticate,
+  authorize('sessionNote.view', loadAppointment),
+  sessionNoteController.getForAppointment
+);
+
+router.post(
+  '/:appointmentId/notes',
+  authenticate,
+  authorize('sessionNote.manage', loadAppointment),
+  validate(sessionNoteSchemas.upsert),
+  sessionNoteController.upsertForAppointment
 );
 
 export default router;

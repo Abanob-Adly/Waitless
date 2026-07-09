@@ -1,5 +1,5 @@
 import VerificationToken from "../models/verificationToken.js";
-import { generateOtp, generateToken, hashCode, verifyCode } from "../utils/otp.js";
+import { generateOtp, generateToken, hashCode, verifyCode, sha256 } from "../utils/otp.js";
 import { emailProvider } from "./providers/email.js";
 import { whatsappProvider } from "./providers/whatsapp.js";
 import { env } from "../config/env.js";
@@ -34,7 +34,14 @@ export const verificationService = {
 
     const rawCode =
       cfg.kind === "otp" ? generateOtp(env.otp.length) : generateToken(32);
-    const codeHash = await hashCode(rawCode);
+    // OTPs are low-entropy (6 digits) and must be brute-force-resistant, so
+    // they stay bcrypt-hashed. Password-reset tokens are 256 bits of random
+    // entropy — bcrypt's slowness buys nothing there, and hashing them
+    // deterministically (sha256) is what lets confirmPasswordReset look the
+    // record up directly by token instead of guessing "whichever is newest"
+    // (see services/auth.js).
+    const codeHash =
+      cfg.kind === "otp" ? await hashCode(rawCode) : sha256(rawCode);
 
     await VerificationToken.create({
       account: account._id,

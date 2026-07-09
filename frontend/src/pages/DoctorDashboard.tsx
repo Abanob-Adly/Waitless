@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { usePolling } from "../hooks/usePolling";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -8,11 +8,129 @@ import * as sessionService from "../services/sessionService";
 import * as appointmentService from "../services/appointmentService";
 import { useDoctorActiveSession } from "../hooks/useDoctorActiveSession";
 import type { BackendSession, BackendAppointment } from "../services/sessionService";
+import { SessionNoteModal } from "../components/doctor/SessionNoteModal";
 import { SPECIALTIES } from "../data/mockData";
 import { fmt12 } from "../utils/time";
 import { toE164 } from "../utils/phone";
 
 type DoctorSection = "workspace" | "calendar" | "profile";
+
+// ── Queue row ─────────────────────────────────────────────────────────────────
+// Memoized so a poll/SSE tick that leaves this appointment's data unchanged
+// (see mergeAppointments in useDoctorActiveSession, which preserves object
+// identity for unchanged rows) skips re-rendering it entirely, instead of
+// re-rendering every row in the queue on every tick.
+const QueueRow = memo(function QueueRow({
+  appt, t, actionInProgress, onHold, onReinsert, onForceInsert, onSkip, onNotes,
+}: {
+  appt: BackendAppointment;
+  t: (text: string) => string;
+  actionInProgress: string | null;
+  onHold: (id: string) => void;
+  onReinsert: (id: string) => void;
+  onForceInsert: (id: string) => void;
+  onSkip: (id: string) => void;
+  onNotes: (id: string, patientName: string) => void;
+}) {
+  const canHold = appt.status === "called";
+  const canInsert = appt.status === "held";
+  const canSkip = appt.status === "booked" || appt.status === "called";
+  // No-Show holds the patient's spot (recoverable via Re-insert) instead of
+  // permanently removing them from the queue. Only shown for "booked" — a
+  // "called" patient who doesn't show up is already covered by Hold, which
+  // does the same thing.
+  const canNoShow = appt.status === "booked";
+  const canForceInsert = appt.status === "booked";
+  const busy = actionInProgress === appt.id;
+  return (
+    <div className="flex items-center justify-between gap-3 px-5 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
+          {appt.queueNumber}
+        </span>
+        <div>
+          <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
+          <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+          appt.status === "booked"      ? "bg-offwhite text-navy-mid"
+          : appt.status === "called"    ? "bg-success/10 text-success"
+          : appt.status === "in_progress" ? "bg-gold-tint text-gold"
+          : appt.status === "held"      ? "bg-orange-50 text-orange-600"
+          : appt.status === "completed" ? "bg-success/5 text-success"
+          : "bg-danger/10 text-danger"
+        }`}>
+          {t(appt.status)}
+        </span>
+        <button
+          onClick={() => onNotes(appt.id, appt.patientProfile.fullName)}
+          className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-gold hover:text-gold"
+          title={t("View or edit session notes")}
+        >
+          📝 {t("Notes")}
+        </button>
+        {appt.paymentMethod === "clinic" && (
+          <span
+            className="rounded bg-gold-tint px-1.5 py-0.5 text-[10px] font-medium text-gold"
+            title={appt.paymentStatus === "success" ? t("Paid at clinic") : t("Pay at clinic — not yet paid")}
+          >
+            {appt.paymentStatus === "success" ? t("Clinic ✓") : t("Clinic — unpaid")}
+          </span>
+        )}
+        {canHold && (
+          <button
+            onClick={() => onHold(appt.id)}
+            disabled={busy}
+            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-navy disabled:opacity-60"
+          >
+            {t("Hold")}
+          </button>
+        )}
+        {canInsert && (
+          <button
+            onClick={() => onReinsert(appt.id)}
+            disabled={busy}
+            className="rounded-md bg-navy px-2.5 py-1 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
+          >
+            {t("Re-insert")}
+          </button>
+        )}
+        {canForceInsert && (
+          <button
+            onClick={() => onForceInsert(appt.id)}
+            disabled={busy}
+            className="rounded-md border border-danger/40 bg-danger/5 px-2.5 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-60"
+            title={t("Move this patient to the front of the queue")}
+          >
+            🚨 {t("Urgent")}
+          </button>
+        )}
+        {canSkip && (
+          <button
+            onClick={() => onSkip(appt.id)}
+            disabled={busy}
+            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-danger hover:text-danger disabled:opacity-60"
+            title={t("Switch turns with the next patient")}
+          >
+            {t("Skip")}
+          </button>
+        )}
+        {canNoShow && (
+          <button
+            onClick={() => onHold(appt.id)}
+            disabled={busy}
+            className="rounded-md border border-danger/30 px-2.5 py-1 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
+            title={t("Hold their spot — can be re-inserted later")}
+          >
+            {t("No-show")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -335,6 +453,29 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   const [submittingExcuse, setSubmittingExcuse] = useState(false);
   const [excuseError, setExcuseError] = useState<string | null>(null);
 
+  // ── Session notes ──────────────────────────────────────────────────────────
+  const [noteModal, setNoteModal] = useState<{
+    branchId: string; sessionId: string; appointmentId: string; patientName: string;
+  } | null>(null);
+  // A past (ended) session's appointment list, opened from the sidebar so a
+  // doctor can reach notes for a patient they saw in an earlier session today.
+  const [pastSessionPanel, setPastSessionPanel] = useState<{ sessionId: string; branchId: string } | null>(null);
+  const [pastSessionAppointments, setPastSessionAppointments] = useState<appointmentService.BookedAppointment[]>([]);
+  const [pastSessionLoading, setPastSessionLoading] = useState(false);
+  const [pastSessionError, setPastSessionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pastSessionPanel) return;
+    let alive = true;
+    setPastSessionLoading(true);
+    setPastSessionError(null);
+    appointmentService.listAppointments(orgId, pastSessionPanel.branchId, pastSessionPanel.sessionId)
+      .then((appts) => { if (alive) setPastSessionAppointments(appts); })
+      .catch(() => { if (alive) setPastSessionError("Failed to load this session's patients."); })
+      .finally(() => { if (alive) setPastSessionLoading(false); });
+    return () => { alive = false; };
+  }, [pastSessionPanel, orgId]);
+
   // ── Queue management state ─────────────────────────────────────────────────
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [isOnBreak, setIsOnBreak] = useState(false);
@@ -429,31 +570,37 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
     try { await sessionService.confirmCashPayment(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
   }
-  async function handleHold(apptId: string) {
+  // Stable references (via useCallback) so QueueRow's React.memo isn't
+  // defeated by a fresh function prop on every render.
+  const handleHold = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.holdPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
-  }
-  async function handleReinsert(apptId: string) {
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
+  const handleReinsert = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.reinsertPatient(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
-  }
-  async function handleSkip(apptId: string) {
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
+  const handleSkip = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.skipToNext(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
-  }
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
+  const handleOpenNotes = useCallback((appointmentId: string, patientName: string) => {
+    if (!activeBranchId || !activeSession) return;
+    setNoteModal({ branchId: activeBranchId, sessionId: activeSession.id, appointmentId, patientName });
+  }, [activeBranchId, activeSession]);
   // Urgent case — move a booked patient to the front of the remaining queue.
-  async function handleForceInsert(apptId: string) {
+  const handleForceInsert = useCallback(async (apptId: string) => {
     if (!activeBranchId || !activeSession) return;
     setActionInProgress(apptId);
     try { await sessionService.forceInsertNext(orgId, activeBranchId, activeSession.id, apptId); await reloadQueueNow(); } catch { /* ignore */ }
     setActionInProgress(null);
-  }
+  }, [orgId, activeBranchId, activeSession, reloadQueueNow]);
   async function handleWalkIn(e: React.FormEvent) {
     e.preventDefault();
     if (!activeBranchId || !activeSession || !walkIn.phone.trim() || !walkIn.name.trim()) return;
@@ -551,10 +698,17 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
   }
 
   // ── Derived queue state ────────────────────────────────────────────────────
-  const serving = queue.find((p) => p.status === "called" || p.status === "in_progress");
-  const waitingCount = queue.filter((p) => p.status === "booked").length;
-  const doneCount = queue.filter((p) => p.status === "completed").length;
-  const heldCount = queue.filter((p) => p.status === "held").length;
+  // Recomputed on every render otherwise, even when the poll/SSE tick that
+  // triggered it left `queue` referentially unchanged (e.g. an unrelated
+  // state update elsewhere on the page) — useMemo skips the four array scans
+  // over `queue` unless the array itself actually changed.
+  const serving = useMemo(
+    () => queue.find((p) => p.status === "called" || p.status === "in_progress"),
+    [queue],
+  );
+  const waitingCount = useMemo(() => queue.filter((p) => p.status === "booked").length, [queue]);
+  const doneCount = useMemo(() => queue.filter((p) => p.status === "completed").length, [queue]);
+  const heldCount = useMemo(() => queue.filter((p) => p.status === "held").length, [queue]);
 
   function isOverdue(s: BackendSession) {
     if (s.status !== "scheduled") return false;
@@ -774,90 +928,19 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
               </div>
             ) : (
               <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-                {queue.map((appt) => {
-                  const canHold    = appt.status === "called";
-                  const canInsert  = appt.status === "held";
-                  const canSkip    = appt.status === "booked" || appt.status === "called";
-                  // No-Show holds the patient's spot (recoverable via Re-insert)
-                  // instead of permanently removing them from the queue. Only
-                  // shown for "booked" — a "called" patient who doesn't show up
-                  // is already covered by Hold, which does the same thing.
-                  const canNoShow  = appt.status === "booked";
-                  const canForceInsert = appt.status === "booked";
-                  return (
-                    <div key={appt.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy font-heading text-xs font-bold text-white">
-                          {appt.queueNumber}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium text-navy">{appt.patientProfile.fullName || "Patient"}</p>
-                          <p className="text-xs text-navy-mid">{appt.patientProfile.phone}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          appt.status === "booked"      ? "bg-offwhite text-navy-mid"
-                          : appt.status === "called"    ? "bg-success/10 text-success"
-                          : appt.status === "in_progress" ? "bg-gold-tint text-gold"
-                          : appt.status === "held"      ? "bg-orange-50 text-orange-600"
-                          : appt.status === "completed" ? "bg-success/5 text-success"
-                          : "bg-danger/10 text-danger"
-                        }`}>
-                          {t(appt.status)}
-                        </span>
-                        {canHold && (
-                          <button
-                            onClick={() => handleHold(appt.id)}
-                            disabled={actionInProgress === appt.id}
-                            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-navy disabled:opacity-60"
-                          >
-                            {t("Hold")}
-                          </button>
-                        )}
-                        {canInsert && (
-                          <button
-                            onClick={() => handleReinsert(appt.id)}
-                            disabled={actionInProgress === appt.id}
-                            className="rounded-md bg-navy px-2.5 py-1 text-xs text-white transition hover:bg-navy-mid disabled:opacity-60"
-                          >
-                            {t("Re-insert")}
-                          </button>
-                        )}
-                        {canForceInsert && (
-                          <button
-                            onClick={() => handleForceInsert(appt.id)}
-                            disabled={actionInProgress === appt.id}
-                            className="rounded-md border border-danger/40 bg-danger/5 px-2.5 py-1 text-xs font-medium text-danger transition hover:bg-danger/10 disabled:opacity-60"
-                            title={t("Move this patient to the front of the queue")}
-                          >
-                            🚨 {t("Urgent")}
-                          </button>
-                        )}
-                        {canSkip && (
-                          <button
-                            onClick={() => handleSkip(appt.id)}
-                            disabled={actionInProgress === appt.id}
-                            className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-danger hover:text-danger disabled:opacity-60"
-                            title={t("Switch turns with the next patient")}
-                          >
-                            {t("Skip")}
-                          </button>
-                        )}
-                        {canNoShow && (
-                          <button
-                            onClick={() => handleHold(appt.id)}
-                            disabled={actionInProgress === appt.id}
-                            className="rounded-md border border-danger/30 px-2.5 py-1 text-xs text-danger transition hover:bg-danger/5 disabled:opacity-60"
-                            title={t("Hold their spot — can be re-inserted later")}
-                          >
-                            {t("No-show")}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {queue.map((appt) => (
+                  <QueueRow
+                    key={appt.id}
+                    appt={appt}
+                    t={t}
+                    actionInProgress={actionInProgress}
+                    onHold={handleHold}
+                    onReinsert={handleReinsert}
+                    onForceInsert={handleForceInsert}
+                    onSkip={handleSkip}
+                    onNotes={handleOpenNotes}
+                  />
+                ))}
               </div>
             )}
 
@@ -956,6 +1039,14 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                             className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-xs font-medium text-danger transition hover:bg-danger/10"
                           >
                             {t("Excuse")}
+                          </button>
+                        )}
+                        {s.status === "ended" && (
+                          <button
+                            onClick={() => setPastSessionPanel({ sessionId: s.id, branchId: s.branchId })}
+                            className="rounded border border-border px-2 py-0.5 text-xs text-navy-mid transition hover:border-gold hover:text-gold"
+                          >
+                            📝 {t("Patients & Notes")}
                           </button>
                         )}
                       </div>
@@ -1102,6 +1193,73 @@ function QueueWorkspace({ orgId, doctorAccountId }: { orgId: string; doctorAccou
                   {extending ? t("Adding…") : `${t("Add")} ${extendMinutes} ${t("min")}`}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Session notes ──────────────────────────────────────────────────── */}
+      {noteModal && (
+        <SessionNoteModal
+          orgId={orgId}
+          branchId={noteModal.branchId}
+          sessionId={noteModal.sessionId}
+          appointmentId={noteModal.appointmentId}
+          patientName={noteModal.patientName}
+          onClose={() => setNoteModal(null)}
+        />
+      )}
+
+      {/* ── Past session patients (notes reachable from here too) ──────────── */}
+      {pastSessionPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/60 backdrop-blur-sm" onClick={() => setPastSessionPanel(null)} />
+          <div className="relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-navy px-6 py-4">
+              <p className="font-heading text-base font-bold text-white">{t("Session Patients")}</p>
+              <p className="mt-0.5 text-xs text-white/50">{t("Open a patient's notes from here")}</p>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+              {pastSessionLoading ? (
+                <div className="space-y-2">
+                  {[0, 1, 2].map((i) => <div key={i} className="h-10 animate-pulse rounded bg-offwhite" />)}
+                </div>
+              ) : pastSessionError ? (
+                <p className="text-sm text-danger">{t(pastSessionError)}</p>
+              ) : pastSessionAppointments.length === 0 ? (
+                <p className="text-sm text-navy-mid">{t("No patients in this session.")}</p>
+              ) : (
+                pastSessionAppointments.map((appt) => (
+                  <div key={appt.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-navy">{appt.patientName || t("Patient")}</p>
+                      <p className="text-xs text-navy-mid">#{appt.queueNumber} · {t(appt.status)}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!pastSessionPanel) return;
+                        setNoteModal({
+                          branchId: pastSessionPanel.branchId,
+                          sessionId: pastSessionPanel.sessionId,
+                          appointmentId: appt.id,
+                          patientName: appt.patientName,
+                        });
+                      }}
+                      className="rounded-md border border-border px-2.5 py-1 text-xs text-navy-mid transition hover:border-gold hover:text-gold"
+                    >
+                      📝 {t("Notes")}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="border-t border-border px-6 py-4">
+              <button
+                onClick={() => setPastSessionPanel(null)}
+                className="w-full rounded-md border border-border py-2.5 text-sm font-medium text-navy-mid transition hover:border-navy"
+              >
+                {t("Close")}
+              </button>
             </div>
           </div>
         </div>
