@@ -162,7 +162,10 @@ const sessionPolicies = {
 const appointmentPolicies = {
   'appointment.book_walkin': (actor) => {
     const m = actor.activeMembership;
-    return m?.kind === 'receptionist' || m?.kind === 'admin';
+    // Doctors have a walk-in form built into their own dashboard (for
+    // smaller clinics without dedicated reception staff) — must be allowed
+    // here too, not just receptionist/admin.
+    return m?.kind === 'receptionist' || m?.kind === 'admin' || m?.kind === 'doctor';
   },
 
   'appointment.list': (actor) => {
