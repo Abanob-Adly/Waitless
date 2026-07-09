@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useQueueSubscription } from "../hooks/useQueueSubscription";
@@ -49,6 +49,7 @@ export function LiveTicket() {
               removeBooking(booking.id);
               navigate("/");
             }}
+            onVisitComplete={() => removeBooking(booking.id)}
           />
       }
     </>
@@ -60,9 +61,11 @@ export function LiveTicket() {
 function TicketView({
   booking,
   onCancel,
+  onVisitComplete,
 }: {
   booking: ActiveBooking;
   onCancel: () => void;
+  onVisitComplete: () => void;
 }) {
   const { t, locale } = useLanguage();
   const navigate = useNavigate();
@@ -79,6 +82,21 @@ function TicketView({
     booking.queueNumber,
     booking.session.avgConsultationMin,
   );
+
+  // Once a visit is done, this ticket shouldn't keep sitting here as "the"
+  // active booking — clear it so the page falls back to "no active ticket"
+  // and the next booking becomes the one that's tracked. Wait for the rating
+  // flow to actually resolve first (if there's a reviewToken to show it for)
+  // so the popup isn't yanked out from under the patient; a short delay
+  // either way avoids the completed view blinking away instantly.
+  const onVisitCompleteRef = useRef(onVisitComplete);
+  useEffect(() => { onVisitCompleteRef.current = onVisitComplete; }, [onVisitComplete]);
+  useEffect(() => {
+    if (!isCompleted) return;
+    if (reviewToken && !ratingDismissed) return;
+    const timer = setTimeout(() => onVisitCompleteRef.current(), 3000);
+    return () => clearTimeout(timer);
+  }, [isCompleted, reviewToken, ratingDismissed]);
 
   // "Pay at clinic" bookings sit outside the active queue until staff confirms
   // payment — position/currentServing are meaningless for it, so every
